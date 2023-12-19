@@ -37,7 +37,8 @@ HerderPersistenceImpl::~HerderPersistenceImpl()
 void
 HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
                                       std::vector<SCPEnvelope> const& envs,
-                                      QuorumTracker::QuorumMap const& qmap)
+                                      QuorumTracker::QuorumMap const& qmap,
+                                      UnorderedSet<NodeID>& seenEnvs)
 {
     ZoneScoped;
     if (envs.empty())
@@ -50,7 +51,10 @@ HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
 
     soci::transaction txscope(db.getSession());
 
+    if (seenEnvs.empty())
     {
+        // Clear information about ledger `seq` iff it's the first time we're
+        // recording info about this ledger
         auto prepClean = db.getPreparedStatement(
             "DELETE FROM scphistory WHERE ledgerseq =:l");
 
@@ -64,6 +68,12 @@ HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
     }
     for (auto const& e : envs)
     {
+        if (seenEnvs.count(e.statement.nodeID))
+        {
+            continue;
+        }
+        seenEnvs.emplace(e.statement.nodeID);
+
         auto const& qHash =
             Slot::getCompanionQuorumSetHashFromStatement(e.statement);
         usedQSets.insert(

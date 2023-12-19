@@ -5,6 +5,7 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "herder/HerderPersistence.h"
+#include "util/UnorderedSet.h"
 
 namespace stellar
 {
@@ -18,7 +19,8 @@ class HerderPersistenceImpl : public HerderPersistence
     ~HerderPersistenceImpl();
 
     void saveSCPHistory(uint32_t seq, std::vector<SCPEnvelope> const& envs,
-                        QuorumTracker::QuorumMap const& qmap) override;
+                        QuorumTracker::QuorumMap const& qmap,
+                        UnorderedSet<NodeID>& seenEnvs) override;
 
   private:
     Application& mApp;

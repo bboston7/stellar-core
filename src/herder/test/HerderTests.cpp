@@ -5803,3 +5803,117 @@ TEST_CASE("exclude transactions by operation type", "[herder]")
                 TransactionQueue::AddResult::ADD_STATUS_PENDING);
     }
 }
+
+// Test that Herder updates the scphistory table with additional messages from
+// ledger `n-1` when closing ledger `n`
+TEST_CASE("SCP message capture from previous ledger", "[herder]")
+{
+    constexpr uint32_t version =
+        static_cast<uint32_t>(SOROBAN_PROTOCOL_VERSION);
+
+    // Initialize simulation
+    auto networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    auto simulation = std::make_shared<Simulation>(
+        Simulation::OVER_LOOPBACK, networkID, [](int i) {
+            auto cfg = getTestConfig(i, Config::TESTDB_ON_DISK_SQLITE);
+            cfg.TESTING_UPGRADE_LEDGER_PROTOCOL_VERSION = version;
+            return cfg;
+        });
+
+    // Create three validators: A, B, and C
+    auto validatorAKey = SecretKey::fromSeed(sha256("validator-A"));
+    auto validatorBKey = SecretKey::fromSeed(sha256("validator-B"));
+    auto validatorCKey = SecretKey::fromSeed(sha256("validator-C"));
+
+    // Put all validators in a quorum set of threshold 2
+    SCPQuorumSet qset;
+    qset.threshold = 2;
+    qset.validators.push_back(validatorAKey.getPublicKey());
+    qset.validators.push_back(validatorBKey.getPublicKey());
+    qset.validators.push_back(validatorCKey.getPublicKey());
+
+    // Connect validators A and B, but leave C disconnected
+    auto A = simulation->addNode(validatorAKey, qset);
+    auto B = simulation->addNode(validatorBKey, qset);
+    auto C = simulation->addNode(validatorCKey, qset);
+    simulation->addPendingConnection(validatorAKey.getPublicKey(),
+                                     validatorBKey.getPublicKey());
+    simulation->startAllNodes();
+
+    // Crank A and B until they're on ledger 2
+    simulation->crankUntil(
+        [&]() {
+            return A->getLedgerManager().getLastClosedLedgerNum() == 2 &&
+                   B->getLedgerManager().getLastClosedLedgerNum() == 2;
+        },
+        2 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+
+    // Return the number of entires in a node's scphistory table for the given
+    // ledger number
+    auto getNumSCPHistoryEntries = [&](Application::pointer node,
+                                       uint32_t ledgerNum) {
+        auto& db = node->getDatabase();
+        auto prep = db.getPreparedStatement(
+            "SELECT COUNT(*) FROM scphistory WHERE ledgerseq = :l");
+        auto& st = prep.statement();
+        st.exchange(soci::use(ledgerNum));
+        uint32_t count;
+        st.exchange(soci::into(count));
+        st.define_and_bind();
+        st.execute(true);
+        return count;
+    };
+
+    // A and B should have 2 entries in their scphistory table for ledger 2. C
+    // should have 0.
+    REQUIRE(getNumSCPHistoryEntries(A, 2) == 2);
+    REQUIRE(getNumSCPHistoryEntries(B, 2) == 2);
+    REQUIRE(getNumSCPHistoryEntries(C, 2) == 0);
+
+    // Get messages from A and B
+    HerderImpl* herderA = dynamic_cast<HerderImpl*>(&A->getHerder());
+    HerderImpl* herderB = dynamic_cast<HerderImpl*>(&B->getHerder());
+    REQUIRE(herderA);
+    REQUIRE(herderB);
+    std::vector<SCPEnvelope> AEnvs = herderA->getSCP().getLatestMessagesSend(2);
+    std::vector<SCPEnvelope> BEnvs = herderB->getSCP().getLatestMessagesSend(2);
+
+    // Pass A and B's messages to C
+    for (auto const& env : AEnvs)
+    {
+        C->getHerder().recvSCPEnvelope(env);
+    }
+    for (auto const& env : BEnvs)
+    {
+        C->getHerder().recvSCPEnvelope(env);
+    }
+
+    // Crank C until it is on ledger 2
+    simulation->crankUntil(
+        [&]() { return C->getLedgerManager().getLastClosedLedgerNum() == 2; },
+        2 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+
+    // Get messages from C
+    HerderImpl* herderC = dynamic_cast<HerderImpl*>(&C->getHerder());
+    REQUIRE(herderC);
+    std::vector<SCPEnvelope> CEnvs = herderC->getSCP().getLatestMessagesSend(2);
+
+    // Pass C's messages to A and B
+    for (auto const& env : CEnvs)
+    {
+        A->getHerder().recvSCPEnvelope(env);
+        B->getHerder().recvSCPEnvelope(env);
+    }
+
+    // Crank A and B until they're on ledger 3
+    simulation->crankUntil(
+        [&]() {
+            return A->getLedgerManager().getLastClosedLedgerNum() == 3 &&
+                   B->getLedgerManager().getLastClosedLedgerNum() == 3;
+        },
+        2 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+
+    // A and B should now have 3 entries in their scphistory table for ledger 2.
+    REQUIRE(getNumSCPHistoryEntries(A, 2) == 3);
+    REQUIRE(getNumSCPHistoryEntries(B, 2) == 3);
+}
