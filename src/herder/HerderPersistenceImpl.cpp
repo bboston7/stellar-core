@@ -37,8 +37,7 @@ HerderPersistenceImpl::~HerderPersistenceImpl()
 void
 HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
                                       std::vector<SCPEnvelope> const& envs,
-                                      QuorumTracker::QuorumMap const& qmap,
-                                      UnorderedSet<NodeID>& seenEnvs)
+                                      QuorumTracker::QuorumMap const& qmap)
 {
     ZoneScoped;
     if (envs.empty())
@@ -51,29 +50,22 @@ HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
 
     soci::transaction txscope(db.getSession());
 
-    if (seenEnvs.empty())
-    {
-        // Clear information about ledger `seq` iff it's the first time we're
-        // recording info about this ledger
-        auto prepClean = db.getPreparedStatement(
-            "DELETE FROM scphistory WHERE ledgerseq =:l");
+    auto prepClean = db.getPreparedStatement(
+        "DELETE FROM scphistory WHERE ledgerseq =:l");
 
-        auto& st = prepClean.statement();
-        st.exchange(soci::use(seq));
-        st.define_and_bind();
-        {
-            ZoneNamedN(deleteSCPHistoryZone, "delete scphistory", true);
-            st.execute(true);
-        }
+    auto& st = prepClean.statement();
+    st.exchange(soci::use(seq));
+    st.define_and_bind();
+    {
+        ZoneNamedN(deleteSCPHistoryZone, "delete scphistory", true);
+        st.execute(true);
     }
+
+    std::vector<std::string> nodeIDs;
+    std::vector<uint32_t> seqs;
+    std::vector<std::string> envelopes;
     for (auto const& e : envs)
     {
-        if (seenEnvs.count(e.statement.nodeID))
-        {
-            continue;
-        }
-        seenEnvs.emplace(e.statement.nodeID);
-
         auto const& qHash =
             Slot::getCompanionQuorumSetHashFromStatement(e.statement);
         usedQSets.insert(
@@ -86,24 +78,27 @@ HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
         std::string envelopeEncoded;
         envelopeEncoded = decoder::encode_b64(envelopeBytes);
 
-        auto prepEnv =
-            db.getPreparedStatement("INSERT INTO scphistory "
-                                    "(nodeid, ledgerseq, envelope) VALUES "
-                                    "(:n, :l, :e)");
 
-        auto& st = prepEnv.statement();
-        st.exchange(soci::use(nodeIDStrKey));
-        st.exchange(soci::use(seq));
-        st.exchange(soci::use(envelopeEncoded));
-        st.define_and_bind();
-        {
-            ZoneNamedN(insertSCPHistoryZone, "insert scphistory", true);
-            st.execute(true);
-        }
-        if (st.get_affected_rows() != 1)
-        {
-            throw std::runtime_error("Could not update data in SQL");
-        }
+        nodeIDs.push_back(nodeIDStrKey);
+        seqs.push_back(seq);
+        envelopes.push_back(envelopeEncoded);
+    }
+    auto prepEnv =
+        db.getPreparedStatement("INSERT INTO scphistory "
+                                "(nodeid, ledgerseq, envelope) VALUES "
+                                "(:n, :l, :e)");
+    auto& stEnv = prepEnv.statement();
+    stEnv.exchange(soci::use(nodeIDs, "n"));
+    stEnv.exchange(soci::use(seqs, "l"));
+    stEnv.exchange(soci::use(envelopes, "e"));
+    stEnv.define_and_bind();
+    {
+        ZoneNamedN(insertSCPHistoryZone, "insert scphistory", true);
+        stEnv.execute(true);
+    }
+    if (stEnv.get_affected_rows() != envs.size())
+    {
+        throw std::runtime_error("Could not update data in SQL");
     }
 
     // save quorum information

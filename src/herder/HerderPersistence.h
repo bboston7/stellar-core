@@ -36,8 +36,7 @@ class HerderPersistence
     // the database.  Ignores envelopes from nodes in `seenEnvs`.
     virtual void saveSCPHistory(uint32_t seq,
                                 std::vector<SCPEnvelope> const& envs,
-                                QuorumTracker::QuorumMap const& qmap,
-                                UnorderedSet<NodeID>& seenEnvs) = 0;
+                                QuorumTracker::QuorumMap const& qmap) = 0;
 
     static size_t copySCPHistoryToStream(Database& db, soci::session& sess,
                                          uint32_t ledgerSeq,

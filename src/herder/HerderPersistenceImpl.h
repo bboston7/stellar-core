@@ -19,8 +19,7 @@ class HerderPersistenceImpl : public HerderPersistence
     ~HerderPersistenceImpl();
 
     void saveSCPHistory(uint32_t seq, std::vector<SCPEnvelope> const& envs,
-                        QuorumTracker::QuorumMap const& qmap,
-                        UnorderedSet<NodeID>& seenEnvs) override;
+                        QuorumTracker::QuorumMap const& qmap) override;
 
   private:
     Application& mApp;

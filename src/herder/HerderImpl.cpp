@@ -309,6 +309,7 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
     {
         ZoneNamedN(updateSCPHistoryZone, "update SCP history", true);
 
+        // TODO: Update comments
         // NOTE: Consolidating the two saveSCPHistory calls into one transaction
         // provides modest performance increases for sqlite (around 17% faster)
         // and insignificant performance increases for postgres (around 1%
@@ -322,7 +323,7 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
             mApp.getHerderPersistence().saveSCPHistory(
                 static_cast<uint32>(slotIndex - 1),
                 getSCP().getExternalizingState(slotIndex - 1),
-                QuorumTracker::QuorumMap(), mPrevExternalizedEnvs);
+                QuorumTracker::QuorumMap());
         }
         // Store SCP messages received about the current ledger being closed.
         // Clear `mPrevExternalizedEnvs` to track which messages this
@@ -331,8 +332,7 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
         mApp.getHerderPersistence().saveSCPHistory(
             static_cast<uint32>(slotIndex),
             getSCP().getExternalizingState(slotIndex),
-            mPendingEnvelopes.getCurrentlyTrackedQuorum(),
-            mPrevExternalizedEnvs);
+            mPendingEnvelopes.getCurrentlyTrackedQuorum());
         txscope.commit();
     }
 
