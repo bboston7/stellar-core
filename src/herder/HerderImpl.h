@@ -289,9 +289,10 @@ class HerderImpl : public Herder
     Application& mApp;
     LedgerManager& mLedgerManager;
 
+    // TODO: Update comment
     // Set of nodes whose SCP messages from the previous ledger have already
     // been stored in the scphistory database table.
-    UnorderedSet<NodeID> mPrevExternalizedEnvs;
+    UnorderedMap<NodeID, SCPEnvelope> mPrevExternalizedEnvs;
 
     struct SCPMetrics
     {

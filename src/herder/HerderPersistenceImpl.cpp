@@ -38,7 +38,7 @@ void
 HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
                                       std::vector<SCPEnvelope> const& envs,
                                       QuorumTracker::QuorumMap const& qmap,
-                                      UnorderedSet<NodeID>& seenEnvs)
+                                      UnorderedMap<NodeID, SCPEnvelope>& seenEnvs)
 {
     ZoneScoped;
     if (envs.empty())
@@ -68,11 +68,33 @@ HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
     }
     for (auto const& e : envs)
     {
+        std::string prepEnvStr;
+        // TODO: Use `find` and an iterator instead?
         if (seenEnvs.count(e.statement.nodeID))
         {
-            continue;
+            if (seenEnvs[e.statement.nodeID] == e)
+            {
+                // We've already seen this envelope
+                continue;
+            }
+            else
+            {
+                // Update DB entry
+                // TODO: Do we want to update? Or insert a new entry? If it's
+                // the second, we don't need this else branch.
+                // TODO: Test this case
+                prepEnvStr = "UPDATE scphistory SET envelope = :e "
+                             "WHERE nodeid = :n AND ledgerseq = :l";
+            }
         }
-        seenEnvs.emplace(e.statement.nodeID);
+        else
+        {
+            // Insert new DB entry
+            prepEnvStr = "INSERT INTO scphistory "
+                         "(nodeid, ledgerseq, envelope) VALUES "
+                         "(:n, :l, :e)";
+        }
+        seenEnvs[e.statement.nodeID] = e;
 
         auto const& qHash =
             Slot::getCompanionQuorumSetHashFromStatement(e.statement);
@@ -82,19 +104,15 @@ HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
         std::string nodeIDStrKey = KeyUtils::toStrKey(e.statement.nodeID);
 
         auto envelopeBytes(xdr::xdr_to_opaque(e));
-
         std::string envelopeEncoded;
         envelopeEncoded = decoder::encode_b64(envelopeBytes);
 
-        auto prepEnv =
-            db.getPreparedStatement("INSERT INTO scphistory "
-                                    "(nodeid, ledgerseq, envelope) VALUES "
-                                    "(:n, :l, :e)");
+        auto prepEnv = db.getPreparedStatement(prepEnvStr);
 
         auto& st = prepEnv.statement();
-        st.exchange(soci::use(nodeIDStrKey));
-        st.exchange(soci::use(seq));
-        st.exchange(soci::use(envelopeEncoded));
+        st.exchange(soci::use(nodeIDStrKey, "n"));
+        st.exchange(soci::use(seq, "l"));
+        st.exchange(soci::use(envelopeEncoded, "e"));
         st.define_and_bind();
         {
             ZoneNamedN(insertSCPHistoryZone, "insert scphistory", true);
