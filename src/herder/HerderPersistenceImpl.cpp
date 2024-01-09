@@ -88,7 +88,7 @@ HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
 
     if (!envs.empty())
     {
-        // Perform multi-row insert
+        // Perform multi-row insert into scphistory
         auto prepEnv =
             db.getPreparedStatement("INSERT INTO scphistory "
                                     "(nodeid, ledgerseq, envelope) VALUES "
