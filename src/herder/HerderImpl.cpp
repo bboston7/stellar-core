@@ -315,6 +315,10 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
         // and insignificant performance increases for postgres (around 1%
         // faster).
         soci::transaction txscope(mApp.getDatabase().getSession());
+        // TODO: Maybe the move is to have some version of getExternalizingState
+        // that returns new externalizing state since the last call? Maybe it
+        // can return some kind of "continue" pointer that can be passed back
+        // into a future call?
         if (slotIndex != 0)
         {
             // Save any new SCP messages received about the previous ledger.
