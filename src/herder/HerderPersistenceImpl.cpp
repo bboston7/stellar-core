@@ -70,9 +70,10 @@ HerderPersistenceImpl::saveSCPHistory(uint32_t seq,
     {
         std::string prepEnvStr;
         // TODO: Use `find` and an iterator instead?
-        if (seenEnvs.count(e.statement.nodeID))
+        auto const& it = seenEnvs.find(e.statement.nodeID);
+        if (it != seenEnvs.end())
         {
-            if (seenEnvs[e.statement.nodeID] == e)
+            if (it->second == e)
             {
                 // We've already seen this envelope
                 continue;
