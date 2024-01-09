@@ -11,7 +11,6 @@
 #include "herder/Upgrades.h"
 #include "util/Timer.h"
 #include "util/UnorderedMap.h"
-#include "util/UnorderedSet.h"
 #include "util/XDROperators.h"
 #include <deque>
 #include <memory>
@@ -288,10 +287,6 @@ class HerderImpl : public Herder
 
     Application& mApp;
     LedgerManager& mLedgerManager;
-
-    // Set of nodes whose SCP messages from the previous ledger have already
-    // been stored in the scphistory database table.
-    UnorderedSet<NodeID> mPrevExternalizedEnvs;
 
     struct SCPMetrics
     {

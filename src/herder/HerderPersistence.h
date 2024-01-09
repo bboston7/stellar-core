@@ -32,8 +32,6 @@ class HerderPersistence
     {
     }
 
-    // Record SCP envelopes and quorum information for the given ledger `seq` in
-    // the database.  Ignores envelopes from nodes in `seenEnvs`.
     virtual void saveSCPHistory(uint32_t seq,
                                 std::vector<SCPEnvelope> const& envs,
                                 QuorumTracker::QuorumMap const& qmap) = 0;

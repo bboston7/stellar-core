@@ -5,7 +5,6 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "herder/HerderPersistence.h"
-#include "util/UnorderedSet.h"
 
 namespace stellar
 {
