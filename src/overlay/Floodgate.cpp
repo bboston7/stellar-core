@@ -154,6 +154,10 @@ Floodgate::broadcast(StellarMessage const& msg, bool force,
                         if (strong)
                         {
                             // TODO: Left off here. Need to dig into sendMessage
+                            if (smsg->type() == MessageType::SURVEY_REQUEST)
+                            {
+                                std::cout << "sending a survey request" << std::endl;
+                            }
                             strong->sendMessage(smsg, log);
                         }
                     },

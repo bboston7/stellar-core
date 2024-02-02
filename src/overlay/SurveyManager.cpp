@@ -227,6 +227,7 @@ SurveyManager::relayOrProcessRequest(StellarMessage const& msg,
     else
     {
         // The request is not for us. Broadcast onwards.
+        std::cout << "Broadcasting request!" << std::endl;
         broadcast(msg);
     }
 }

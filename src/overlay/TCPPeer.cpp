@@ -305,6 +305,7 @@ TCPPeer::messageSender()
     getOverlayMetrics().mAsyncWrite.Mark();
     mPeerMetrics.mAsyncWrite++;
     auto self = static_pointer_cast<TCPPeer>(shared_from_this());
+    // TODO: How does this work? Does ASIO end up waiting?
     asio::async_write(*(mSocket.get()), mWriteBuffers,
                       [self, expected_length](asio::error_code const& ec,
                                               std::size_t length) {
@@ -359,6 +360,8 @@ TCPPeer::TimestampedMessage::recordWriteTiming(OverlayMetrics& metrics,
     metrics.mMessageDelayInAsyncWriteTimer.Update(wdelay);
     peerMetrics.mMessageDelayInWriteQueueTimer.Update(qdelay);
     peerMetrics.mMessageDelayInAsyncWriteTimer.Update(wdelay);
+    std::cout << "qdelay: " << qdelay.count() << std::endl;
+    std::cout << "wdelay: " << wdelay.count() << std::endl;
 }
 
 void

@@ -659,6 +659,7 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
         getOverlayMetrics().mSendGetSCPStateMeter.Mark();
         break;
     case SURVEY_REQUEST:
+        std::cout << "sendMessage for survey request!" << std::endl;
         getOverlayMetrics().mSendSurveyRequestMeter.Mark();
         break;
     case SURVEY_RESPONSE:
@@ -691,6 +692,7 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
 void
 Peer::sendAuthenticatedMessage(StellarMessage const& msg)
 {
+    ZoneScoped;
     AuthenticatedMessage amsg;
     amsg.v0().message = msg;
     if (msg.type() != HELLO && msg.type() != ERROR_MSG)
