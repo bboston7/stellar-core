@@ -99,6 +99,9 @@
 //
 //   - We record the enqueue time and "droppability" of an action, to allow us
 //     to measure load level and perform load shedding.
+// TODO: Is each message it's own action (and therefore high priority because
+// it's low-frequency), or is it all part of a larger action that is then
+// consuming a lot of time and being throttled back?
 
 namespace stellar
 {

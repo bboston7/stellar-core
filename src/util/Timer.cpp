@@ -333,6 +333,8 @@ VirtualClock::isStopped()
 static size_t
 crankStep(VirtualClock& clock, std::function<size_t()> step, size_t divisor = 1)
 {
+    // Runs for 500ms, or 500 actions, whichever is shorter (when divisor is 1,
+    // which it is for cranking the scheduler)
     size_t eCount = 0;
     auto tLimit = clock.now() + (CRANK_TIME_SLICE / divisor);
     size_t totalProgress = 0;
@@ -348,6 +350,7 @@ crankStep(VirtualClock& clock, std::function<size_t()> step, size_t divisor = 1)
     return totalProgress;
 }
 
+// TODO: How often does this get called?
 size_t
 VirtualClock::crank(bool block)
 {
@@ -409,7 +412,14 @@ VirtualClock::crank(bool block)
         std::lock_guard<std::mutex> guard(mPendingActionQueueMutex);
         while (!mPendingActionQueue.empty())
         {
+            // On the first run through, each message to each peer is scheduled.
+            // They are not sent in this crank.
             auto& f = mPendingActionQueue.front();
+            // Each message is called something like "broadcast to <peer>", so
+            // these messages end up in their own queues, each with all of the
+            // broadcasts destined for that peer. Because lots of other stuff
+            // also broadcasts, I imagine these queues already exist and contain
+            // other messages as well.
             mActionScheduler->enqueue(std::move(std::get<1>(f)),
                                       std::move(std::get<0>(f)),
                                       std::get<2>(f));
@@ -440,8 +450,12 @@ VirtualClock::postAction(std::function<void()>&& f, std::string&& name,
     {
         std::lock_guard<std::mutex> lock(mPendingActionQueueMutex);
         queueWasEmpty = mPendingActionQueue.empty();
+        // TODO: Each message in a broadcast ultimately ends up as a thunk
+        // per-peer in this queue. How long does it take the queue to empty?
+        // Could that lead to a cascading delay?
         mPendingActionQueue.emplace(std::move(f), std::move(name), type);
     }
+
 
     // The pending queue is emptied by the main thread just before the main
     // thread potentially blocks waiting for real IO events, on a call to

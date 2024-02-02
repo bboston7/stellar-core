@@ -139,14 +139,25 @@ Floodgate::broadcast(StellarMessage const& msg, bool force,
                 mSendFromBroadcast.Mark();
                 std::weak_ptr<Peer> weak(
                     std::static_pointer_cast<Peer>(peer.second));
+                // NOTE: Remember, one thunk gets queued up PER PEER. For SDF
+                // validators that's like 45ish thunks per broadcast (or more?
+                // Look at the degree of those nodes in the graph), of which 10
+                // get broadcast every 15 seconds.
+                // NOTE: Making the above worse, the other validators will then
+                // also "clog up" in this way as they rebroadcast. So if this is
+                // the problem, it would affect all of the super-connected SDF
+                // nodes.
+                // NOTE: This gets scheduled as a normal (non-droppable) action
                 mApp.postOnMainThread(
                     [smsg, weak, log = !broadcasted]() {
                         auto strong = weak.lock();
                         if (strong)
                         {
+                            // TODO: Left off here. Need to dig into sendMessage
                             strong->sendMessage(smsg, log);
                         }
                     },
+                    // NOTE: This is the "job name"
                     fmt::format(FMT_STRING("broadcast to {}"),
                                 peer.second->toString()));
             }

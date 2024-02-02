@@ -105,6 +105,8 @@ SurveyManager::relayOrProcessResponse(StellarMessage const& msg,
                                     xdr::xdr_to_opaque(response), peer);
     };
 
+    // This essentially just validates that the response corresponds to a seen
+    // request and that it isn't too old
     if (!mMessageLimiter.recordAndValidateResponse(response,
                                                    onSuccessValidation))
     {
@@ -150,6 +152,10 @@ SurveyManager::relayOrProcessResponse(StellarMessage const& msg,
     }
 }
 
+// I don't see anything slowing down requests, other than that maybe they would
+// get dropped if multiple surveys are running or the request script spammed
+// requests. Maybe there are timeouts in broadcast logic I haven't found that
+// lead to dropping requests?
 void
 SurveyManager::relayOrProcessRequest(StellarMessage const& msg,
                                      Peer::pointer peer)
@@ -200,6 +206,8 @@ SurveyManager::relayOrProcessRequest(StellarMessage const& msg,
         return res;
     };
 
+    // This returns true iff the request is valid, we haven't seen it before,
+    // and the various survey limits haven't been hit
     if (!mMessageLimiter.addAndValidateRequest(request, onSuccessValidation))
     {
         return;
@@ -207,15 +215,18 @@ SurveyManager::relayOrProcessRequest(StellarMessage const& msg,
 
     if (peer)
     {
+        // Mark the messages as seen from peer so it doesn't flood back to them
         mApp.getOverlayManager().recvFloodedMsg(msg, peer);
     }
 
     if (request.surveyedPeerID == mApp.getConfig().NODE_SEED.getPublicKey())
     {
+        // The survey request is for us!
         processTopologyRequest(request);
     }
     else
     {
+        // The request is not for us. Broadcast onwards.
         broadcast(msg);
     }
 }
@@ -295,6 +306,10 @@ SurveyManager::processTopologyRequest(SurveyRequestMessage const& request) const
     auto& signedResponse = newMsg.signedSurveyResponseMessage();
     auto& response = signedResponse.response;
 
+    // NOTE: This uses the ledgerNum *from the request*, so it really has 60
+    // seconds from sending a request to receiving a response. Maybe this should
+    // hold the node's ledger number instead, effectively doubling the
+    // permissable round trip time?
     response.ledgerNum = request.ledgerNum;
     response.surveyorPeerID = request.surveyorPeerID;
     response.surveyedPeerID = mApp.getConfig().NODE_SEED.getPublicKey();
@@ -485,6 +500,9 @@ void
 SurveyManager::topOffRequests(SurveyMessageCommandType type)
 {
     // Only stop the survey if all pending requests have been processed
+    // NOTE: I don't think this is thread safe. mSurveyExpirationTime or
+    // mPeersToSurvey could be modified by another thread while reading here.
+    // Could this be terminating the survey?
     if (mApp.getClock().now() > mSurveyExpirationTime && mPeersToSurvey.empty())
     {
         stopSurvey();
@@ -527,6 +545,18 @@ SurveyManager::topOffRequests(SurveyMessageCommandType type)
     };
 
     // schedule next top off
+    // This is interesting, the timer is set to run this function every 15
+    // seconds (every 3 ledgers)! That means this sends up to 10 messages every
+    // 3 ledgers, not every ledger! But the script requests them every ledger.
+    // It looks like `sendTopologyRequest` in this function correctly sets the
+    // ledger number to this ledger, so this shouldn't be a problem in and of
+    // itself, but there are a few other places this could cause issues:
+    // 1. Does mSurveyExpirationTime run out prematurely? What happens then? I
+    //    think it's OK because the queue is allowed to empty, but if there is
+    //    every a gap where the queue is empty and the timer has expired then a
+    //    whole wave of requests will be missed.
+    // 2. Does the queue ever get so full that stellar-core stops accepting new
+    //    queue entries over the http API? Or starts pruning the queue?
     mSurveyThrottleTimer->expires_from_now(SURVEY_THROTTLE_TIMEOUT_SEC);
     mSurveyThrottleTimer->async_wait(handler, &VirtualTimer::onFailureNoop);
 }

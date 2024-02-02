@@ -31,6 +31,8 @@ SurveyMessageLimiter::addAndValidateRequest(
     auto ledgerIt = mRecordMap.find(request.ledgerNum);
     if (ledgerIt == mRecordMap.end())
     {
+        // If we haven't seen any surveys from this ledger, add it to the map of
+        // known survey requests and return (assuming it's a valid request)
         if (!onSuccessValidation())
         {
             return false;
@@ -41,6 +43,9 @@ SurveyMessageLimiter::addAndValidateRequest(
         mRecordMap.emplace(request.ledgerNum, surveyorMap);
         return true;
     }
+
+    // Have already heard of surveys on this ledger. Check whether we should
+    // slow down and drop the request
 
     bool surveyorIsSelf =
         request.surveyorPeerID == mApp.getConfig().NODE_SEED.getPublicKey();
@@ -69,6 +74,12 @@ SurveyMessageLimiter::addAndValidateRequest(
 
     // limit by number of requests for this surveyor. We can only send 1 request
     // per node, so # of requests == # of surveyed nodes
+    // NOTE: mMaxRequestLimit is 10, so this is saying that a node can send 10
+    // survey requests per ledger (assuming only one node is surveying the
+    // network, which is probably true). Since the script will only ever send 10
+    // requests per ledger this check *should* be fine? If a ledger takes longer
+    // than 5 seconds will this cause issues? Or will the script just resend the
+    // requests when it doesn't get responses?
     if (!surveyorIsSelf && surveyedMap.size() >= mMaxRequestLimit)
     {
         return false;

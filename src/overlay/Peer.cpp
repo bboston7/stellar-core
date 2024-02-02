@@ -610,6 +610,7 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
             Scheduler::ActionType::DROPPABLE_ACTION &&
         sendQueueIsOverloaded())
     {
+        // Cannot get dropped here. Not a droppable action
         getOverlayMetrics().mMessageDrop.Mark();
         mPeerMetrics.mMessageDrop++;
         return;
@@ -678,11 +679,15 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
     releaseAssert(mFlowControl);
     if (!mFlowControl->maybeSendMessage(msg))
     {
+        // Survey's are NOT flow controlled. They get sent directly
         // Outgoing message is not flow-controlled, send it directly
         sendAuthenticatedMessage(*msg);
     }
 }
 
+// TODO: How long does this take on average? Look at profiling. If it's more
+// than 46ms then there's a problem. In practice, it has to be MUCH less than
+// 46ms.
 void
 Peer::sendAuthenticatedMessage(StellarMessage const& msg)
 {

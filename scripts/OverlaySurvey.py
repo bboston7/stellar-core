@@ -357,6 +357,10 @@ def run_survey(args):
                 peer_list.add(key)
         new_peers = len(peer_list)
         # retry for incomplete nodes
+        # I'm suspicious of the "get a random subset of peers and retry until we
+        # have them all" thing. Seems like on a large network, we could be
+        # retrying for a long time. It doesn't look like this could cause the
+        # survey to end prematurely, but could it?
         for key in merged_results:
             node = merged_results[key]
             if node["totalInbound"] > len(node["inboundPeers"]):
