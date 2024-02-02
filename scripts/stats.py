@@ -61,8 +61,17 @@ if __name__ == "__main__":
     print("Percentage of nodes that responded: "
           f"{num_responded / len(GRAPH.nodes) * 100:.2f}%")
 
-    avg_bandwidth(no_response)
-    # TODO: In the response set some edges get double count because they are
-    # accessable from two nodes that responded. Should have a seen set and skip
-    # seen edges
+    print()
+    print("Bandwidth stats for responding nodes:")
     avg_bandwidth(response)
+
+    print()
+    print("Bandwidth stats for non-responding nodes:")
+    avg_bandwidth(no_response)
+
+    non_responding_versions = group_by_version(no_response)
+    for version, nodes in non_responding_versions.items():
+        print()
+        print(f"Stats for non-responding nodes with version {version}:")
+        print("Number of nodes: ", len(nodes))
+        avg_bandwidth(nodes)
