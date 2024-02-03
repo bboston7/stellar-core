@@ -91,6 +91,15 @@ def avg_distance_from(sources, dests):
         total_dist += min_dist
     return total_dist / len(dests)
 
+def avg_edges(nodes):
+    out_edges = 0
+    in_edges = 0
+    for node in nodes:
+        out_edges += len(GRAPH.out_edges(node))
+        in_edges += len(GRAPH.in_edges(node))
+    return (out_edges / len(nodes), in_edges / len(nodes))
+
+
 def print_stats(nodes):
     print("Number of nodes: ", len(nodes))
     avg_bandwidth(nodes)
@@ -98,6 +107,9 @@ def print_stats(nodes):
           f"{avg_distance_from([TIER1["SDF 1"]], nodes)}")
     print("Average distance from tier 1: "
           f"{avg_distance_from(TIER1.values(), nodes)}")
+    (avg_out, avg_in) = avg_edges(nodes)
+    print(f"Average out edges: {avg_out}")
+    print(f"Average in edges: {avg_in}")
 
 if __name__ == "__main__":
     print(f"Total nodes: {len(GRAPH.nodes)}")
@@ -105,6 +117,9 @@ if __name__ == "__main__":
     response = [node for node in GRAPH.nodes if node_responded(node)]
     no_response = [node for node in GRAPH.nodes if not node_responded(node)]
     assert(len(response) + len(no_response) == len(GRAPH.nodes))
+
+    responding_non_tier1 = [node for node in response if
+                            node not in TIER1.values()]
 
     num_responded = total_responded()
     print(f"Nodes that responded: {len(response)}")
@@ -114,6 +129,10 @@ if __name__ == "__main__":
     print()
     print("Stats for responding nodes:")
     print_stats(response)
+
+    print()
+    print("Stats for responding nodes that are not tier 1:")
+    print_stats(responding_non_tier1)
 
     print()
     print("Stats for non-responding nodes:")
