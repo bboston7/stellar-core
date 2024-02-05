@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from collections import defaultdict
-import itertools as it
+import csv
 
 import networkx as nx
 
@@ -35,6 +35,30 @@ TIER1 = {
     "Blockdaemon Validator 1" : "GAAV2GCVFLNN522ORUYFV33E76VPC22E72S75AQ6MBR5V45Z5DWVPWEU"
 }
 
+CSV_FIELD_NAMES = [ "group"
+                  , "num_nodes"
+                  , "avg_read_from"
+                  , "avg_write_to"
+                  , "rw_ratio"
+                  , "avg_dist_sdf1"
+                  , "avg_dist_tier1"
+                  , "avg_out_edges"
+                  , "avg_in_edges"
+                  ]
+
+LONG_FIELD_NAMES = { "group" : "Group"
+                   , "num_nodes" : "Number of nodes"
+                   , "avg_read_from" : "Average read from"
+                   , "avg_write_to" : "Average write to"
+                   , "rw_ratio" : "Read/Write ratio"
+                   , "avg_dist_sdf1" : "Average distance from SDF1"
+                   , "avg_dist_tier1" : "Average distance from tier 1"
+                   , "avg_out_edges" : "Average out edges"
+                   , "avg_in_edges" : "Average in edges"
+                   }
+
+CSV_OUT_NAME = "out.csv"
+
 def node_responded(node_id):
     """Returns true if a given node responded to the survey"""
     # TODO: This works by checking for a field in the node's data that should be
@@ -66,17 +90,18 @@ def avg_bandwidth(nodes):
     for node in nodes:
         # TODO: Can probably just use undirected graph here and not have to do
         # the whole `chain` thing
-        for (src, dest, data) in it.chain(GRAPH.in_edges(node, True),
-                                          GRAPH.out_edges(node, True)):
+        for (src, dest, data) in UNDIRECTED.edges(node, True): #it.chain(GRAPH.in_edges(node, True),
+                                 #         GRAPH.out_edges(node, True)):
             if (src, dest) in seen_edges or (dest, src) in seen_edges:
                 continue
             seen_edges.add((src, dest))
             num_edges += 1
             total_read += data["bytesRead"]
             total_written += data["bytesWritten"]
-    print(f"Average read from : {total_read / num_edges}")
-    print(f"Average write to  : {total_written / num_edges}")
-    print(f"read/write ratio  : {total_read / total_written}")
+    return { "avg_read_from" : total_read / num_edges
+           , "avg_write_to" : total_written / num_edges
+           , "rw_ratio" : total_read / total_written
+           }
 
 def avg_distance_from(sources, dests):
     total_dist = 0
@@ -97,19 +122,23 @@ def avg_edges(nodes):
     for node in nodes:
         out_edges += len(GRAPH.out_edges(node))
         in_edges += len(GRAPH.in_edges(node))
-    return (out_edges / len(nodes), in_edges / len(nodes))
+    return { "avg_out_edges" : out_edges / len(nodes)
+           , "avg_in_edges" : in_edges / len(nodes) }
+
+def print_and_write_stats(stats, csv_writer):
+    assert len(CSV_FIELD_NAMES) == len(stats)
+    print()
+    for k in CSV_FIELD_NAMES:
+        print(f"{LONG_FIELD_NAMES[k]}: {stats[k]}")
+    csv_writer.writerow(stats)
 
 
-def print_stats(nodes):
-    print("Number of nodes: ", len(nodes))
-    avg_bandwidth(nodes)
-    print("Average distance from SDF1: "
-          f"{avg_distance_from([TIER1["SDF 1"]], nodes)}")
-    print("Average distance from tier 1: "
-          f"{avg_distance_from(TIER1.values(), nodes)}")
-    (avg_out, avg_in) = avg_edges(nodes)
-    print(f"Average out edges: {avg_out}")
-    print(f"Average in edges: {avg_in}")
+def get_stats(nodes, group_name):
+    return { "group" : group_name
+           , "num_nodes" : len(nodes)
+           , "avg_dist_sdf1" : avg_distance_from([TIER1["SDF 1"]], nodes)
+           , "avg_dist_tier1" : avg_distance_from(TIER1.values(), nodes)
+           } | avg_edges(nodes) | avg_bandwidth(nodes)
 
 if __name__ == "__main__":
     print(f"Total nodes: {len(GRAPH.nodes)}")
@@ -126,20 +155,23 @@ if __name__ == "__main__":
     print("Percentage of nodes that responded: "
           f"{num_responded / len(GRAPH.nodes) * 100:.2f}%")
 
-    print()
-    print("Stats for responding nodes:")
-    print_stats(response)
+    with open(CSV_OUT_NAME, 'w', newline='') as csvfile:
+        csv_writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELD_NAMES)
+        csv_writer.writeheader()
 
-    print()
-    print("Stats for responding nodes that are not tier 1:")
-    print_stats(responding_non_tier1)
+        print_and_write_stats( get_stats(response, "Responding nodes")
+                             , csv_writer )
+        print_and_write_stats( get_stats( responding_non_tier1
+                                        , "Responding nodes that are not in "
+                                          "tier 1" )
+                             , csv_writer )
+        print_and_write_stats( get_stats(no_response , "Non-responding nodes")
+                             , csv_writer )
 
-    print()
-    print("Stats for non-responding nodes:")
-    print_stats(no_response)
+        non_responding_versions = group_by_version(no_response)
+        for version, nodes in non_responding_versions.items():
+            stats = get_stats( nodes
+                             , f"Non-responding nodes with version {version}")
+            print_and_write_stats(stats, csv_writer)
 
-    non_responding_versions = group_by_version(no_response)
-    for version, nodes in non_responding_versions.items():
-        print()
-        print(f"Stats for non-responding nodes with version {version}:")
-        print_stats(nodes)
+# TODO: Remaining slack work
