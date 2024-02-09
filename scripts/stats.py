@@ -44,6 +44,7 @@ CSV_FIELD_NAMES = [ "group"
                   , "avg_dist_tier1"
                   , "avg_out_edges"
                   , "avg_in_edges"
+                  , "avg_duration"
                   ]
 
 LONG_FIELD_NAMES = { "group" : "Group"
@@ -55,6 +56,7 @@ LONG_FIELD_NAMES = { "group" : "Group"
                    , "avg_dist_tier1" : "Average distance from tier 1"
                    , "avg_out_edges" : "Average out edges"
                    , "avg_in_edges" : "Average in edges"
+                   , "avg_duration" : "Average number of seconds connected"
                    }
 
 CSV_OUT_NAME = "out.csv"
@@ -86,6 +88,7 @@ def avg_bandwidth(nodes):
     num_edges = 0
     total_read = 0
     total_written = 0
+    total_duration = 0
     seen_edges = set()
     for node in nodes:
         # TODO: Can probably just use undirected graph here and not have to do
@@ -98,9 +101,11 @@ def avg_bandwidth(nodes):
             num_edges += 1
             total_read += data["bytesRead"]
             total_written += data["bytesWritten"]
+            total_duration += data["secondsConnected"]
     return { "avg_read_from" : total_read / num_edges
            , "avg_write_to" : total_written / num_edges
            , "rw_ratio" : total_read / total_written
+           , "avg_duration" : total_duration / num_edges
            }
 
 def avg_distance_from(sources, dests):
