@@ -2,10 +2,11 @@
 
 from collections import defaultdict
 import csv
+import sys
 
 import networkx as nx
 
-GRAPH_PATH = "pubnet.graphml"
+GRAPH_PATH = sys.argv[1]
 GRAPH = nx.read_graphml(GRAPH_PATH)
 UNDIRECTED = GRAPH.to_undirected()
 
@@ -178,5 +179,3 @@ if __name__ == "__main__":
             stats = get_stats( nodes
                              , f"Non-responding nodes with version {version}")
             print_and_write_stats(stats, csv_writer)
-
-# TODO: Remaining slack work
