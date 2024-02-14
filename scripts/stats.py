@@ -146,6 +146,21 @@ def get_stats(nodes, group_name):
            , "avg_dist_tier1" : avg_distance_from(TIER1.values(), nodes)
            } | avg_edges(nodes) | avg_bandwidth(nodes)
 
+def tier1_connectivity():
+    total_distance = 0
+    max_distance = 0
+    total_pairs = 0
+    t1s = list(TIER1.values())
+    for i in range(0, len(t1s)):
+        for j in range(i+1, len(t1s)):
+            total_pairs += 1
+            path_len = nx.shortest_path_length(UNDIRECTED, t1s[i], t1s[j])
+            total_distance += path_len
+            max_distance = max(max_distance, path_len)
+
+    print(f"Average distance between tier 1 nodes: {total_distance / total_pairs}")
+    print(f"Max distance between tier 1 nodes: {max_distance}")
+
 if __name__ == "__main__":
     print(f"Total nodes: {len(GRAPH.nodes)}")
 
@@ -179,3 +194,6 @@ if __name__ == "__main__":
             stats = get_stats( nodes
                              , f"Non-responding nodes with version {version}")
             print_and_write_stats(stats, csv_writer)
+
+    print()
+    tier1_connectivity()
