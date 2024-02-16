@@ -30,9 +30,11 @@ class SurveySimulation:
         # The node the simulation is being performed from
         self._root_node = root_node
         # The set of requests that have not yet been simulated
-        self._pending_requests = []
+        self._pending_requests = set()
         # The results of the simulation
         self._results = {"topology" : {}}
+        # The total number of requests sent on simulated overlay
+        self._total_requests = 0
         print(f"simulating from {root_node}")
 
     def _info(self, params):
@@ -71,8 +73,10 @@ class SurveySimulation:
         """
         assert params.keys() == {"node", "duration"}, \
                f"Unsupported surveytopology invocation with params: {params}"
-        if params["node"] != self._root_node:
-            self._pending_requests.append(params["node"])
+        node = params["node"]
+        if node != self._root_node and node not in self._pending_requests:
+            self._pending_requests.add(node)
+            self._total_requests += 1
 
     def _addpeer(self, node_id, edge_data, peers):
         """
@@ -139,3 +143,11 @@ class SurveySimulation:
             return self._getsurveyresult(params)
         raise SimulationError("Received GET request for unknown endpoint "
                               f"'{endpoint}' with params '{params}'")
+
+    def print_stats(self):
+        """Print stats on the simulation"""
+        print(f"Total requests sent: {self._total_requests}")
+
+        # stellar-core sends 10 requests every 15 seconds, or 40 per minute
+        run_mins = self._total_requests / 40
+        print(f"Estimated runtime: {run_mins:.2f} minutes")

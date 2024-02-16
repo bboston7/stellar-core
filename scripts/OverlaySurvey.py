@@ -405,6 +405,9 @@ def run_survey(args):
     with open(args.surveyResult, 'w') as outfile:
         json.dump(merged_results, outfile)
 
+    if SIMULATION is not None:
+        SIMULATION.print_stats()
+
 
 def flatten(args):
     output_graph = []
