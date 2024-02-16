@@ -157,7 +157,8 @@ def send_requests(peer_list, params, request_url):
         request_count += 1
         if (request_count % limit) == 0:
             print("Submitted %i queries, sleep for ~1 ledger" % limit)
-            time.sleep(5)
+            if SIMULATION is None:
+                time.sleep(5)
 
     print("Done")
 
@@ -343,8 +344,9 @@ def run_survey(args):
 
         peer_list = set()
 
-        # allow time for results
-        time.sleep(1)
+        if SIMULATION is None:
+            # allow time for results
+            time.sleep(1)
 
         print("Fetching survey result")
         data = get_request(url=survey_result).json()
