@@ -289,7 +289,10 @@ def run_survey(args):
         global SIMULATION
         try:
             # TODO: Take enum over argv
-            SIMULATION = sim.SurveySimulation(args.simGraph, args.simRoot, sim.PeerListMode.RANDOM)
+            SIMULATION = sim.SurveySimulation(
+                args.simGraph,
+                args.simRoot,
+                sim.PeerListMode[args.peer_list_mode.upper()])
         except sim.SimulationError as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -492,6 +495,10 @@ def main():
                                  "--simRoot",
                                  required=True,
                                  help="node to start simulation from")
+    parser_simulate.add_argument("-m", "--peer-list-mode", default="random",
+                                 choices=[mode.name.lower() for
+                                          mode in sim.PeerListMode],
+                                 help="mode for generating peer lists")
     parser_simulate.set_defaults(simulate=True)
 
     parser_analyze = subparsers.add_parser('analyze',
