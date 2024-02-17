@@ -2,7 +2,15 @@
 This module simulates the HTTP endpoints of stellar-core's overlay survey
 """
 
+from enum import Enum
+import random
+
 import networkx as nx
+
+# The maximum number of peers that a node will include in each response peer
+# list. This applies separately to the inbound and outbound peer lists, so the
+# total number of reported peers may be up to `2 * MAX_PEERS`
+MAX_PEERS = 25
 
 class SimulationError(Exception):
     """An error that occurs during simulation"""
@@ -16,13 +24,25 @@ class SimulatedResponse:
         """Simulates the `json` method of a `requests.Response`"""
         return self._json
 
+class PeerListMode(Enum):
+    """TODO: Docs. Also clarify that this is up to MAX_PEERS per direction, not
+    total."""
+    # Return all peers, ignoring the MAX_PEERS limit
+    ALL = 1
+    # Return up to MAX_PEERS peers, chosen randomly
+    RANDOM = 2
+    # Return up to MAX_PEERS peers, chosen iteratively
+    ITERATIVE = 3
+
+
 class SurveySimulation:
+
     """
     Simulates the HTTP endpoints of stellar-core's overlay survey. Raises
     SimulationError if `root_node` is not in the graph represented by
     `graph_path`.
     """
-    def __init__(self, graph_path, root_node):
+    def __init__(self, graph_path, root_node, peer_list_mode):
         # The graph of the network being simulated
         self._graph = nx.read_graphml(graph_path)
         if root_node not in self._graph.nodes:
@@ -35,7 +55,14 @@ class SurveySimulation:
         self._results = {"topology" : {}}
         # The total number of requests sent on simulated overlay
         self._total_requests = 0
+        # The mode for generating peer lists
+        self._peer_list_mode = peer_list_mode
         print(f"simulating from {root_node}")
+
+    @property
+    def peer_list_mode(self):
+        """The mode for generating peer lists"""
+        return self._peer_list_mode
 
     def _info(self, params):
         """
@@ -91,6 +118,20 @@ class SurveySimulation:
         # Add to inboundPeers
         peers.append(peer_json)
 
+    def _addpeers(self, peers):
+        ret = []
+        if self._peer_list_mode == PeerListMode.ALL:
+            # Add all peers
+            for (node_id, data) in peers:
+                self._addpeer(node_id, data, ret)
+        elif self._peer_list_mode == PeerListMode.RANDOM:
+            # Add a random subset of peers, up to MAX_PEERS
+            random.shuffle(peers)
+            for (node_id, data) in peers[:MAX_PEERS]:
+                self._addpeer(node_id, data, ret)
+        else:
+            assert False, "TODO: Unsupported peer list mode"
+        return ret
 
     def _getsurveyresult(self, params):
         """Simulate the getsurveyresult endpoint"""
@@ -113,14 +154,14 @@ class SurveySimulation:
             del node_json["version"]
 
             # Generate inboundPeers list
-            node_json["inboundPeers"] = []
-            for (node_id, _, data) in self._graph.in_edges(node, True):
-                self._addpeer(node_id, data, node_json["inboundPeers"])
+            node_json["inboundPeers"] = self._addpeers(
+                [ (node_id, data) for
+                  (node_id, _, data) in self._graph.in_edges(node, True) ])
 
             # Generate outboundPeers list
-            node_json["outboundPeers"] = []
-            for (_, node_id, data) in self._graph.out_edges(node, True):
-                self._addpeer(node_id, data, node_json["outboundPeers"])
+            node_json["outboundPeers"] = self._addpeers(
+                [ (node_id, data) for
+                  (_, node_id, data) in self._graph.out_edges(node, True) ])
 
             self._results["topology"][node] = node_json
         return SimulatedResponse(self._results)

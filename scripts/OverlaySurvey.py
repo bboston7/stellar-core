@@ -288,7 +288,8 @@ def run_survey(args):
     if args.simulate:
         global SIMULATION
         try:
-            SIMULATION = sim.SurveySimulation(args.simGraph, args.simRoot)
+            # TODO: Take enum over argv
+            SIMULATION = sim.SurveySimulation(args.simGraph, args.simRoot, sim.PeerListMode.RANDOM)
         except sim.SimulationError as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -387,8 +388,24 @@ def run_survey(args):
         print("New peers: %s  Retrying: %s" %
               (new_peers, len(peer_list)-new_peers))
 
-    # sanity check that simulation produced a graph isomorphic to the input
+    # TODO: Remove
+    """
+    if not nx.is_isomorphic(graph, nx.read_graphml(args.simGraph)):
+        nx.write_graphml(graph, args.graphmlWrite)
+        missing = 0
+        og = nx.read_graphml(args.simGraph)
+        for node in og.nodes:
+            if node not in graph.nodes:
+                missing += 1
+        print(f"Missing {missing} nodes")
+    """
+
+    # sanity check that simulation produced a graph isomorphic to the input.
+    # This check only works for the ALL peer list mode because peer counts don't
+    # necessarily line up with the true number of peers, causing the script to
+    # terminate early
     assert (not args.simulate or
+            SIMULATION.peer_list_mode != sim.PeerListMode.ALL or
             nx.is_isomorphic(graph, nx.read_graphml(args.simGraph))), \
            ("Simulation produced a graph that is not isomorphic to the input "
             "graph")
