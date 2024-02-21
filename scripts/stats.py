@@ -195,5 +195,11 @@ if __name__ == "__main__":
                              , f"Non-responding nodes with version {version}")
             print_and_write_stats(stats, csv_writer)
 
+        responding_versions = group_by_version(response)
+        for version, nodes in responding_versions.items():
+            stats = get_stats( nodes
+                             , f"Responding nodes with version {version}")
+            print_and_write_stats(stats, csv_writer)
+
     print()
     tier1_connectivity()
