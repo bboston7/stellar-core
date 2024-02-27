@@ -379,7 +379,7 @@ format.
 
 ### The following HTTP commands are exposed on test instances
 * **generateload** `generateload[?mode=
-    (create|pay|pretend|mixed_txs|soroban_upload|soroban_invoke_setup|soroban_invoke|upgrade_setup|create_upgrade)&accounts=N&offset=K&txs=M&txrate=R&spikesize=S&spikeinterval=I&maxfeerate=F&skiplowfeetxs=(0|1)&dextxpercent=D&dataentrieslow=A&dataentrieshigh=B&kilobyteslow=C&kilobyteshigh=T&txsizelow=U&txsizehigh=V&cpulow=W&cpuhigh=X&instances=Y&wasms=Z]`
+    (create|pay|pretend|mixed_txs|soroban_upload|soroban_invoke_setup|soroban_invoke|upgrade_setup|create_upgrade|blend_classic_soroban_setup|blend_classic_soroban)&accounts=N&offset=K&txs=M&txrate=R&spikesize=S&spikeinterval=I&maxfeerate=F&skiplowfeetxs=(0|1)&dextxpercent=D&dataentriesintervals=A&dataentriesweights=B&kilobytesintervals=C&minpercentsuccess=S&kilobytesweights=T&txsizeintervals=U&txsizeweights=V&cpuintervals=W&cpuweights=X&instances=Y&wasms=Z&wasmbytesintervals=G&wasmbytesweights=H&payweight=P&sorobanuploadweight=Q&sorobaninvokeweight=R]`
 
     Artificially generate load for testing; must be used with
     `ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING` set to true.
@@ -400,24 +400,43 @@ format.
     parameter (accepts integer value from 0 to 100).
   * `soroban_upload` mode generates soroban TXs that upload random wasm blobs.
     Many of these TXs are invalid and not applied, so this test is appropriate
-    for herder and overlay tests.
+    for herder and overlay tests. This mode allows specification of the
+    distribution it samples wasm sizes from via the `wasmbytesintervals` and
+    `wasmbytesweights` parameters. See the section on [specifying piecewise
+    distributions](#specifying-piecewise-distributions) for more info on how to
+    set these parameters.
   * `soroban_invoke_setup` mode create soroban contract instances to be used by
     `soroban_invoke`. This mode must be run before `soroban_invoke`.
   * `soroban_invoke` mode generates valid soroban TXs that invoke a resource
     intensive contract. Each invocation picks a random amount of resources
-    between some bound. Resource bounds can be set with the `dataentrieslow`,
-    `dataentrieshigh`, `kilobyteslow`, `kilobyteshigh`, `txsizelow`, `txsizehigh`,
-    `cpulow`, `cpuhigh`, where CPU bounds correspond to instruction count. `kilobytes*`
-    values indicate the total ammount of disk IO generated TXs require. `instances`
-    and `wasms` parameters determine how many unique contract instances and wasm entries
-    will be used.
+    between some bound. Resource distributions can be set with the
+    `dataentriesintervals`, `dataentriesweights`, `kilobytesintervals`,
+    `kilobytesweights`, `txsizeintervals`, `txsizeweights`, `cpuintervals`,
+    `cpuweights`, where CPU bounds correspond to instruction count.
+    `kilobytes*` values indicate the total amount of disk IO generated TXs
+    require.  See the section on [specifying piecewise
+    distributions](#specifying-piecewise-distributions) for more info on how to
+    set these parameters.  `instances` and `wasms` parameters determine how
+    many unique contract instances and wasm entries will be used.  Lastly,
+    `minpercentsuccess` determines the minimum percentage of invocations that
+    must succeed at apply time for load generation to be considered successful.
   * `upgrade_setup` mode create soroban contract instance to be used by
     `create_upgrade`. This mode must be run before `create_upgrade`.
   * `create_upgrade` mode write a soroban upgrade set and returns the
     ConfigUpgradeSetKey. Most network config settings are supported. If a given
-    setting is ommited or set to 0, it is not upgraded and maintains the current
+    setting is omitted or set to 0, it is not upgraded and maintains the current
     value. To not exceed HTTP string limits, the names are very short. See
     `CommandHandler::generateLoad` for available options.
+  * `blend_classic_soroban_setup` mode creates soroban contract instances to be
+    used by `blend_classic_soroban`. This mode must be run before
+    `blend_classic_soroban`.
+  * `blend_classic_soroban` mode creates a mix of `pay`, `soroban_upload`,
+    and `soroban_invoke` load. It accepts all of the options those modes
+    accept, plus `payweight`, `sorobanuploadweight`, and `sorobaninvokeweight`.
+    These `weight` parameters determine the distribution of `pay`,
+    `soroban_upload`, and `soroban_invoke` load with the likelihood of any
+    generated transaction falling into each mode being determined by the mode's
+    weight divided by the sum of all weights.
 
   Non-`create` load generation makes use of the additional parameters:
   * when a nonzero `spikeinterval` is given, a spike will occur every
@@ -447,3 +466,29 @@ format.
   specified) from the account F to the account T, sending N XLM to the account.
   Note that F and T are seed strings but can also be specified as "root" as
   shorthand for the root account for the test instance.
+
+#### Specifying Piecewise Distributions
+
+Any option pair ending in `intervals` and `weights` specifies a piecewise
+distribution. Each of these options takes a space-separated list of natural
+numbers as a value.
+
+The resulting distributions consist of buckets (defined by `intervals`) as well
+as weights (defined by `weights`) indicating how frequently values from each
+bucket appear. Values are uniformly distributed within each bucket.
+
+`intervals` holds the boundaries for each bucket, inclusively on the low end of
+each bucket and exclusively on the high end of each bucket.  `weights` holds
+the weight of each bucket, determining how likely it is to be sampled from.
+Therefore, each `weights` value must contain one fewer element than its
+corresponding `intervals` value.
+
+For example, consider `dataentriesintervals` and `dataentriesweights` from the `generateload`
+command. If set as follows:
+* `dataentriesintervals=0 10 50 200`
+* `dataentriesweights=1 0 4`
+
+then sampling from the distribution will produce values in the ranges:
+* `[0, 10)` with `20%` probability,
+* `[10, 50)` with `0%` probability, and
+* `[50, 200)` with `80%` probability.

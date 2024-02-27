@@ -42,13 +42,18 @@ enum class LoadGenMode
     // Setup contract instance for Soroban Network Config Upgrade
     SOROBAN_UPGRADE_SETUP,
     // Create upgrade entry
-    SOROBAN_CREATE_UPGRADE
+    SOROBAN_CREATE_UPGRADE,
+    // Blend classic and soroban transactions. Mix of pay, upload, and invoke.
+    BLEND_CLASSIC_SOROBAN,
+    // Setup for blended classic+soroban transactions
+    BLEND_CLASSIC_SOROBAN_SETUP
 };
 
 struct GeneratedLoadConfig
 {
     // Config parameters for SOROBAN_INVOKE_SETUP, SOROBAN_INVOKE,
-    // SOROBAN_UPGRADE_SETUP, and SOROBAN_CREATE_UPGRADE modes
+    // SOROBAN_UPGRADE_SETUP, SOROBAN_CREATE_UPGRADE, BLEND_CLASSIC_SOROBAN, and
+    // BLEND_CLASSIC_SOROBAN_SETUP modes
     struct SorobanConfig
     {
         uint32_t nInstances = 0;
@@ -58,23 +63,35 @@ struct GeneratedLoadConfig
         uint32_t nWasms = 0;
     };
 
-    // Config parameters for SOROBAN_INVOKE
+    // Config parameters for SOROBAN_UPLOAD and BLEND_CLASSIC_SOROBAN
+    struct SorobanUploadConfig
+    {
+        // Size of wasm blobs
+        std::vector<uint32_t> wasmBytesIntervals = {};
+        std::vector<uint32_t> wasmBytesWeights = {};
+    };
+
+    // Config parameters for SOROBAN_UPLOAD and BLEND_CLASSIC_SOROBAN
     struct SorobanInvokeConfig
     {
         // Range of kilo bytes and num entries for disk IO, where ioKiloBytes is
         // the total amount of disk IO that the TX requires
-        uint32_t nDataEntriesLow = 0;
-        uint32_t nDataEntriesHigh = 0;
-        uint32_t ioKiloBytesLow = 0;
-        uint32_t ioKiloBytesHigh = 0;
+        std::vector<uint32_t> nDataEntriesIntervals = {};
+        std::vector<uint32_t> nDataEntriesWeights = {};
+        std::vector<uint32_t> ioKiloBytesIntervals = {};
+        std::vector<uint32_t> ioKiloBytesWeights = {};
 
         // Size of transactions
-        int32_t txSizeBytesLow = 0;
-        int32_t txSizeBytesHigh = 0;
+        std::vector<uint32_t> txSizeBytesIntervals = {};
+        std::vector<uint32_t> txSizeBytesWeights = {};
 
         // Instruction count
-        uint64_t instructionsLow = 0;
-        uint64_t instructionsHigh = 0;
+        std::vector<uint64_t> instructionsIntervals = {};
+        std::vector<uint32_t> instructionsWeights = {};
+
+        // Minimum percentage of successful invoke transactions for run to be
+        // considered successful.
+        int minPercentSuccess = 0;
     };
 
     // Config settings for SOROBAN_CREATE_UPGRADE
@@ -114,6 +131,16 @@ struct GeneratedLoadConfig
         uint32_t startingEvictionScanLevel{};
     };
 
+    // Config settings for BLEND_CLASSIC_SOROBAN
+    struct BlendClassicSorobanConfig
+    {
+        // Weights determining the distribution of PAY, SOROBAN_UPLOAD, and
+        // SOROBAN_INVOKE load
+        uint32_t payWeight = 0;
+        uint32_t sorobanUploadWeight = 0;
+        uint32_t sorobanInvokeWeight = 0;
+    };
+
     static GeneratedLoadConfig createAccountsLoad(uint32_t nAccounts,
                                                   uint32_t txRate);
 
@@ -129,10 +156,14 @@ struct GeneratedLoadConfig
 
     SorobanConfig& getMutSorobanConfig();
     SorobanConfig const& getSorobanConfig() const;
+    SorobanUploadConfig& getMutSorobanUploadConfig();
+    SorobanUploadConfig const& getSorobanUploadConfig() const;
     SorobanInvokeConfig& getMutSorobanInvokeConfig();
     SorobanInvokeConfig const& getSorobanInvokeConfig() const;
     SorobanUpgradeConfig& getMutSorobanUpgradeConfig();
     SorobanUpgradeConfig const& getSorobanUpgradeConfig() const;
+    BlendClassicSorobanConfig& getMutBlendClassicSorobanConfig();
+    BlendClassicSorobanConfig const& getBlendClassicSorobanConfig() const;
     uint32_t& getMutDexTxPercent();
     uint32_t const& getDexTxPercent() const;
 
@@ -140,6 +171,15 @@ struct GeneratedLoadConfig
     bool isSoroban() const;
     bool isSorobanSetup() const;
     bool isLoad() const;
+
+    // True iff mode generates SOROBAN_INVOKE load
+    bool modeInvokes() const;
+
+    // True iff mode generates SOROBAN_INVOKE_SETUP load
+    bool modeSetsUpInvoke() const;
+
+    // True iff mode generates SOROBAN_UPLOAD load
+    bool modeUploads() const;
 
     bool isDone() const;
     bool areTxsRemaining() const;
@@ -169,8 +209,10 @@ struct GeneratedLoadConfig
 
   private:
     SorobanConfig sorobanConfig;
+    SorobanUploadConfig sorobanUploadConfig;
     SorobanInvokeConfig sorobanInvokeConfig;
     SorobanUpgradeConfig sorobanUpgradeConfig;
+    BlendClassicSorobanConfig blendClassicSorobanConfig;
 
     // Percentage (from 0 to 100) of DEX transactions
     uint32_t dexTxPercent = 0;
@@ -190,6 +232,11 @@ class LoadGenerator
     // Returns true if loadgen can continue and does not need to wait for Wasm
     // application
     bool checkSorobanWasmSetup(GeneratedLoadConfig const& cfg);
+
+    // Returns true if at least `cfg.minPercentSuccess`% of the SOROBAN_INVOKE
+    // load that made it into a block was successful. Always returns true for
+    // modes that do not generate SOROBAN_INVOKE load.
+    bool checkMinimumSorobanInvokeSuccess(GeneratedLoadConfig const& cfg);
 
     // Generate one "step" worth of load (assuming 1 step per STEP_MSECS) at a
     // given target number of accounts and txs, a given target tx/s rate, and
@@ -322,6 +369,13 @@ class LoadGenerator
     // unique instance
     UnorderedMap<uint64_t, ContractInstance> mContractInstances;
 
+    // Mode used for last blended transaction
+    LoadGenMode mLastBlendedMode;
+
+    // Hashes of generated SOROBAN_INVOKE transactions. Contains all generated
+    // transactions, not just those that the queue accepted.
+    std::vector<Hash> mInvokeTxHashes;
+
     void reset();
     void resetSorobanState();
     void createRootAccount();
@@ -373,9 +427,19 @@ class LoadGenerator
                                           uint64_t accountId,
                                           GeneratedLoadConfig const& cfg);
     std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
-    sorobanRandomWasmTransaction(uint32_t ledgerNum, uint64_t accountId,
-                                 SorobanResources resources, size_t wasmSize,
-                                 uint32_t inclusionFee);
+    sorobanRandomWasmTransaction(
+        uint32_t ledgerNum, uint64_t accountId, uint32_t inclusionFee,
+        GeneratedLoadConfig::SorobanUploadConfig const& cfg);
+
+    // Create a transaction in blended mode
+    std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
+    createBlendedTransaction(uint32_t ledgerNum, uint64_t sourceAccountId,
+                             GeneratedLoadConfig const& cfg);
+    // Set SOROBAN_UPLOAD resources to random values according to the
+    // distributions in `cfg`.
+    void sorobanRandomUploadResources(
+        SorobanResources& resources, uint32_t& wasmSize,
+        GeneratedLoadConfig::SorobanUploadConfig const& cfg);
     void maybeHandleFailedTx(TransactionFramePtr tx,
                              TestAccountPtr sourceAccount,
                              TransactionQueue::AddResult status,
@@ -402,5 +466,9 @@ class LoadGenerator
     void cleanupAccounts();
 
     void start(GeneratedLoadConfig& cfg);
+
+    // Indicate load generation run failed. Set `resetSoroban` to `true` to
+    // reset soroban state.
+    void emitFailure(bool resetSoroban);
 };
 }

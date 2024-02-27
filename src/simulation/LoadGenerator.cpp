@@ -12,6 +12,7 @@
 #include "test/TestAccount.h"
 #include "test/TxTests.h"
 #include "transactions/TransactionBridge.h"
+#include "transactions/TransactionSQL.h"
 #include "transactions/TransactionUtils.h"
 #include "transactions/test/SorobanTxTestUtils.h"
 #include "util/Logging.h"
@@ -41,6 +42,54 @@ namespace stellar
 
 using namespace std;
 using namespace txtest;
+
+namespace
+{
+// Populate a JSON array `arr` with the contents of `vec`
+template <typename T>
+void
+fillJsonArray(Json::Value& arr, std::vector<T> const& vec)
+{
+    std::for_each(vec.begin(), vec.end(),
+                  [&](auto const& v) { arr.append(v); });
+}
+
+// This specialized version of `fillJsonArray` for `uint64_t` is necessary
+// because the JSON library requires an explicit cast to `Json::UInt64` for each
+// element in `vec`.
+template <>
+void
+fillJsonArray(Json::Value& arr, std::vector<uint64_t> const& vec)
+{
+    std::for_each(vec.begin(), vec.end(), [&](auto const& v) {
+        arr.append(static_cast<Json::UInt64>(v));
+    });
+}
+
+// If a distribution is not set, set it to the provided defaults in `lo` and
+// `hi`. Additionally, check a distribution for correctness (`weights.size()`
+// must be one less than `intervals.size()`).
+template <typename T>
+void
+checkDistribution(std::vector<T>& intervals, std::vector<uint32_t>& weights,
+                  T defaultLo, T defaultHi)
+{
+    if (intervals.empty() && weights.empty())
+    {
+        intervals = {defaultLo, defaultHi};
+        weights = {1};
+    }
+    if (intervals.size() < 2)
+    {
+        throw std::runtime_error("intervals must have at least 2 elements");
+    }
+    if (weights.size() != intervals.size() - 1)
+    {
+        throw std::runtime_error("weights must have exactly one fewer element "
+                                 "than the corresponding intervals");
+    }
+}
+} // namespace
 
 // Units of load are scheduled at 100ms intervals.
 const uint32_t LoadGenerator::STEP_MSECS = 100;
@@ -112,6 +161,14 @@ LoadGenerator::getMode(std::string const& mode)
     else if (mode == "create_upgrade")
     {
         return LoadGenMode::SOROBAN_CREATE_UPGRADE;
+    }
+    else if (mode == "blend_classic_soroban")
+    {
+        return LoadGenMode::BLEND_CLASSIC_SOROBAN;
+    }
+    else if (mode == "blend_classic_soroban_setup")
+    {
+        return LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP;
     }
     else
     {
@@ -270,6 +327,7 @@ LoadGenerator::reset()
     mFailed = false;
     mStarted = false;
     mInitialAccountsCreated = false;
+    mInvokeTxHashes.clear();
 }
 
 // Reset Soroban persistent state
@@ -332,14 +390,50 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
             cfg.spikeSize = 0;
         }
 
-        if (cfg.mode == LoadGenMode::SOROBAN_INVOKE_SETUP ||
-            cfg.mode == LoadGenMode::SOROBAN_INVOKE)
+        if (cfg.modeSetsUpInvoke() || cfg.modeInvokes())
         {
             // Default instances to 1
             if (sorobanLoadCfg.nInstances == 0)
             {
                 sorobanLoadCfg.nInstances = 1;
             }
+        }
+    }
+
+    if (cfg.modeUploads())
+    {
+        // Set sensible defaults for missing upload config options
+        auto& uploadCfg = cfg.getMutSorobanUploadConfig();
+        checkDistribution(uploadCfg.wasmBytesIntervals,
+                          uploadCfg.wasmBytesWeights, 1u,
+                          mApp.getLedgerManager()
+                              .getSorobanNetworkConfig()
+                              .maxContractSizeBytes());
+    }
+
+    if (cfg.modeInvokes())
+    {
+        // Set sensible defaults for missing invoke config options
+        auto& invokeCfg = cfg.getMutSorobanInvokeConfig();
+        checkDistribution(invokeCfg.nDataEntriesIntervals,
+                          invokeCfg.nDataEntriesWeights, 0u, 11u);
+        checkDistribution(invokeCfg.ioKiloBytesIntervals,
+                          invokeCfg.ioKiloBytesWeights, 1u, 6u);
+        checkDistribution(invokeCfg.txSizeBytesIntervals,
+                          invokeCfg.txSizeBytesWeights, 0u, 1001u);
+        checkDistribution(invokeCfg.instructionsIntervals,
+                          invokeCfg.instructionsWeights, 0ull, 5000000ull);
+
+        // Check minPercentSuccess requirements
+        invokeCfg.minPercentSuccess =
+            std::clamp(invokeCfg.minPercentSuccess, 0, 100);
+        if (invokeCfg.minPercentSuccess &&
+            !mApp.getConfig().MODE_STORES_HISTORY_MISC)
+        {
+            throw std::runtime_error(
+                "MODE_STORES_HISTORY_MISC must be enabled when running loadgen "
+                "in a mode that generates soroban invoke transactions with a "
+                "non-zero minimum acceptance percentage.");
         }
     }
 
@@ -351,7 +445,7 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
             mAccountsAvailable.insert(i + cfg.offset);
         }
 
-        if (cfg.mode == LoadGenMode::SOROBAN_INVOKE)
+        if (cfg.modeInvokes())
         {
             auto const& sorobanLoadCfg = cfg.getSorobanConfig();
             releaseAssert(mContractInstances.empty());
@@ -425,14 +519,15 @@ LoadGenerator::scheduleLoadGeneration(GeneratedLoadConfig cfg)
         errorMsg = "Soroban modes require protocol version 20 or higher";
     }
 
-    if (cfg.mode == LoadGenMode::SOROBAN_INVOKE)
+    if (cfg.modeInvokes())
     {
         auto const& sorobanLoadCfg = cfg.getSorobanConfig();
         releaseAssertOrThrow(sorobanLoadCfg.nInstances != 0);
         if (mContractInstanceKeys.size() < sorobanLoadCfg.nInstances ||
             !mCodeKey)
         {
-            errorMsg = "must run SOROBAN_INVOKE_SETUP with at least nInstances";
+            errorMsg = "must run SOROBAN_INVOKE_SETUP or "
+                       "BLEND_CLASSIC_SOROBAN_SETUP with at least nInstances";
         }
         else if (cfg.nAccounts < sorobanLoadCfg.nInstances)
         {
@@ -527,6 +622,12 @@ GeneratedLoadConfig::getStatus() const
     case LoadGenMode::SOROBAN_CREATE_UPGRADE:
         modeStr = "create_upgrade";
         break;
+    case LoadGenMode::BLEND_CLASSIC_SOROBAN:
+        modeStr = "blend_classic_soroban";
+        break;
+    case LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP:
+        modeStr = "blend_classic_soroban_setup";
+        break;
     }
 
     ret["mode"] = modeStr;
@@ -550,20 +651,42 @@ GeneratedLoadConfig::getStatus() const
     {
         ret["dex_tx_percent"] = std::to_string(getDexTxPercent()) + "%";
     }
-    else if (mode == LoadGenMode::SOROBAN_INVOKE)
+    else if (modeInvokes())
     {
         ret["instances"] = getSorobanConfig().nInstances;
         ret["wasms"] = getSorobanConfig().nWasms;
-        ret["data_entries_low"] = getSorobanInvokeConfig().nDataEntriesLow;
-        ret["data_entries_high"] = getSorobanInvokeConfig().nDataEntriesHigh;
-        ret["io_kilo_bytes_low"] = getSorobanInvokeConfig().ioKiloBytesLow;
-        ret["io_kilo_bytes_high"] = getSorobanInvokeConfig().ioKiloBytesHigh;
-        ret["tx_size_bytes_low"] = getSorobanInvokeConfig().txSizeBytesLow;
-        ret["tx_size_bytes_high"] = getSorobanInvokeConfig().txSizeBytesHigh;
-        ret["instructions_low"] =
-            static_cast<Json::UInt64>(getSorobanInvokeConfig().instructionsLow);
-        ret["instructions_high"] = static_cast<Json::UInt64>(
-            getSorobanInvokeConfig().instructionsHigh);
+        fillJsonArray(ret["data_entries_intervals"],
+                      getSorobanInvokeConfig().nDataEntriesIntervals);
+        fillJsonArray(ret["data_entries_weights"],
+                      getSorobanInvokeConfig().nDataEntriesWeights);
+        fillJsonArray(ret["io_kilo_bytes_intervals"],
+                      getSorobanInvokeConfig().ioKiloBytesIntervals);
+        fillJsonArray(ret["io_kilo_bytes_weights"],
+                      getSorobanInvokeConfig().ioKiloBytesWeights);
+        fillJsonArray(ret["tx_size_bytes_intervals"],
+                      getSorobanInvokeConfig().txSizeBytesIntervals);
+        fillJsonArray(ret["tx_size_bytes_weights"],
+                      getSorobanInvokeConfig().txSizeBytesWeights);
+        fillJsonArray(ret["instructions_intervals"],
+                      getSorobanInvokeConfig().instructionsIntervals);
+        fillJsonArray(ret["instructions_weights"],
+                      getSorobanInvokeConfig().instructionsWeights);
+    }
+
+    if (modeUploads())
+    {
+        fillJsonArray(ret["wasm_bytes_intervals"],
+                      getSorobanUploadConfig().wasmBytesIntervals);
+        fillJsonArray(ret["wasm_bytes_weights"],
+                      getSorobanUploadConfig().wasmBytesWeights);
+    }
+
+    if (mode == LoadGenMode::BLEND_CLASSIC_SOROBAN)
+    {
+        auto const& blendCfg = getBlendClassicSorobanConfig();
+        ret["pay_weight"] = blendCfg.payWeight;
+        ret["soroban_upload_weight"] = blendCfg.sorobanUploadWeight;
+        ret["soroban_invoke_weight"] = blendCfg.sorobanInvokeWeight;
     }
 
     return ret;
@@ -695,76 +818,17 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
             case LoadGenMode::SOROBAN_UPLOAD:
             {
                 generateTx = [&]() {
-                    SorobanResources resources;
-                    uint32_t wasmSize{};
-                    {
-                        Resource maxPerTx =
-                            mApp.getLedgerManager()
-                                .maxSorobanTransactionResources();
-
-                        resources.instructions = rand_uniform<uint32_t>(
-                            1, static_cast<uint32>(maxPerTx.getVal(
-                                   Resource::Type::INSTRUCTIONS)));
-
-                        // Respect both contract size limit and TX write byte
-                        // limits including key overhead
-                        uint32_t const keyOverhead = 40;
-                        auto maxWasmSize =
-                            std::min(mApp.getLedgerManager()
-                                         .getSorobanNetworkConfig()
-                                         .maxContractSizeBytes(),
-                                     static_cast<uint32>(maxPerTx.getVal(
-                                         Resource::Type::WRITE_BYTES)) -
-                                         keyOverhead);
-                        wasmSize = rand_uniform<uint32_t>(1, maxWasmSize);
-                        resources.readBytes = rand_uniform<uint32_t>(
-                            1, static_cast<uint32>(maxPerTx.getVal(
-                                   Resource::Type::READ_BYTES)));
-                        resources.writeBytes = rand_uniform<uint32_t>(
-                            // Allocate at least enough write bytes to write the
-                            // whole Wasm plus the 40 bytes of the key.
-                            wasmSize + keyOverhead,
-                            static_cast<uint32>(
-                                maxPerTx.getVal(Resource::Type::WRITE_BYTES)));
-
-                        auto writeKeys = LedgerTestUtils::
-                            generateUniqueValidSorobanLedgerEntryKeys(
-                                rand_uniform<uint32_t>(
-                                    0, static_cast<uint32>(
-                                           maxPerTx.getVal(
-                                               Resource::Type::
-                                                   WRITE_LEDGER_ENTRIES) -
-                                           1)));
-
-                        for (auto const& key : writeKeys)
-                        {
-                            resources.footprint.readWrite.emplace_back(key);
-                        }
-
-                        auto readKeys = LedgerTestUtils::
-                            generateUniqueValidSorobanLedgerEntryKeys(
-                                rand_uniform<uint32_t>(
-                                    0, static_cast<uint32>(
-                                           maxPerTx.getVal(
-                                               Resource::Type::
-                                                   READ_LEDGER_ENTRIES) -
-                                           writeKeys.size() - 1)));
-
-                        for (auto const& key : readKeys)
-                        {
-                            resources.footprint.readOnly.emplace_back(key);
-                        }
-                    }
-
                     return sorobanRandomWasmTransaction(
-                        ledgerNum, sourceAccountId, resources, wasmSize,
+                        ledgerNum, sourceAccountId,
                         generateFee(cfg.maxGeneratedFeeRate, mApp,
-                                    /* opsCnt */ 1));
+                                    /* opsCnt */ 1),
+                        cfg.getSorobanUploadConfig());
                 };
             }
             break;
             case LoadGenMode::SOROBAN_INVOKE_SETUP:
             case LoadGenMode::SOROBAN_UPGRADE_SETUP:
+            case LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP:
                 generateTx = [&] {
                     auto& sorobanCfg = cfg.getMutSorobanConfig();
                     if (sorobanCfg.nWasms != 0)
@@ -791,6 +855,12 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
                 generateTx = [&]() {
                     return invokeSorobanCreateUpgradeTransaction(
                         ledgerNum, sourceAccountId, cfg);
+                };
+                break;
+            case LoadGenMode::BLEND_CLASSIC_SOROBAN:
+                generateTx = [&]() {
+                    return createBlendedTransaction(ledgerNum, sourceAccountId,
+                                                    cfg);
                 };
                 break;
             }
@@ -1199,9 +1269,8 @@ LoadGenerator::createUploadWasmTransaction(uint32_t ledgerNum,
 {
     releaseAssert(cfg.isSorobanSetup());
     releaseAssert(!mCodeKey);
-    auto wasm = cfg.mode == LoadGenMode::SOROBAN_INVOKE_SETUP
-                    ? rust_bridge::get_test_wasm_loadgen()
-                    : rust_bridge::get_write_bytes();
+    auto wasm = cfg.modeSetsUpInvoke() ? rust_bridge::get_test_wasm_loadgen()
+                                       : rust_bridge::get_write_bytes();
     auto account = findAccount(accountId, ledgerNum);
 
     SorobanResources uploadResources{};
@@ -1298,11 +1367,10 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     // Pick random number of cycles between bounds, respecting network limits
     uint64_t maxInstructions =
         networkCfg.mTxMaxInstructions - baseInstructionCount;
-    maxInstructions = std::min(maxInstructions, invokeCfg.instructionsHigh);
-    uint64_t lowInstructions =
-        std::min(maxInstructions, invokeCfg.instructionsLow);
-    uint64_t targetInstructions =
-        rand_uniform<uint64_t>(lowInstructions, maxInstructions);
+    uint64_t targetInstructions = std::clamp<uint64_t>(
+        static_cast<uint64_t>(rand_piecewise(invokeCfg.instructionsIntervals,
+                                             invokeCfg.instructionsWeights)),
+        0, maxInstructions);
 
     // Randomly select a number of guest cycles
     uint64_t guestCyclesMax = targetInstructions / instructionsPerGuestCycle;
@@ -1315,8 +1383,8 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     SorobanResources resources;
     resources.footprint.readOnly = instance.readOnlyKeys;
 
-    auto numEntries = rand_uniform<uint32_t>(invokeCfg.nDataEntriesLow,
-                                             invokeCfg.nDataEntriesHigh);
+    auto numEntries = static_cast<uint32_t>(rand_piecewise(
+        invokeCfg.nDataEntriesIntervals, invokeCfg.nDataEntriesWeights));
     for (uint32_t i = 0; i < numEntries; ++i)
     {
         auto lk = contractDataKey(instance.contractID, makeU32(i),
@@ -1324,9 +1392,10 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
         resources.footprint.readWrite.emplace_back(lk);
     }
 
-    auto totalWriteBytes = rand_uniform<uint32_t>(invokeCfg.ioKiloBytesLow,
-                                                  invokeCfg.ioKiloBytesHigh) *
-                           1024;
+    auto totalWriteBytes =
+        static_cast<uint32_t>(rand_piecewise(invokeCfg.ioKiloBytesIntervals,
+                                             invokeCfg.ioKiloBytesWeights) *
+                              1024);
 
     if (totalWriteBytes < mContactOverheadBytes)
     {
@@ -1368,21 +1437,16 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     // We don't have a good way of knowing how many bytes we will need to read
     // since the previous invocation writes a random number of bytes, so use
     // upper bound
-    resources.readBytes = invokeCfg.ioKiloBytesHigh * 1024;
+    resources.readBytes = (invokeCfg.ioKiloBytesIntervals.back() - 1) * 1024;
     resources.writeBytes = totalWriteBytes;
 
     // Approximate TX size before padding and footprint, slightly over estimated
     // so we stay below limits, plus footprint size
-    int32_t const txOverheadBytes = 260 + xdr::xdr_size(resources);
-    int32_t paddingBytesLow = txOverheadBytes > invokeCfg.txSizeBytesLow
-                                  ? 0
-                                  : invokeCfg.txSizeBytesLow - txOverheadBytes;
-    int32_t paddingBytesHigh =
-        txOverheadBytes > invokeCfg.txSizeBytesHigh
-            ? 0
-            : invokeCfg.txSizeBytesHigh - txOverheadBytes;
+    uint32_t const txOverheadBytes = 260 + xdr::xdr_size(resources);
+    uint32_t desiredTxBytes = static_cast<uint32_t>(rand_piecewise(
+        invokeCfg.txSizeBytesIntervals, invokeCfg.txSizeBytesWeights));
     auto paddingBytes =
-        rand_uniform<int32_t>(paddingBytesLow, paddingBytesHigh);
+        txOverheadBytes > desiredTxBytes ? 0 : desiredTxBytes - txOverheadBytes;
     increaseOpSize(op, paddingBytes);
 
     auto resourceFee =
@@ -1395,6 +1459,7 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
             generateFee(cfg.maxGeneratedFeeRate, mApp,
                         /* opsCnt */ 1),
             resourceFee));
+    mInvokeTxHashes.emplace_back(tx->getContentsHash());
 
     return std::make_pair(account, tx);
 }
@@ -1644,23 +1709,24 @@ LoadGenerator::invokeSorobanCreateUpgradeTransaction(
 }
 
 std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
-LoadGenerator::sorobanRandomWasmTransaction(uint32_t ledgerNum,
-                                            uint64_t accountId,
-                                            SorobanResources resources,
-                                            size_t wasmSize,
-                                            uint32_t inclusionFee)
+LoadGenerator::sorobanRandomWasmTransaction(
+    uint32_t ledgerNum, uint64_t accountId, uint32_t inclusionFee,
+    GeneratedLoadConfig::SorobanUploadConfig const& cfg)
 {
+    SorobanResources resources;
+    uint32_t wasmSize{};
+    sorobanRandomUploadResources(resources, wasmSize, cfg);
+
     auto account = findAccount(accountId, ledgerNum);
-    Operation uploadOp =
-        createUploadWasmOperation(static_cast<uint32>(wasmSize));
+    Operation uploadOp = createUploadWasmOperation(wasmSize);
     LedgerKey contractCodeLedgerKey;
     contractCodeLedgerKey.type(CONTRACT_CODE);
     contractCodeLedgerKey.contractCode().hash =
         sha256(uploadOp.body.invokeHostFunctionOp().hostFunction.wasm());
     resources.footprint.readWrite.push_back(contractCodeLedgerKey);
 
-    int64_t resourceFee =
-        sorobanResourceFee(mApp, resources, 5000 + wasmSize, 100);
+    int64_t resourceFee = sorobanResourceFee(
+        mApp, resources, 5000 + static_cast<size_t>(wasmSize), 100);
     // Roughly cover the rent fee.
     resourceFee += 100000;
     auto tx = std::dynamic_pointer_cast<TransactionFrame>(
@@ -1668,6 +1734,59 @@ LoadGenerator::sorobanRandomWasmTransaction(uint32_t ledgerNum,
                                        {uploadOp}, {}, resources, inclusionFee,
                                        resourceFee));
     return std::make_pair(account, tx);
+}
+
+void
+LoadGenerator::sorobanRandomUploadResources(
+    SorobanResources& resources, uint32_t& wasmSize,
+    GeneratedLoadConfig::SorobanUploadConfig const& cfg)
+{
+    Resource maxPerTx =
+        mApp.getLedgerManager().maxSorobanTransactionResources();
+
+    resources.instructions = rand_uniform<uint32_t>(
+        1, static_cast<uint32>(maxPerTx.getVal(Resource::Type::INSTRUCTIONS)));
+
+    // Respect both contract size limit and TX write byte
+    // limits including key overhead
+    uint32_t const keyOverhead = 40;
+    auto maxWasmSize = std::min(
+        mApp.getLedgerManager()
+            .getSorobanNetworkConfig()
+            .maxContractSizeBytes(),
+        static_cast<uint32>(maxPerTx.getVal(Resource::Type::WRITE_BYTES)) -
+            keyOverhead);
+    wasmSize = std::clamp<uint32_t>(
+        rand_piecewise(cfg.wasmBytesIntervals, cfg.wasmBytesWeights), 1,
+        maxWasmSize);
+    resources.readBytes = rand_uniform<uint32_t>(
+        1, static_cast<uint32>(maxPerTx.getVal(Resource::Type::READ_BYTES)));
+    resources.writeBytes = rand_uniform<uint32_t>(
+        // Allocate at least enough write bytes to write the
+        // whole Wasm plus the 40 bytes of the key.
+        wasmSize + keyOverhead,
+        static_cast<uint32>(maxPerTx.getVal(Resource::Type::WRITE_BYTES)));
+
+    auto writeKeys = LedgerTestUtils::generateUniqueValidSorobanLedgerEntryKeys(
+        rand_uniform<uint32_t>(
+            0, static_cast<uint32>(
+                   maxPerTx.getVal(Resource::Type::WRITE_LEDGER_ENTRIES) - 1)));
+
+    for (auto const& key : writeKeys)
+    {
+        resources.footprint.readWrite.emplace_back(key);
+    }
+
+    auto readKeys = LedgerTestUtils::generateUniqueValidSorobanLedgerEntryKeys(
+        rand_uniform<uint32_t>(
+            0, static_cast<uint32>(
+                   maxPerTx.getVal(Resource::Type::READ_LEDGER_ENTRIES) -
+                   writeKeys.size() - 1)));
+
+    for (auto const& key : readKeys)
+    {
+        resources.footprint.readOnly.emplace_back(key);
+    }
 }
 
 std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
@@ -1699,6 +1818,40 @@ LoadGenerator::pretendTransaction(uint32_t numAccounts, uint32_t offset,
     return std::make_pair(acc, createTransactionFramePtr(acc, ops,
                                                          LoadGenMode::PRETEND,
                                                          maxGeneratedFeeRate));
+}
+
+std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
+LoadGenerator::createBlendedTransaction(uint32_t ledgerNum,
+                                        uint64_t sourceAccountId,
+                                        GeneratedLoadConfig const& cfg)
+{
+    auto const& blend_cfg = cfg.getBlendClassicSorobanConfig();
+    uint32_t weights = blend_cfg.payWeight + blend_cfg.sorobanUploadWeight +
+                       blend_cfg.sorobanInvokeWeight;
+    uint32_t roll = rand_uniform<uint32_t>(1, weights);
+    if (roll <= blend_cfg.payWeight)
+    {
+        // Create a payment transaction
+        mLastBlendedMode = LoadGenMode::PAY;
+        return paymentTransaction(cfg.nAccounts, cfg.offset, ledgerNum,
+                                  sourceAccountId, 1, cfg.maxGeneratedFeeRate);
+    }
+    else if (roll <= blend_cfg.payWeight + blend_cfg.sorobanUploadWeight)
+    {
+        // Create a soroban upload transaction
+        mLastBlendedMode = LoadGenMode::SOROBAN_UPLOAD;
+        return sorobanRandomWasmTransaction(ledgerNum, sourceAccountId,
+                                            generateFee(cfg.maxGeneratedFeeRate,
+                                                        mApp,
+                                                        /* opsCnt */ 1),
+                                            cfg.getSorobanUploadConfig());
+    }
+    else
+    {
+        // Create a soroban invoke transaction
+        mLastBlendedMode = LoadGenMode::SOROBAN_INVOKE;
+        return invokeSorobanLoadTransaction(ledgerNum, sourceAccountId, cfg);
+    }
 }
 
 void
@@ -1804,6 +1957,43 @@ LoadGenerator::checkAccountSynced(Application& app, bool isCreate)
     return result;
 }
 
+bool
+LoadGenerator::checkMinimumSorobanInvokeSuccess(GeneratedLoadConfig const& cfg)
+{
+    if (!cfg.modeInvokes())
+    {
+        // Only applies to soroban invoke transactions
+        return true;
+    }
+
+    auto const& invokeCfg = cfg.getSorobanInvokeConfig();
+    if (invokeCfg.minPercentSuccess == 0)
+    {
+        // Vacuously true
+        return true;
+    }
+
+    // Count the total number of invoke transactions included in blocks, as well
+    // as the number of those transactions that were successful.
+    size_t nInvokes = 0;
+    size_t nSuccessful = 0;
+    for (auto const& hash : mInvokeTxHashes)
+    {
+        std::optional<TransactionResult> txr =
+            loadTransactionResult(mApp.getDatabase(), hash);
+        if (txr)
+        {
+            ++nInvokes;
+            if (txr->result.code() == txSUCCESS)
+            {
+                ++nSuccessful;
+            }
+        }
+    }
+
+    return (nSuccessful * 100) / nInvokes >= invokeCfg.minPercentSuccess;
+}
+
 void
 LoadGenerator::waitTillComplete(GeneratedLoadConfig cfg)
 {
@@ -1819,9 +2009,19 @@ LoadGenerator::waitTillComplete(GeneratedLoadConfig cfg)
     if (inconsistencies.empty() && sorobanInconsistencies.empty() &&
         cfg.isDone())
     {
-        CLOG_INFO(LoadGen, "Load generation complete.");
-        mLoadgenComplete.Mark();
-        reset();
+        // Check whether run met the minimum success rate for soroban invoke
+        if (checkMinimumSorobanInvokeSuccess(cfg))
+        {
+            CLOG_INFO(LoadGen, "Load generation complete.");
+            mLoadgenComplete.Mark();
+            reset();
+        }
+        else
+        {
+            CLOG_INFO(LoadGen, "Load generation failed to meet minimum success "
+                               "rate for soroban invoke transactions.");
+            emitFailure(false);
+        }
         return;
     }
     // If we have an inconsistency, reset the timer and wait for another ledger
@@ -1829,14 +2029,7 @@ LoadGenerator::waitTillComplete(GeneratedLoadConfig cfg)
     {
         if (++mWaitTillCompleteForLedgers >= TIMEOUT_NUM_LEDGERS)
         {
-            CLOG_INFO(LoadGen, "Load generation failed.");
-            mLoadgenFail.Mark();
-            reset();
-            if (!sorobanInconsistencies.empty())
-            {
-                resetSorobanState();
-            }
-
+            emitFailure(!sorobanInconsistencies.empty());
             return;
         }
 
@@ -1859,6 +2052,18 @@ LoadGenerator::waitTillComplete(GeneratedLoadConfig cfg)
         // 1 deploy TX per instance
         cfg.nTxs = cfg.getSorobanConfig().nInstances;
         scheduleLoadGeneration(cfg);
+    }
+}
+
+void
+LoadGenerator::emitFailure(bool resetSoroban)
+{
+    CLOG_INFO(LoadGen, "Load generation failed.");
+    mLoadgenFail.Mark();
+    reset();
+    if (resetSoroban)
+    {
+        resetSorobanState();
     }
 }
 
@@ -1992,6 +2197,7 @@ LoadGenerator::execute(TransactionFramePtr& txf, LoadGenMode mode,
         txm.mSorobanUploadTxs.Mark();
         break;
     case LoadGenMode::SOROBAN_INVOKE_SETUP:
+    case LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP:
         txm.mSorobanSetupInvokeTxs.Mark();
         break;
     case LoadGenMode::SOROBAN_UPGRADE_SETUP:
@@ -2002,6 +2208,22 @@ LoadGenerator::execute(TransactionFramePtr& txf, LoadGenMode mode,
         break;
     case LoadGenMode::SOROBAN_CREATE_UPGRADE:
         txm.mSorobanCreateUpgradeTxs.Mark();
+        break;
+    case LoadGenMode::BLEND_CLASSIC_SOROBAN:
+        switch (mLastBlendedMode)
+        {
+        case LoadGenMode::PAY:
+            txm.mNativePayment.Mark(txf->getNumOperations());
+            break;
+        case LoadGenMode::SOROBAN_UPLOAD:
+            txm.mSorobanUploadTxs.Mark();
+            break;
+        case LoadGenMode::SOROBAN_INVOKE:
+            txm.mSorobanInvokeTxs.Mark();
+            break;
+        default:
+            releaseAssert(false);
+        }
         break;
     }
 
@@ -2096,17 +2318,31 @@ GeneratedLoadConfig::getSorobanConfig() const
     return sorobanConfig;
 }
 
+GeneratedLoadConfig::SorobanUploadConfig&
+GeneratedLoadConfig::getMutSorobanUploadConfig()
+{
+    releaseAssert(modeUploads());
+    return sorobanUploadConfig;
+}
+
+GeneratedLoadConfig::SorobanUploadConfig const&
+GeneratedLoadConfig::getSorobanUploadConfig() const
+{
+    releaseAssert(modeUploads());
+    return sorobanUploadConfig;
+}
+
 GeneratedLoadConfig::SorobanInvokeConfig&
 GeneratedLoadConfig::getMutSorobanInvokeConfig()
 {
-    releaseAssert(mode == LoadGenMode::SOROBAN_INVOKE);
+    releaseAssert(modeInvokes());
     return sorobanInvokeConfig;
 }
 
 GeneratedLoadConfig::SorobanInvokeConfig const&
 GeneratedLoadConfig::getSorobanInvokeConfig() const
 {
-    releaseAssert(mode == LoadGenMode::SOROBAN_INVOKE);
+    releaseAssert(modeInvokes());
     return sorobanInvokeConfig;
 }
 
@@ -2122,6 +2358,20 @@ GeneratedLoadConfig::getSorobanUpgradeConfig() const
 {
     releaseAssert(mode == LoadGenMode::SOROBAN_CREATE_UPGRADE);
     return sorobanUpgradeConfig;
+}
+
+GeneratedLoadConfig::BlendClassicSorobanConfig&
+GeneratedLoadConfig::getMutBlendClassicSorobanConfig()
+{
+    releaseAssert(mode == LoadGenMode::BLEND_CLASSIC_SOROBAN);
+    return blendClassicSorobanConfig;
+}
+
+GeneratedLoadConfig::BlendClassicSorobanConfig const&
+GeneratedLoadConfig::getBlendClassicSorobanConfig() const
+{
+    releaseAssert(mode == LoadGenMode::BLEND_CLASSIC_SOROBAN);
+    return blendClassicSorobanConfig;
 }
 
 uint32_t&
@@ -2151,14 +2401,17 @@ GeneratedLoadConfig::isSoroban() const
            mode == LoadGenMode::SOROBAN_INVOKE_SETUP ||
            mode == LoadGenMode::SOROBAN_UPLOAD ||
            mode == LoadGenMode::SOROBAN_UPGRADE_SETUP ||
-           mode == LoadGenMode::SOROBAN_CREATE_UPGRADE;
+           mode == LoadGenMode::SOROBAN_CREATE_UPGRADE ||
+           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN ||
+           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP;
 }
 
 bool
 GeneratedLoadConfig::isSorobanSetup() const
 {
     return mode == LoadGenMode::SOROBAN_INVOKE_SETUP ||
-           mode == LoadGenMode::SOROBAN_UPGRADE_SETUP;
+           mode == LoadGenMode::SOROBAN_UPGRADE_SETUP ||
+           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP;
 }
 
 bool
@@ -2168,6 +2421,28 @@ GeneratedLoadConfig::isLoad() const
            mode == LoadGenMode::MIXED_TXS ||
            mode == LoadGenMode::SOROBAN_UPLOAD ||
            mode == LoadGenMode::SOROBAN_INVOKE ||
-           mode == LoadGenMode::SOROBAN_CREATE_UPGRADE;
+           mode == LoadGenMode::SOROBAN_CREATE_UPGRADE ||
+           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN;
+}
+
+bool
+GeneratedLoadConfig::modeInvokes() const
+{
+    return mode == LoadGenMode::SOROBAN_INVOKE ||
+           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN;
+}
+
+bool
+GeneratedLoadConfig::modeSetsUpInvoke() const
+{
+    return mode == LoadGenMode::SOROBAN_INVOKE_SETUP ||
+           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP;
+}
+
+bool
+GeneratedLoadConfig::modeUploads() const
+{
+    return mode == LoadGenMode::SOROBAN_UPLOAD ||
+           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN;
 }
 }

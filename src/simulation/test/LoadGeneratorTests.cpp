@@ -397,13 +397,17 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
 
     // Use tight bounds to we can verify storage works properly
     auto& invokeCfg = invokeLoadCfg.getMutSorobanInvokeConfig();
-    invokeCfg.nDataEntriesLow = numDataEntries;
-    invokeCfg.nDataEntriesHigh = numDataEntries;
-    invokeCfg.ioKiloBytesLow = ioKiloBytes;
-    invokeCfg.ioKiloBytesHigh = ioKiloBytes;
+    invokeCfg.nDataEntriesIntervals = {numDataEntries, numDataEntries + 1};
+    invokeCfg.nDataEntriesWeights = {1};
+    invokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
+    invokeCfg.ioKiloBytesWeights = {1};
 
-    invokeCfg.txSizeBytesHigh = 100'000;
-    invokeCfg.instructionsHigh = 10'000'000;
+    invokeCfg.txSizeBytesIntervals = {0, 100'000};
+    invokeCfg.txSizeBytesWeights = {1};
+    invokeCfg.instructionsIntervals = {0, 10'000'000};
+    invokeCfg.instructionsWeights = {1};
+    constexpr int maxFail = 5;
+    invokeCfg.minPercentSuccess = 100 - maxFail;
 
     loadGen.generateLoad(invokeLoadCfg);
     simulation->crankUntil(
@@ -427,8 +431,8 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         // approximations. The following checks will make sure all set up
         // phases succeeded, so only the invoke phase may have acceptable failed
         // TXs
-        REQUIRE(txsSucceeded.count() > numTxsBefore + numSorobanTxs - 5);
-        REQUIRE(txsFailed.count() < 5);
+        REQUIRE(txsSucceeded.count() > numTxsBefore + numSorobanTxs - maxFail);
+        REQUIRE(txsFailed.count() < maxFail);
     }
 
     auto instanceKeys = loadGen.getContractInstanceKeysForTesting();
@@ -474,6 +478,92 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
             REQUIRE(keys.find(lk) == keys.end());
             keys.insert(lk);
         }
+    }
+
+    // Test blended mode
+    SECTION("Blend with classic")
+    {
+        constexpr uint32_t numBlendedTxs = 100;
+        auto blendLoadCfg = GeneratedLoadConfig::txLoad(
+            LoadGenMode::BLEND_CLASSIC_SOROBAN, nAccounts, numBlendedTxs,
+            /* txRate */ 1);
+
+        auto& blendCfg = blendLoadCfg.getMutBlendClassicSorobanConfig();
+        blendCfg.payWeight = 50;
+        blendCfg.sorobanInvokeWeight = 45;
+        constexpr uint32_t uploadWeight = 5;
+        blendCfg.sorobanUploadWeight = uploadWeight;
+
+        auto& blendInvokeCfg = blendLoadCfg.getMutSorobanInvokeConfig();
+        blendInvokeCfg.nDataEntriesIntervals = {numDataEntries,
+                                                numDataEntries + 1};
+        blendInvokeCfg.nDataEntriesWeights = {1};
+        blendInvokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
+        blendInvokeCfg.ioKiloBytesWeights = {1};
+
+        blendInvokeCfg.txSizeBytesIntervals = {0, 40'000, 60'000, 100'000};
+        blendInvokeCfg.txSizeBytesWeights = {1, 2, 1};
+        blendInvokeCfg.instructionsIntervals = {0, 5'000'000, 10'000'000};
+        blendInvokeCfg.instructionsWeights = {3, 2};
+
+        blendInvokeCfg.minPercentSuccess = 100 - maxFail;
+
+        loadGen.generateLoad(blendLoadCfg);
+        auto numSuccessBefore = getSuccessfulTxCount();
+        auto numFailedBefore =
+            app.getMetrics().NewCounter({"ledger", "apply", "failure"}).count();
+        simulation->crankUntil(
+            [&]() {
+                return app.getMetrics()
+                           .NewMeter({"loadgen", "run", "complete"}, "run")
+                           .count() == 6;
+            },
+            300 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+
+        // Check results
+        for (auto node : nodes)
+        {
+            auto& txsSucceeded =
+                node->getMetrics().NewCounter({"ledger", "apply", "success"});
+            auto& txsFailed =
+                node->getMetrics().NewCounter({"ledger", "apply", "failure"});
+
+            // Because we can't preflight TXs, some invocations will fail due to
+            // too few resources. This is expected, as our instruction counts
+            // are approximations. Additionally, many upload transactions will
+            // fail as they are likely to generate invalid wasm. Therefore, we
+            // check that all but `maxFail + 1.5 * uploadWeight` transactions
+            // succeed. In case the random sampling produces more upload
+            // transactions than expected, we allow for a 50% margin of error on
+            // the number of upload transactions.
+            REQUIRE(txsSucceeded.count() > numSuccessBefore + numBlendedTxs -
+                                               maxFail - 1.5 * uploadWeight);
+            REQUIRE(txsFailed.count() <
+                    maxFail + numFailedBefore + 1.5 * uploadWeight);
+        }
+    }
+
+    // Test invoke mode with too many transactions that fail to apply
+    SECTION("Invoke with too many failed transactions")
+    {
+        auto invokeFailCfg = GeneratedLoadConfig::txLoad(
+            LoadGenMode::SOROBAN_INVOKE, nAccounts, numSorobanTxs,
+            /* txRate */ 1);
+
+        invokeFailCfg.getMutSorobanConfig().nInstances = numInstances;
+
+        // Set success percentage to 100% and leave other parameters at default.
+        invokeFailCfg.getMutSorobanInvokeConfig().minPercentSuccess = 100;
+
+        // LoadGen should fail
+        loadGen.generateLoad(invokeFailCfg);
+        simulation->crankUntil(
+            [&]() {
+                return app.getMetrics()
+                           .NewMeter({"loadgen", "run", "failed"}, "run")
+                           .count() == 1;
+            },
+            300 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
     }
 }
 
