@@ -422,7 +422,8 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
         checkDistribution(invokeCfg.txSizeBytesIntervals,
                           invokeCfg.txSizeBytesWeights, 0u, 1001u);
         checkDistribution(invokeCfg.instructionsIntervals,
-                          invokeCfg.instructionsWeights, 0ull, 5000000ull);
+                          invokeCfg.instructionsWeights, uint64_t{0},
+                          uint64_t{5000000});
 
         // Check minPercentSuccess requirements
         invokeCfg.minPercentSuccess =
