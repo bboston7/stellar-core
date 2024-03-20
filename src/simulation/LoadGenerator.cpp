@@ -418,8 +418,8 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
         auto& invokeCfg = cfg.getMutSorobanInvokeConfig();
         checkDistribution(invokeCfg.nDataEntriesIntervals,
                           invokeCfg.nDataEntriesWeights, 0u, 11u);
-        checkDistribution(invokeCfg.ioKiloBytesIntervals,
-                          invokeCfg.ioKiloBytesWeights, 1u, 6u);
+        checkDistribution(invokeCfg.ioBytesIntervals, invokeCfg.ioBytesWeights,
+                          1u, 5u * 1024u);
         checkDistribution(invokeCfg.txSizeBytesIntervals,
                           invokeCfg.txSizeBytesWeights, 0u, 1001u);
         checkDistribution(invokeCfg.instructionsIntervals,
@@ -650,10 +650,10 @@ GeneratedLoadConfig::getStatus() const
                       getSorobanInvokeConfig().nDataEntriesIntervals);
         fillJsonArray(ret["data_entries_weights"],
                       getSorobanInvokeConfig().nDataEntriesWeights);
-        fillJsonArray(ret["io_kilo_bytes_intervals"],
-                      getSorobanInvokeConfig().ioKiloBytesIntervals);
-        fillJsonArray(ret["io_kilo_bytes_weights"],
-                      getSorobanInvokeConfig().ioKiloBytesWeights);
+        fillJsonArray(ret["io_bytes_intervals"],
+                      getSorobanInvokeConfig().ioBytesIntervals);
+        fillJsonArray(ret["io_bytes_weights"],
+                      getSorobanInvokeConfig().ioBytesWeights);
         fillJsonArray(ret["tx_size_bytes_intervals"],
                       getSorobanInvokeConfig().txSizeBytesIntervals);
         fillJsonArray(ret["tx_size_bytes_weights"],
@@ -1384,13 +1384,12 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     {
         auto lk = contractDataKey(instance.contractID, makeU32(i),
                                   ContractDataDurability::PERSISTENT);
+        // TODO: Maybe this is where the read comes from?
         resources.footprint.readWrite.emplace_back(lk);
     }
 
-    auto totalWriteBytes =
-        static_cast<uint32_t>(rand_piecewise(invokeCfg.ioKiloBytesIntervals,
-                                             invokeCfg.ioKiloBytesWeights) *
-                              1024);
+    auto totalWriteBytes = static_cast<uint32_t>(
+        rand_piecewise(invokeCfg.ioBytesIntervals, invokeCfg.ioBytesWeights));
 
     if (totalWriteBytes < mContactOverheadBytes)
     {
@@ -1398,23 +1397,26 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
         numEntries = 0;
     }
 
-    uint32_t kiloBytesPerEntry = 0;
+    uint32_t bytesPerEntry = 0;
     if (numEntries > 0)
     {
-        kiloBytesPerEntry =
-            (totalWriteBytes - mContactOverheadBytes) / numEntries / 1024;
+        // TODO: Is the contract overhead already accounted for?
+        bytesPerEntry = (totalWriteBytes - mContactOverheadBytes) / numEntries;
 
+        // TODO: Is this true vv? Seems like it contradicts what's in the
+        // ticket? Or maybe it's handled fine by the `totalWriteBytes <
+        // mContactOverheadBytes` check above?
         // If numEntries > 0, we can't write a 0 byte entry
-        if (kiloBytesPerEntry == 0)
+        if (bytesPerEntry == 0)
         {
-            kiloBytesPerEntry = 1;
+            bytesPerEntry = 1;
         }
     }
 
     auto guestCyclesU64 = makeU64(guestCycles);
     auto hostCyclesU64 = makeU64(hostCycles);
     auto numEntriesU32 = makeU32(numEntries);
-    auto kiloBytesPerEntryU32 = makeU32(kiloBytesPerEntry);
+    auto bytesPerEntryU32 = makeU32(bytesPerEntry);
 
     Operation op;
     op.body.type(INVOKE_HOST_FUNCTION);
@@ -1423,7 +1425,7 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     ihf.invokeContract().contractAddress = instance.contractID;
     ihf.invokeContract().functionName = "do_work";
     ihf.invokeContract().args = {guestCyclesU64, hostCyclesU64, numEntriesU32,
-                                 kiloBytesPerEntryU32};
+                                 bytesPerEntryU32};
 
     // baseInstructionCount is a very rough estimate and may be a significant
     // underestimation based on the IO load used, so use max instructions
@@ -1432,7 +1434,7 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     // We don't have a good way of knowing how many bytes we will need to read
     // since the previous invocation writes a random number of bytes, so use
     // upper bound
-    resources.readBytes = (invokeCfg.ioKiloBytesIntervals.back() - 1) * 1024;
+    resources.readBytes = (invokeCfg.ioBytesIntervals.back() - 1);
     resources.writeBytes = totalWriteBytes;
 
     // Approximate TX size before padding and footprint, slightly over estimated

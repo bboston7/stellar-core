@@ -75,8 +75,8 @@ struct GeneratedLoadConfig
         // the total amount of disk IO that the TX requires
         std::vector<uint32_t> nDataEntriesIntervals = {};
         std::vector<uint32_t> nDataEntriesWeights = {};
-        std::vector<uint32_t> ioKiloBytesIntervals = {};
-        std::vector<uint32_t> ioKiloBytesWeights = {};
+        std::vector<uint32_t> ioBytesIntervals = {};
+        std::vector<uint32_t> ioBytesWeights = {};
 
         // Size of transactions
         std::vector<uint32_t> txSizeBytesIntervals = {};
@@ -371,7 +371,7 @@ class LoadGenerator
     // mContractInstances at the start of each SOROBAN_INVOKE run
     inline static UnorderedSet<LedgerKey> mContractInstanceKeys = {};
     inline static std::optional<LedgerKey> mCodeKey = std::nullopt;
-    inline static uint64_t mContactOverheadBytes = 0;
+    inline static uint64_t mContactOverheadBytes = 0; // TODO: Is this the overhead the ticket talks about?
 
     // Maps account ID to it's contract instance, where each account has a
     // unique instance

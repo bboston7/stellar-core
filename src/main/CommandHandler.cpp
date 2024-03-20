@@ -1283,10 +1283,12 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
                 parseOptionalVectorParam<uint32_t>(map, "dataentriesintervals");
             invokeCfg.nDataEntriesWeights =
                 parseOptionalVectorParam<uint32_t>(map, "dataentriesweights");
-            invokeCfg.ioKiloBytesIntervals =
-                parseOptionalVectorParam<uint32_t>(map, "kilobytesintervals");
-            invokeCfg.ioKiloBytesWeights =
-                parseOptionalVectorParam<uint32_t>(map, "kilobytesweights");
+            // TODO: Update in F# too
+            // TODO: Update docs
+            invokeCfg.ioBytesIntervals =
+                parseOptionalVectorParam<uint32_t>(map, "bytesintervals");
+            invokeCfg.ioBytesWeights =
+                parseOptionalVectorParam<uint32_t>(map, "bytesweights");
             invokeCfg.txSizeBytesIntervals =
                 parseOptionalVectorParam<uint32_t>(map, "txsizeintervals");
             invokeCfg.txSizeBytesWeights =

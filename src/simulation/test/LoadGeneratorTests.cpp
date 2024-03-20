@@ -359,7 +359,7 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
     auto const numInstances = 10;
     auto const numSorobanTxs = 100;
     auto const numDataEntries = 5;
-    auto const ioKiloBytes = 15;
+    auto const ioBytes = 15 * 1024;
 
     numTxsBefore = getSuccessfulTxCount();
     loadGen.generateLoad(GeneratedLoadConfig::createSorobanInvokeSetupLoad(
@@ -401,8 +401,8 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
     auto& invokeCfg = invokeLoadCfg.getMutSorobanInvokeConfig();
     invokeCfg.nDataEntriesIntervals = {numDataEntries, numDataEntries + 1};
     invokeCfg.nDataEntriesWeights = {1};
-    invokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
-    invokeCfg.ioKiloBytesWeights = {1};
+    invokeCfg.ioBytesIntervals = {ioBytes, ioBytes + 1};
+    invokeCfg.ioBytesWeights = {1};
 
     invokeCfg.txSizeBytesIntervals = {0, 100'000};
     invokeCfg.txSizeBytesWeights = {1};
@@ -448,10 +448,14 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
     // data entries we want to write and convert this value back to
     // kilobytes for the contract invocation. Thus we need to redundantly divide
     // then multiply by 1024 to mimic rounding behavior.
+    // TODO: This shows the contract overhead bytes! Should it really be in the
+    // numerator here? Or should it be subtracted after the division? Why would
+    // it be spread out over the number of data entries? On second thought, I
+    // think it might just be awkwardly handled here and it's fine to be in the
+    // numerator?
     auto expectedDataEntrySize =
-        ((ioKiloBytes * 1024 - loadGen.getContactOverheadBytesForTesting()) /
-         numDataEntries / 1024) *
-        1024;
+        (ioBytes - loadGen.getContactOverheadBytesForTesting()) /
+        numDataEntries;
 
     UnorderedSet<LedgerKey> keys;
     for (auto const& instanceKey : instanceKeys)
@@ -499,8 +503,8 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         mixInvokeCfg.nDataEntriesIntervals = {numDataEntries,
                                               numDataEntries + 1};
         mixInvokeCfg.nDataEntriesWeights = {1};
-        mixInvokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
-        mixInvokeCfg.ioKiloBytesWeights = {1};
+        mixInvokeCfg.ioBytesIntervals = {ioBytes, ioBytes + 1};
+        mixInvokeCfg.ioBytesWeights = {1};
 
         mixInvokeCfg.txSizeBytesIntervals = {0, 40'000, 60'000, 100'000};
         mixInvokeCfg.txSizeBytesWeights = {1, 2, 1};
