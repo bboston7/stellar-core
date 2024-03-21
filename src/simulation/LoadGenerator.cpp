@@ -142,9 +142,9 @@ LoadGenerator::getMode(std::string const& mode)
     {
         return LoadGenMode::PRETEND;
     }
-    else if (mode == "mixed_txs")
+    else if (mode == "mixed_classic")
     {
-        return LoadGenMode::MIXED_TXS;
+        return LoadGenMode::MIXED_CLASSIC;
     }
     else if (mode == "soroban_upload")
     {
@@ -166,13 +166,9 @@ LoadGenerator::getMode(std::string const& mode)
     {
         return LoadGenMode::SOROBAN_CREATE_UPGRADE;
     }
-    else if (mode == "blend_classic_soroban")
+    else if (mode == "mixed_classic_soroban")
     {
-        return LoadGenMode::BLEND_CLASSIC_SOROBAN;
-    }
-    else if (mode == "blend_classic_soroban_setup")
-    {
-        return LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP;
+        return LoadGenMode::MIXED_CLASSIC_SOROBAN;
     }
     else
     {
@@ -525,8 +521,7 @@ LoadGenerator::scheduleLoadGeneration(GeneratedLoadConfig cfg)
         if (mContractInstanceKeys.size() < sorobanLoadCfg.nInstances ||
             !mCodeKey)
         {
-            errorMsg = "must run SOROBAN_INVOKE_SETUP or "
-                       "BLEND_CLASSIC_SOROBAN_SETUP with at least nInstances";
+            errorMsg = "must run SOROBAN_INVOKE_SETUP with at least nInstances";
         }
         else if (cfg.nAccounts < sorobanLoadCfg.nInstances)
         {
@@ -603,8 +598,8 @@ GeneratedLoadConfig::getStatus() const
     case LoadGenMode::PRETEND:
         modeStr = "pretend";
         break;
-    case LoadGenMode::MIXED_TXS:
-        modeStr = "mixed_txs";
+    case LoadGenMode::MIXED_CLASSIC:
+        modeStr = "mixed_classic";
         break;
     case LoadGenMode::SOROBAN_UPLOAD:
         modeStr = "soroban_upload";
@@ -621,11 +616,8 @@ GeneratedLoadConfig::getStatus() const
     case LoadGenMode::SOROBAN_CREATE_UPGRADE:
         modeStr = "create_upgrade";
         break;
-    case LoadGenMode::BLEND_CLASSIC_SOROBAN:
-        modeStr = "blend_classic_soroban";
-        break;
-    case LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP:
-        modeStr = "blend_classic_soroban_setup";
+    case LoadGenMode::MIXED_CLASSIC_SOROBAN:
+        modeStr = "mixed_classic_soroban";
         break;
     }
 
@@ -646,7 +638,7 @@ GeneratedLoadConfig::getStatus() const
     }
 
     ret["tx_rate"] = std::to_string(txRate) + " tx/s";
-    if (mode == LoadGenMode::MIXED_TXS)
+    if (mode == LoadGenMode::MIXED_CLASSIC)
     {
         ret["dex_tx_percent"] = std::to_string(getDexTxPercent()) + "%";
     }
@@ -680,9 +672,9 @@ GeneratedLoadConfig::getStatus() const
                       getSorobanUploadConfig().wasmBytesWeights);
     }
 
-    if (mode == LoadGenMode::BLEND_CLASSIC_SOROBAN)
+    if (mode == LoadGenMode::MIXED_CLASSIC_SOROBAN)
     {
-        auto const& blendCfg = getBlendClassicSorobanConfig();
+        auto const& blendCfg = getMixClassicSorobanConfig();
         ret["pay_weight"] = blendCfg.payWeight;
         ret["soroban_upload_weight"] = blendCfg.sorobanUploadWeight;
         ret["soroban_invoke_weight"] = blendCfg.sorobanInvokeWeight;
@@ -798,7 +790,7 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
                 };
             }
             break;
-            case LoadGenMode::MIXED_TXS:
+            case LoadGenMode::MIXED_CLASSIC:
             {
                 auto opCount = chooseOpCount(mApp.getConfig());
                 bool isDex =
@@ -832,7 +824,6 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
             break;
             case LoadGenMode::SOROBAN_INVOKE_SETUP:
             case LoadGenMode::SOROBAN_UPGRADE_SETUP:
-            case LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP:
                 generateTx = [&] {
                     auto& sorobanCfg = cfg.getMutSorobanConfig();
                     if (sorobanCfg.nWasms != 0)
@@ -861,10 +852,10 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
                         ledgerNum, sourceAccountId, cfg);
                 };
                 break;
-            case LoadGenMode::BLEND_CLASSIC_SOROBAN:
+            case LoadGenMode::MIXED_CLASSIC_SOROBAN:
                 generateTx = [&]() {
-                    return createBlendedTransaction(ledgerNum, sourceAccountId,
-                                                    cfg);
+                    return createMixedClassicSorobanTransaction(
+                        ledgerNum, sourceAccountId, cfg);
                 };
                 break;
             }
@@ -1232,9 +1223,9 @@ LoadGenerator::manageOfferTransaction(
             Price{rand_uniform<int32_t>(1, 100), rand_uniform<int32_t>(1, 100)},
             100));
     }
-    return std::make_pair(
-        account, createTransactionFramePtr(account, ops, LoadGenMode::MIXED_TXS,
-                                           maxGeneratedFeeRate));
+    return std::make_pair(account, createTransactionFramePtr(
+                                       account, ops, LoadGenMode::MIXED_CLASSIC,
+                                       maxGeneratedFeeRate));
 }
 
 static void
@@ -1824,25 +1815,25 @@ LoadGenerator::pretendTransaction(uint32_t numAccounts, uint32_t offset,
 }
 
 std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
-LoadGenerator::createBlendedTransaction(uint32_t ledgerNum,
-                                        uint64_t sourceAccountId,
-                                        GeneratedLoadConfig const& cfg)
+LoadGenerator::createMixedClassicSorobanTransaction(
+    uint32_t ledgerNum, uint64_t sourceAccountId,
+    GeneratedLoadConfig const& cfg)
 {
-    auto const& blend_cfg = cfg.getBlendClassicSorobanConfig();
+    auto const& blend_cfg = cfg.getMixClassicSorobanConfig();
     uint32_t weights = blend_cfg.payWeight + blend_cfg.sorobanUploadWeight +
                        blend_cfg.sorobanInvokeWeight;
     uint32_t roll = rand_uniform<uint32_t>(1, weights);
     if (roll <= blend_cfg.payWeight)
     {
         // Create a payment transaction
-        mLastBlendedMode = LoadGenMode::PAY;
+        mLastMixedMode = LoadGenMode::PAY;
         return paymentTransaction(cfg.nAccounts, cfg.offset, ledgerNum,
                                   sourceAccountId, 1, cfg.maxGeneratedFeeRate);
     }
     else if (roll <= blend_cfg.payWeight + blend_cfg.sorobanUploadWeight)
     {
         // Create a soroban upload transaction
-        mLastBlendedMode = LoadGenMode::SOROBAN_UPLOAD;
+        mLastMixedMode = LoadGenMode::SOROBAN_UPLOAD;
         return sorobanRandomWasmTransaction(ledgerNum, sourceAccountId,
                                             generateFee(cfg.maxGeneratedFeeRate,
                                                         mApp,
@@ -1852,7 +1843,7 @@ LoadGenerator::createBlendedTransaction(uint32_t ledgerNum,
     else
     {
         // Create a soroban invoke transaction
-        mLastBlendedMode = LoadGenMode::SOROBAN_INVOKE;
+        mLastMixedMode = LoadGenMode::SOROBAN_INVOKE;
         return invokeSorobanLoadTransaction(ledgerNum, sourceAccountId, cfg);
     }
 }
@@ -2173,7 +2164,7 @@ LoadGenerator::execute(TransactionFramePtr& txf, LoadGenMode mode,
     case LoadGenMode::PRETEND:
         txm.mPretendOps.Mark(txf->getNumOperations());
         break;
-    case LoadGenMode::MIXED_TXS:
+    case LoadGenMode::MIXED_CLASSIC:
         if (txf->hasDexOperations())
         {
             txm.mManageOfferOps.Mark(txf->getNumOperations());
@@ -2187,7 +2178,6 @@ LoadGenerator::execute(TransactionFramePtr& txf, LoadGenMode mode,
         txm.mSorobanUploadTxs.Mark();
         break;
     case LoadGenMode::SOROBAN_INVOKE_SETUP:
-    case LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP:
         txm.mSorobanSetupInvokeTxs.Mark();
         break;
     case LoadGenMode::SOROBAN_UPGRADE_SETUP:
@@ -2199,8 +2189,8 @@ LoadGenerator::execute(TransactionFramePtr& txf, LoadGenMode mode,
     case LoadGenMode::SOROBAN_CREATE_UPGRADE:
         txm.mSorobanCreateUpgradeTxs.Mark();
         break;
-    case LoadGenMode::BLEND_CLASSIC_SOROBAN:
-        switch (mLastBlendedMode)
+    case LoadGenMode::MIXED_CLASSIC_SOROBAN:
+        switch (mLastMixedMode)
         {
         case LoadGenMode::PAY:
             txm.mNativePayment.Mark(txf->getNumOperations());
@@ -2350,31 +2340,31 @@ GeneratedLoadConfig::getSorobanUpgradeConfig() const
     return sorobanUpgradeConfig;
 }
 
-GeneratedLoadConfig::BlendClassicSorobanConfig&
-GeneratedLoadConfig::getMutBlendClassicSorobanConfig()
+GeneratedLoadConfig::MixClassicSorobanConfig&
+GeneratedLoadConfig::getMutMixClassicSorobanConfig()
 {
-    releaseAssert(mode == LoadGenMode::BLEND_CLASSIC_SOROBAN);
-    return blendClassicSorobanConfig;
+    releaseAssert(mode == LoadGenMode::MIXED_CLASSIC_SOROBAN);
+    return mixClassicSorobanConfig;
 }
 
-GeneratedLoadConfig::BlendClassicSorobanConfig const&
-GeneratedLoadConfig::getBlendClassicSorobanConfig() const
+GeneratedLoadConfig::MixClassicSorobanConfig const&
+GeneratedLoadConfig::getMixClassicSorobanConfig() const
 {
-    releaseAssert(mode == LoadGenMode::BLEND_CLASSIC_SOROBAN);
-    return blendClassicSorobanConfig;
+    releaseAssert(mode == LoadGenMode::MIXED_CLASSIC_SOROBAN);
+    return mixClassicSorobanConfig;
 }
 
 uint32_t&
 GeneratedLoadConfig::getMutDexTxPercent()
 {
-    releaseAssert(mode == LoadGenMode::MIXED_TXS);
+    releaseAssert(mode == LoadGenMode::MIXED_CLASSIC);
     return dexTxPercent;
 }
 
 uint32_t const&
 GeneratedLoadConfig::getDexTxPercent() const
 {
-    releaseAssert(mode == LoadGenMode::MIXED_TXS);
+    releaseAssert(mode == LoadGenMode::MIXED_CLASSIC);
     return dexTxPercent;
 }
 
@@ -2406,47 +2396,44 @@ GeneratedLoadConfig::isSoroban() const
            mode == LoadGenMode::SOROBAN_UPLOAD ||
            mode == LoadGenMode::SOROBAN_UPGRADE_SETUP ||
            mode == LoadGenMode::SOROBAN_CREATE_UPGRADE ||
-           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN ||
-           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP;
+           mode == LoadGenMode::MIXED_CLASSIC_SOROBAN;
 }
 
 bool
 GeneratedLoadConfig::isSorobanSetup() const
 {
     return mode == LoadGenMode::SOROBAN_INVOKE_SETUP ||
-           mode == LoadGenMode::SOROBAN_UPGRADE_SETUP ||
-           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP;
+           mode == LoadGenMode::SOROBAN_UPGRADE_SETUP;
 }
 
 bool
 GeneratedLoadConfig::isLoad() const
 {
     return mode == LoadGenMode::PAY || mode == LoadGenMode::PRETEND ||
-           mode == LoadGenMode::MIXED_TXS ||
+           mode == LoadGenMode::MIXED_CLASSIC ||
            mode == LoadGenMode::SOROBAN_UPLOAD ||
            mode == LoadGenMode::SOROBAN_INVOKE ||
            mode == LoadGenMode::SOROBAN_CREATE_UPGRADE ||
-           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN;
+           mode == LoadGenMode::MIXED_CLASSIC_SOROBAN;
 }
 
 bool
 GeneratedLoadConfig::modeInvokes() const
 {
     return mode == LoadGenMode::SOROBAN_INVOKE ||
-           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN;
+           mode == LoadGenMode::MIXED_CLASSIC_SOROBAN;
 }
 
 bool
 GeneratedLoadConfig::modeSetsUpInvoke() const
 {
-    return mode == LoadGenMode::SOROBAN_INVOKE_SETUP ||
-           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN_SETUP;
+    return mode == LoadGenMode::SOROBAN_INVOKE_SETUP;
 }
 
 bool
 GeneratedLoadConfig::modeUploads() const
 {
     return mode == LoadGenMode::SOROBAN_UPLOAD ||
-           mode == LoadGenMode::BLEND_CLASSIC_SOROBAN;
+           mode == LoadGenMode::MIXED_CLASSIC_SOROBAN;
 }
 }

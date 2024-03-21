@@ -481,31 +481,31 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         }
     }
 
-    // Test blended mode
-    SECTION("Blend with classic")
+    // Test MIXED_CLASSIC_SOROBAN mode
+    SECTION("Mix with classic")
     {
-        constexpr uint32_t numBlendedTxs = 200;
-        auto blendLoadCfg = GeneratedLoadConfig::txLoad(
-            LoadGenMode::BLEND_CLASSIC_SOROBAN, nAccounts, numBlendedTxs,
+        constexpr uint32_t numMixedTxs = 200;
+        auto mixLoadCfg = GeneratedLoadConfig::txLoad(
+            LoadGenMode::MIXED_CLASSIC_SOROBAN, nAccounts, numMixedTxs,
             /* txRate */ 1);
 
-        auto& blendCfg = blendLoadCfg.getMutBlendClassicSorobanConfig();
-        blendCfg.payWeight = 50;
-        blendCfg.sorobanInvokeWeight = 45;
+        auto& mixCfg = mixLoadCfg.getMutMixClassicSorobanConfig();
+        mixCfg.payWeight = 50;
+        mixCfg.sorobanInvokeWeight = 45;
         constexpr uint32_t uploadWeight = 5;
-        blendCfg.sorobanUploadWeight = uploadWeight;
+        mixCfg.sorobanUploadWeight = uploadWeight;
 
-        auto& blendInvokeCfg = blendLoadCfg.getMutSorobanInvokeConfig();
-        blendInvokeCfg.nDataEntriesIntervals = {numDataEntries,
-                                                numDataEntries + 1};
-        blendInvokeCfg.nDataEntriesWeights = {1};
-        blendInvokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
-        blendInvokeCfg.ioKiloBytesWeights = {1};
+        auto& mixInvokeCfg = mixLoadCfg.getMutSorobanInvokeConfig();
+        mixInvokeCfg.nDataEntriesIntervals = {numDataEntries,
+                                              numDataEntries + 1};
+        mixInvokeCfg.nDataEntriesWeights = {1};
+        mixInvokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
+        mixInvokeCfg.ioKiloBytesWeights = {1};
 
-        blendInvokeCfg.txSizeBytesIntervals = {0, 40'000, 60'000, 100'000};
-        blendInvokeCfg.txSizeBytesWeights = {1, 2, 1};
-        blendInvokeCfg.instructionsIntervals = {0, 5'000'000, 10'000'000};
-        blendInvokeCfg.instructionsWeights = {3, 2};
+        mixInvokeCfg.txSizeBytesIntervals = {0, 40'000, 60'000, 100'000};
+        mixInvokeCfg.txSizeBytesWeights = {1, 2, 1};
+        mixInvokeCfg.instructionsIntervals = {0, 5'000'000, 10'000'000};
+        mixInvokeCfg.instructionsWeights = {3, 2};
 
         // Because we can't preflight TXs, some invocations will fail due to too
         // few resources. This is expected, as our instruction counts are
@@ -515,11 +515,10 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         // case the random sampling produces more upload transactions than
         // expected, we allow for a 50% margin of error on the number of upload
         // transactions.
-        constexpr int maxBlendedSorobanFail =
-            1.5 * uploadWeight + maxInvokeFail;
-        blendLoadCfg.setMinSorobanPercentSuccess(100 - maxBlendedSorobanFail);
+        constexpr int maxSorobanFail = 1.5 * uploadWeight + maxInvokeFail;
+        mixLoadCfg.setMinSorobanPercentSuccess(100 - maxSorobanFail);
 
-        loadGen.generateLoad(blendLoadCfg);
+        loadGen.generateLoad(mixLoadCfg);
         auto numSuccessBefore = getSuccessfulTxCount();
         auto numFailedBefore =
             app.getMetrics()
@@ -549,11 +548,10 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
                 {"ledger", "apply-soroban", "success"});
             auto& sorobanFailed = node->getMetrics().NewCounter(
                 {"ledger", "apply-soroban", "failure"});
-            REQUIRE(sorobanSucceeded.count() >
-                    numSuccessBefore + numBlendedTxs - classicTotal -
-                        maxBlendedSorobanFail);
-            REQUIRE(sorobanFailed.count() <=
-                    maxBlendedSorobanFail + numFailedBefore);
+            REQUIRE(sorobanSucceeded.count() > numSuccessBefore + numMixedTxs -
+                                                   classicTotal -
+                                                   maxSorobanFail);
+            REQUIRE(sorobanFailed.count() <= maxSorobanFail + numFailedBefore);
         }
     }
 
@@ -690,7 +688,7 @@ TEST_CASE("Multi-op mixed transactions are valid", "[loadgen]")
                            .count() == 1;
             },
             3 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
-        auto config = GeneratedLoadConfig::txLoad(LoadGenMode::MIXED_TXS,
+        auto config = GeneratedLoadConfig::txLoad(LoadGenMode::MIXED_CLASSIC,
                                                   numAccounts, 100, txRate);
         config.getMutDexTxPercent() = 50;
         loadGen.generateLoad(config);

@@ -379,7 +379,7 @@ format.
 
 ### The following HTTP commands are exposed on test instances
 * **generateload** `generateload[?mode=
-    (create|pay|pretend|mixed_txs|soroban_upload|soroban_invoke_setup|soroban_invoke|upgrade_setup|create_upgrade|blend_classic_soroban_setup|blend_classic_soroban)&accounts=N&offset=K&txs=M&txrate=R&spikesize=S&spikeinterval=I&maxfeerate=F&skiplowfeetxs=(0|1)&dextxpercent=D&dataentriesintervals=A&dataentriesweights=B&kilobytesintervals=C&minpercentsuccess=S&kilobytesweights=T&txsizeintervals=U&txsizeweights=V&cpuintervals=W&cpuweights=X&instances=Y&wasms=Z&wasmbytesintervals=G&wasmbytesweights=H&payweight=P&sorobanuploadweight=Q&sorobaninvokeweight=R]`
+    (create|pay|pretend|mixed_classic|soroban_upload|soroban_invoke_setup|soroban_invoke|upgrade_setup|create_upgrade|mixed_classic_soroban)&accounts=N&offset=K&txs=M&txrate=R&spikesize=S&spikeinterval=I&maxfeerate=F&skiplowfeetxs=(0|1)&dextxpercent=D&dataentriesintervals=A&dataentriesweights=B&kilobytesintervals=C&minpercentsuccess=S&kilobytesweights=T&txsizeintervals=U&txsizeweights=V&cpuintervals=W&cpuweights=X&instances=Y&wasms=Z&wasmbytesintervals=G&wasmbytesweights=H&payweight=P&sorobanuploadweight=Q&sorobaninvokeweight=R]`
 
     Artificially generate load for testing; must be used with
     `ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING` set to true.
@@ -394,7 +394,7 @@ format.
     the # of ops / tx and how often they appear. More specifically, the
     probability that a transaction contains `COUNT[i]` ops is `DISTRIBUTION
     [i] / (DISTRIBUTION[0] + DISTRIBUTION[1] + ...)`.
-  * `mixed_txs` mode generates a mix of DEX and non-DEX transactions
+  * `mixed_classic` mode generates a mix of DEX and non-DEX transactions
     (containing `PaymentOp` and `ManageBuyOfferOp` operations respectively).
     The fraction of DEX transactions generated is defined by the `dextxpercent`
     parameter (accepts integer value from 0 to 100).
@@ -406,7 +406,8 @@ format.
     distributions](#specifying-piecewise-distributions) for more info on how to
     set these parameters.
   * `soroban_invoke_setup` mode create soroban contract instances to be used by
-    `soroban_invoke`. This mode must be run before `soroban_invoke`.
+    `soroban_invoke`. This mode must be run before `soroban_invoke` or
+    `mixed_classic_soroban`.
   * `soroban_invoke` mode generates valid soroban TXs that invoke a resource
     intensive contract. Each invocation picks a random amount of resources
     between some bound. Resource distributions can be set with the
@@ -425,10 +426,7 @@ format.
     setting is omitted or set to 0, it is not upgraded and maintains the current
     value. To not exceed HTTP string limits, the names are very short. See
     `CommandHandler::generateLoad` for available options.
-  * `blend_classic_soroban_setup` mode creates soroban contract instances to be
-    used by `blend_classic_soroban`. This mode must be run before
-    `blend_classic_soroban`.
-  * `blend_classic_soroban` mode creates a mix of `pay`, `soroban_upload`,
+  * `mixed_classic_soroban` mode creates a mix of `pay`, `soroban_upload`,
     and `soroban_invoke` load. It accepts all of the options those modes
     accept, plus `payweight`, `sorobanuploadweight`, and `sorobaninvokeweight`.
     These `weight` parameters determine the distribution of `pay`,

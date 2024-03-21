@@ -31,7 +31,7 @@ enum class LoadGenMode
     PAY,
     PRETEND,
     // Mix of payments and DEX-related transactions.
-    MIXED_TXS,
+    MIXED_CLASSIC,
     // Deploy random Wasm blobs, for overlay/herder testing
     SOROBAN_UPLOAD,
     // Deploy contracts to be used by SOROBAN_INVOKE
@@ -44,16 +44,13 @@ enum class LoadGenMode
     // Create upgrade entry
     SOROBAN_CREATE_UPGRADE,
     // Blend classic and soroban transactions. Mix of pay, upload, and invoke.
-    BLEND_CLASSIC_SOROBAN,
-    // Setup for blended classic+soroban transactions
-    BLEND_CLASSIC_SOROBAN_SETUP
+    MIXED_CLASSIC_SOROBAN
 };
 
 struct GeneratedLoadConfig
 {
     // Config parameters for SOROBAN_INVOKE_SETUP, SOROBAN_INVOKE,
-    // SOROBAN_UPGRADE_SETUP, SOROBAN_CREATE_UPGRADE, BLEND_CLASSIC_SOROBAN, and
-    // BLEND_CLASSIC_SOROBAN_SETUP modes
+    // SOROBAN_UPGRADE_SETUP, SOROBAN_CREATE_UPGRADE, and MIXED_CLASSIC_SOROBAN
     struct SorobanConfig
     {
         uint32_t nInstances = 0;
@@ -63,7 +60,7 @@ struct GeneratedLoadConfig
         uint32_t nWasms = 0;
     };
 
-    // Config parameters for SOROBAN_UPLOAD and BLEND_CLASSIC_SOROBAN
+    // Config parameters for SOROBAN_UPLOAD and MIXED_CLASSIC_SOROBAN
     struct SorobanUploadConfig
     {
         // Size of wasm blobs
@@ -71,7 +68,7 @@ struct GeneratedLoadConfig
         std::vector<uint32_t> wasmBytesWeights = {};
     };
 
-    // Config parameters for SOROBAN_UPLOAD and BLEND_CLASSIC_SOROBAN
+    // Config parameters for SOROBAN_UPLOAD and MIXED_CLASSIC_SOROBAN
     struct SorobanInvokeConfig
     {
         // Range of kilo bytes and num entries for disk IO, where ioKiloBytes is
@@ -127,8 +124,8 @@ struct GeneratedLoadConfig
         uint32_t startingEvictionScanLevel{};
     };
 
-    // Config settings for BLEND_CLASSIC_SOROBAN
-    struct BlendClassicSorobanConfig
+    // Config settings for MIXED_CLASSIC_SOROBAN
+    struct MixClassicSorobanConfig
     {
         // Weights determining the distribution of PAY, SOROBAN_UPLOAD, and
         // SOROBAN_INVOKE load
@@ -158,8 +155,8 @@ struct GeneratedLoadConfig
     SorobanInvokeConfig const& getSorobanInvokeConfig() const;
     SorobanUpgradeConfig& getMutSorobanUpgradeConfig();
     SorobanUpgradeConfig const& getSorobanUpgradeConfig() const;
-    BlendClassicSorobanConfig& getMutBlendClassicSorobanConfig();
-    BlendClassicSorobanConfig const& getBlendClassicSorobanConfig() const;
+    MixClassicSorobanConfig& getMutMixClassicSorobanConfig();
+    MixClassicSorobanConfig const& getMixClassicSorobanConfig() const;
     uint32_t& getMutDexTxPercent();
     uint32_t const& getDexTxPercent() const;
     uint32_t getMinSorobanPercentSuccess() const;
@@ -210,7 +207,7 @@ struct GeneratedLoadConfig
     SorobanUploadConfig sorobanUploadConfig;
     SorobanInvokeConfig sorobanInvokeConfig;
     SorobanUpgradeConfig sorobanUpgradeConfig;
-    BlendClassicSorobanConfig blendClassicSorobanConfig;
+    MixClassicSorobanConfig mixClassicSorobanConfig;
 
     // Percentage (from 0 to 100) of DEX transactions
     uint32_t dexTxPercent = 0;
@@ -380,8 +377,8 @@ class LoadGenerator
     // unique instance
     UnorderedMap<uint64_t, ContractInstance> mContractInstances;
 
-    // Mode used for last blended transaction
-    LoadGenMode mLastBlendedMode;
+    // Mode used for last mixed transaction in MIX_CLASSIC_SOROBAN mode
+    LoadGenMode mLastMixedMode;
 
     void reset();
     void resetSorobanState();
@@ -438,10 +435,11 @@ class LoadGenerator
         uint32_t ledgerNum, uint64_t accountId, uint32_t inclusionFee,
         GeneratedLoadConfig::SorobanUploadConfig const& cfg);
 
-    // Create a transaction in blended mode
+    // Create a transaction in MIXED_CLASSIC_SOROBAN mode
     std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
-    createBlendedTransaction(uint32_t ledgerNum, uint64_t sourceAccountId,
-                             GeneratedLoadConfig const& cfg);
+    createMixedClassicSorobanTransaction(uint32_t ledgerNum,
+                                         uint64_t sourceAccountId,
+                                         GeneratedLoadConfig const& cfg);
     // Set SOROBAN_UPLOAD resources to random values according to the
     // distributions in `cfg`.
     void sorobanRandomUploadResources(

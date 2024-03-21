@@ -1245,7 +1245,7 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
         cfg.skipLowFeeTxs =
             parseOptionalParamOrDefault<bool>(map, "skiplowfeetxs", false);
 
-        if (cfg.mode == LoadGenMode::MIXED_TXS)
+        if (cfg.mode == LoadGenMode::MIXED_CLASSIC)
         {
             cfg.getMutDexTxPercent() =
                 parseOptionalParamOrDefault<uint32_t>(map, "dextxpercent", 0);
@@ -1343,21 +1343,19 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
                 parseOptionalParamOrDefault<uint32_t>(map, "evctlvl", 0);
         }
 
-        if (cfg.mode == LoadGenMode::BLEND_CLASSIC_SOROBAN)
+        if (cfg.mode == LoadGenMode::MIXED_CLASSIC_SOROBAN)
         {
-            auto& blendCfg = cfg.getMutBlendClassicSorobanConfig();
-            blendCfg.payWeight =
+            auto& mixCfg = cfg.getMutMixClassicSorobanConfig();
+            mixCfg.payWeight =
                 parseOptionalParamOrDefault<uint32_t>(map, "payweight", 0);
-            blendCfg.sorobanUploadWeight =
-                parseOptionalParamOrDefault<uint32_t>(map,
-                                                      "sorobanuploadweight", 0);
-            blendCfg.sorobanInvokeWeight =
-                parseOptionalParamOrDefault<uint32_t>(map,
-                                                      "sorobaninvokeweight", 0);
-            if (!(blendCfg.payWeight || blendCfg.sorobanUploadWeight ||
-                  blendCfg.sorobanInvokeWeight))
+            mixCfg.sorobanUploadWeight = parseOptionalParamOrDefault<uint32_t>(
+                map, "sorobanuploadweight", 0);
+            mixCfg.sorobanInvokeWeight = parseOptionalParamOrDefault<uint32_t>(
+                map, "sorobaninvokeweight", 0);
+            if (!(mixCfg.payWeight || mixCfg.sorobanUploadWeight ||
+                  mixCfg.sorobanInvokeWeight))
             {
-                retStr = "At least one blend weight must be non-zero";
+                retStr = "At least one mix weight must be non-zero";
                 return;
             }
         }
