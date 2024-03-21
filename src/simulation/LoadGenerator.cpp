@@ -120,6 +120,10 @@ LoadGenerator::LoadGenerator(Application& app)
           mApp.getMetrics().NewMeter({"loadgen", "run", "complete"}, "run"))
     , mLoadgenFail(
           mApp.getMetrics().NewMeter({"loadgen", "run", "failed"}, "run"))
+    , mApplySorobanSuccess(
+          mApp.getMetrics().NewCounter({"ledger", "apply-soroban", "success"}))
+    , mApplySorobanFailure(
+          mApp.getMetrics().NewCounter({"ledger", "apply-soroban", "failure"}))
 {
 }
 
@@ -327,7 +331,8 @@ LoadGenerator::reset()
     mFailed = false;
     mStarted = false;
     mInitialAccountsCreated = false;
-    mInvokeTxHashes.clear();
+    mPreLoadgenApplySorobanSuccess = 0;
+    mPreLoadgenApplySorobanFailure = 0;
 }
 
 // Reset Soroban persistent state
@@ -424,18 +429,6 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
         checkDistribution(invokeCfg.instructionsIntervals,
                           invokeCfg.instructionsWeights, uint64_t{0},
                           uint64_t{5000000});
-
-        // Check minPercentSuccess requirements
-        invokeCfg.minPercentSuccess =
-            std::clamp(invokeCfg.minPercentSuccess, 0, 100);
-        if (invokeCfg.minPercentSuccess &&
-            !mApp.getConfig().MODE_STORES_HISTORY_MISC)
-        {
-            throw std::runtime_error(
-                "MODE_STORES_HISTORY_MISC must be enabled when running loadgen "
-                "in a mode that generates soroban invoke transactions with a "
-                "non-zero minimum acceptance percentage.");
-        }
     }
 
     if (cfg.mode != LoadGenMode::CREATE)
@@ -479,6 +472,11 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
     releaseAssert(!mStartTime);
     mStartTime =
         std::make_unique<VirtualClock::time_point>(mApp.getClock().now());
+
+    releaseAssert(!mPreLoadgenApplySorobanSuccess);
+    releaseAssert(!mPreLoadgenApplySorobanFailure);
+    mPreLoadgenApplySorobanSuccess = mApplySorobanSuccess.count();
+    mPreLoadgenApplySorobanFailure = mApplySorobanFailure.count();
 
     mStarted = true;
 }
@@ -688,6 +686,11 @@ GeneratedLoadConfig::getStatus() const
         ret["pay_weight"] = blendCfg.payWeight;
         ret["soroban_upload_weight"] = blendCfg.sorobanUploadWeight;
         ret["soroban_invoke_weight"] = blendCfg.sorobanInvokeWeight;
+    }
+
+    if (isSoroban())
+    {
+        ret["min_soroban_percent_success"] = minSorobanPercentSuccess;
     }
 
     return ret;
@@ -1460,7 +1463,6 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
             generateFee(cfg.maxGeneratedFeeRate, mApp,
                         /* opsCnt */ 1),
             resourceFee));
-    mInvokeTxHashes.emplace_back(tx->getContentsHash());
 
     return std::make_pair(account, tx);
 }
@@ -1959,40 +1961,27 @@ LoadGenerator::checkAccountSynced(Application& app, bool isCreate)
 }
 
 bool
-LoadGenerator::checkMinimumSorobanInvokeSuccess(GeneratedLoadConfig const& cfg)
+LoadGenerator::checkMinimumSorobanSuccess(GeneratedLoadConfig const& cfg)
 {
-    if (!cfg.modeInvokes())
+    if (!cfg.isSoroban())
     {
-        // Only applies to soroban invoke transactions
+        // Only applies to soroban modes
         return true;
     }
 
-    auto const& invokeCfg = cfg.getSorobanInvokeConfig();
-    if (invokeCfg.minPercentSuccess == 0)
+    int64_t nTxns =
+        mApplySorobanSuccess.count() + mApplySorobanFailure.count() -
+        mPreLoadgenApplySorobanSuccess - mPreLoadgenApplySorobanFailure;
+
+    if (nTxns == 0)
     {
-        // Vacuously true
+        // Special case to avoid division by zero
         return true;
     }
 
-    // Count the total number of invoke transactions included in blocks, as well
-    // as the number of those transactions that were successful.
-    size_t nInvokes = 0;
-    size_t nSuccessful = 0;
-    for (auto const& hash : mInvokeTxHashes)
-    {
-        std::optional<TransactionResult> txr =
-            loadTransactionResult(mApp.getDatabase(), hash);
-        if (txr)
-        {
-            ++nInvokes;
-            if (txr->result.code() == txSUCCESS)
-            {
-                ++nSuccessful;
-            }
-        }
-    }
-
-    return (nSuccessful * 100) / nInvokes >= invokeCfg.minPercentSuccess;
+    int64_t nSuccessful =
+        mApplySorobanSuccess.count() - mPreLoadgenApplySorobanSuccess;
+    return (nSuccessful * 100) / nTxns >= cfg.getMinSorobanPercentSuccess();
 }
 
 void
@@ -2011,7 +2000,7 @@ LoadGenerator::waitTillComplete(GeneratedLoadConfig cfg)
         cfg.isDone())
     {
         // Check whether run met the minimum success rate for soroban invoke
-        if (checkMinimumSorobanInvokeSuccess(cfg))
+        if (checkMinimumSorobanSuccess(cfg))
         {
             CLOG_INFO(LoadGen, "Load generation complete.");
             mLoadgenComplete.Mark();
@@ -2387,6 +2376,20 @@ GeneratedLoadConfig::getDexTxPercent() const
 {
     releaseAssert(mode == LoadGenMode::MIXED_TXS);
     return dexTxPercent;
+}
+
+uint32_t
+GeneratedLoadConfig::getMinSorobanPercentSuccess() const
+{
+    releaseAssert(isSoroban());
+    return minSorobanPercentSuccess;
+}
+
+void
+GeneratedLoadConfig::setMinSorobanPercentSuccess(uint32_t percent)
+{
+    releaseAssert(isSoroban());
+    minSorobanPercentSuccess = std::clamp(percent, uint32_t{0}, uint32_t{100});
 }
 
 bool

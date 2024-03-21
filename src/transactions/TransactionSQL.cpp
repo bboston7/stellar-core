@@ -386,31 +386,6 @@ storeTransaction(Database& db, uint32_t ledgerSeq,
     }
 }
 
-std::optional<TransactionResult>
-loadTransactionResult(Database& db, Hash const& txID)
-{
-    ZoneScoped;
-    std::string txResult64;
-    auto prep = db.getPreparedStatement("SELECT txresult FROM txhistory "
-                                        "WHERE txid = :id");
-    auto& st = prep.statement();
-    std::string txIDString = binToHex(txID);
-    st.exchange(soci::use(txIDString));
-    st.exchange(soci::into(txResult64));
-    st.define_and_bind();
-    st.execute(true);
-    if (st.got_data())
-    {
-        std::vector<uint8_t> result;
-        decoder::decode_b64(txResult64, result);
-        TransactionResultPair tr;
-        xdr::xdr_get g(&result.front(), &result.back() + 1);
-        xdr_argpack_archive(g, tr);
-        return tr.result;
-    }
-    return std::nullopt;
-}
-
 void
 storeTxSet(Database& db, uint32_t ledgerSeq, TxSetXDRFrame const& txSet)
 {

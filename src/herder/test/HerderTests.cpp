@@ -3853,10 +3853,12 @@ TEST_CASE("soroban txs accepted by the network",
         });
     }
     auto& loadGen = nodes[0]->getLoadGenerator();
-    auto& txsSucceeded =
-        nodes[0]->getMetrics().NewCounter({"ledger", "apply", "success"});
-    auto& txsFailed =
-        nodes[0]->getMetrics().NewCounter({"ledger", "apply", "failure"});
+    auto& classicTxsSucceeded = nodes[0]->getMetrics().NewCounter(
+        {"ledger", "apply-classic", "success"});
+    auto& classicTxsFailed = nodes[0]->getMetrics().NewCounter(
+        {"ledger", "apply-classic", "failure"});
+    auto& sorobanTxsSucceeded = nodes[0]->getMetrics().NewCounter(
+        {"ledger", "apply-soroban", "success"});
 
     // Generate some accounts
     auto& loadGenDone =
@@ -3868,9 +3870,11 @@ TEST_CASE("soroban txs accepted by the network",
         [&]() { return loadGenDone.count() > currLoadGenCount; },
         10 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
 
-    uint64_t lastSucceeded = txsSucceeded.count();
-    REQUIRE(lastSucceeded > 0);
-    REQUIRE(txsFailed.count() == 0);
+    uint64_t lastClassicSucceeded = classicTxsSucceeded.count();
+    uint64_t lastSorobanSucceeded = sorobanTxsSucceeded.count();
+    REQUIRE(lastClassicSucceeded > 0);
+    REQUIRE(classicTxsFailed.count() == 0);
+    REQUIRE(lastSorobanSucceeded == 0);
 
     SECTION("soroban only")
     {
@@ -3889,9 +3893,8 @@ TEST_CASE("soroban txs accepted by the network",
         // Make sure that a significant fraction of some soroban txs get
         // applied (some may fail due to exceeding the declared resource
         // limits or due to XDR parsing errors).
-        REQUIRE(txsSucceeded.count() - lastSucceeded > 50);
-
-        lastSucceeded = txsSucceeded.count();
+        lastSorobanSucceeded = sorobanTxsSucceeded.count();
+        REQUIRE(lastSorobanSucceeded > 50);
 
         SECTION("upgrade max soroban tx set size")
         {
@@ -3945,7 +3948,8 @@ TEST_CASE("soroban txs accepted by the network",
                 10 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
             REQUIRE(loadGenFailed.count() == 0);
             // Make sure some soroban txs get applied.
-            REQUIRE(txsSucceeded.count() - lastSucceeded > 50);
+            REQUIRE(sorobanTxsSucceeded.count() - lastSorobanSucceeded > 50);
+            lastSorobanSucceeded = sorobanTxsSucceeded.count();
             REQUIRE(upgradeApplied);
         }
     }
@@ -4001,8 +4005,12 @@ TEST_CASE("soroban txs accepted by the network",
         auto& secondLoadGenFailed = nodes[1]->getMetrics().NewMeter(
             {"loadgen", "run", "failed"}, "run");
         REQUIRE(secondLoadGenFailed.count() == 0);
+        // Check all classic txs got applied
+        REQUIRE(classicTxsSucceeded.count() - lastClassicSucceeded ==
+                classicTxCount);
+        REQUIRE(classicTxsFailed.count() == 0);
         // Make sure some soroban txs get applied.
-        REQUIRE(txsSucceeded.count() - lastSucceeded > classicTxCount + 20);
+        REQUIRE(sorobanTxsSucceeded.count() - lastSorobanSucceeded > 20);
     }
 }
 

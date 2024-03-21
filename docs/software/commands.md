@@ -417,9 +417,7 @@ format.
     require.  See the section on [specifying piecewise
     distributions](#specifying-piecewise-distributions) for more info on how to
     set these parameters.  `instances` and `wasms` parameters determine how
-    many unique contract instances and wasm entries will be used.  Lastly,
-    `minpercentsuccess` determines the minimum percentage of invocations that
-    must succeed at apply time for load generation to be considered successful.
+    many unique contract instances and wasm entries will be used.
   * `upgrade_setup` mode create soroban contract instance to be used by
     `create_upgrade`. This mode must be run before `create_upgrade`.
   * `create_upgrade` mode write a soroban upgrade set and returns the
@@ -447,6 +445,10 @@ format.
   * when `skiplowfeetxs` is set to `true` the transactions that are not accepted by
     the node due to having too low fee to pass the rate limiting are silently
     skipped. Otherwise (by default), such transactions would cause load generation to fail.
+
+  Soroban load generation also makes use of the `minpercentsuccess` parameter,
+  which determines the minimum percentage of Soroban transactions that must
+  succeed at apply time for load generation to be considered successful.
 
 * **manualclose**
   If MANUAL_CLOSE is set to true in the .cfg file, this will cause the current

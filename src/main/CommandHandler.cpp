@@ -1251,13 +1251,20 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
                 parseOptionalParamOrDefault<uint32_t>(map, "dextxpercent", 0);
         }
 
-        if (cfg.isSoroban() && cfg.mode != LoadGenMode::SOROBAN_UPLOAD)
+        if (cfg.isSoroban())
         {
-            auto& sorobanCfg = cfg.getMutSorobanConfig();
-            sorobanCfg.nInstances =
-                parseOptionalParamOrDefault<uint32_t>(map, "instances", 0);
-            sorobanCfg.nWasms =
-                parseOptionalParamOrDefault<uint32_t>(map, "wasms", 0);
+            uint32_t minPercentSuccess = parseOptionalParamOrDefault<uint32_t>(
+                map, "minpercentsuccess", 0);
+            cfg.setMinSorobanPercentSuccess(minPercentSuccess);
+            if (cfg.mode != LoadGenMode::SOROBAN_UPLOAD)
+            {
+
+                auto& sorobanCfg = cfg.getMutSorobanConfig();
+                sorobanCfg.nInstances =
+                    parseOptionalParamOrDefault<uint32_t>(map, "instances", 0);
+                sorobanCfg.nWasms =
+                    parseOptionalParamOrDefault<uint32_t>(map, "wasms", 0);
+            }
         }
 
         if (cfg.modeUploads())
@@ -1288,8 +1295,6 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
                 parseOptionalVectorParam<uint64_t>(map, "cpuintervals");
             invokeCfg.instructionsWeights =
                 parseOptionalVectorParam<uint32_t>(map, "cpuweights");
-            invokeCfg.minPercentSuccess = parseOptionalParamOrDefault<uint32_t>(
-                map, "minpercentsuccess", 0);
         }
         else if (cfg.mode == LoadGenMode::SOROBAN_CREATE_UPGRADE)
         {

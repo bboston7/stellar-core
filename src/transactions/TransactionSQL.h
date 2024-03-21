@@ -19,11 +19,6 @@ void storeTransaction(Database& db, uint32_t ledgerSeq,
                       TransactionMeta const& tm,
                       TransactionResultSet const& resultSet);
 
-// Get the transaction result for `txID` from the database `db`. Returns
-// `nullopt` if the transaction is not found.
-std::optional<TransactionResult> loadTransactionResult(Database& db,
-                                                       Hash const& txID);
-
 void storeTxSet(Database& db, uint32_t ledgerSeq, TxSetXDRFrame const& txSet);
 
 void storeTransactionFee(Database& db, uint32_t ledgerSeq,

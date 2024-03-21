@@ -88,10 +88,6 @@ struct GeneratedLoadConfig
         // Instruction count
         std::vector<uint64_t> instructionsIntervals = {};
         std::vector<uint32_t> instructionsWeights = {};
-
-        // Minimum percentage of successful invoke transactions for run to be
-        // considered successful.
-        int minPercentSuccess = 0;
     };
 
     // Config settings for SOROBAN_CREATE_UPGRADE
@@ -166,6 +162,8 @@ struct GeneratedLoadConfig
     BlendClassicSorobanConfig const& getBlendClassicSorobanConfig() const;
     uint32_t& getMutDexTxPercent();
     uint32_t const& getDexTxPercent() const;
+    uint32_t getMinSorobanPercentSuccess() const;
+    void setMinSorobanPercentSuccess(uint32_t minPercentSuccess);
 
     bool isCreate() const;
     bool isSoroban() const;
@@ -216,6 +214,10 @@ struct GeneratedLoadConfig
 
     // Percentage (from 0 to 100) of DEX transactions
     uint32_t dexTxPercent = 0;
+
+    // Minimum percentage of successful soroban transactions for run to be
+    // considered successful.
+    uint32_t minSorobanPercentSuccess = 0;
 };
 
 class LoadGenerator
@@ -236,7 +238,7 @@ class LoadGenerator
     // Returns true if at least `cfg.minPercentSuccess`% of the SOROBAN_INVOKE
     // load that made it into a block was successful. Always returns true for
     // modes that do not generate SOROBAN_INVOKE load.
-    bool checkMinimumSorobanInvokeSuccess(GeneratedLoadConfig const& cfg);
+    bool checkMinimumSorobanSuccess(GeneratedLoadConfig const& cfg);
 
     // Generate one "step" worth of load (assuming 1 step per STEP_MSECS) at a
     // given target number of accounts and txs, a given target tx/s rate, and
@@ -350,6 +352,15 @@ class LoadGenerator
     medida::Meter& mLoadgenComplete;
     medida::Meter& mLoadgenFail;
 
+    // Counts of soroban transactions that succeeded or failed at apply time
+    medida::Counter const& mApplySorobanSuccess;
+    medida::Counter const& mApplySorobanFailure;
+
+    // Counts of successful and failed soroban transactions prior to running
+    // loadgen
+    int64_t mPreLoadgenApplySorobanSuccess = 0;
+    int64_t mPreLoadgenApplySorobanFailure = 0;
+
     bool mFailed{false};
     bool mStarted{false};
     bool mInitialAccountsCreated{false};
@@ -371,10 +382,6 @@ class LoadGenerator
 
     // Mode used for last blended transaction
     LoadGenMode mLastBlendedMode;
-
-    // Hashes of generated SOROBAN_INVOKE transactions. Contains all generated
-    // transactions, not just those that the queue accepted.
-    std::vector<Hash> mInvokeTxHashes;
 
     void reset();
     void resetSorobanState();
