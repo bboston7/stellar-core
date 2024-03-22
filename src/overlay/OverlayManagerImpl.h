@@ -51,7 +51,8 @@ class OverlayManagerImpl : public OverlayManager
                            medida::MetricsRegistry& metricsRegistry,
                            std::string const& directionString,
                            std::string const& cancelledName,
-                           int maxAuthenticatedCount);
+                           int maxAuthenticatedCount,
+                           std::shared_ptr<SurveyManager> sm);
 
         medida::Meter& mConnectionsAttempted;
         medida::Meter& mConnectionsEstablished;
@@ -61,6 +62,7 @@ class OverlayManagerImpl : public OverlayManager
         OverlayManagerImpl& mOverlayManager;
         std::string mDirectionString;
         size_t mMaxAuthenticatedCount;
+        std::shared_ptr<SurveyManager> mSurveyManager;
 
         std::vector<Peer::pointer> mPending;
         std::map<NodeID, Peer::pointer> mAuthenticated;
@@ -71,9 +73,6 @@ class OverlayManagerImpl : public OverlayManager
         bool acceptAuthenticatedPeer(Peer::pointer peer);
         void shutdown();
     };
-
-    PeersList mInboundPeers;
-    PeersList mOutboundPeers;
 
     std::shared_ptr<int> mLiveInboundPeersCounter;
 
@@ -102,6 +101,37 @@ class OverlayManagerImpl : public OverlayManager
 
     std::shared_ptr<SurveyManager> mSurveyManager;
 
+    PeersList mInboundPeers;
+    PeersList mOutboundPeers;
+
+    // This gets called once when starting
+    // and it continues to call itself every FLOOD_DEMAND_PERIOD_MS.
+    void demand();
+    VirtualTimer mDemandTimer;
+    struct DemandHistory
+    {
+        VirtualClock::time_point firstDemanded;
+        VirtualClock::time_point lastDemanded;
+        UnorderedMap<NodeID, VirtualClock::time_point> peers;
+        bool latencyRecorded{false};
+    };
+    UnorderedMap<Hash, DemandHistory> mDemandHistoryMap;
+
+    std::queue<Hash> mPendingDemands;
+    enum class DemandStatus
+    {
+        DEMAND,      // Demand
+        RETRY_LATER, // The timer hasn't expired, and we need to come back to
+                     // this.
+        DISCARD      // We should never demand this txn from this peer.
+    };
+    DemandStatus demandStatus(Hash const& txHash, Peer::pointer) const;
+
+    // After `MAX_RETRY_COUNT` attempts with linear back-off, we assume that
+    // no one has the transaction.
+    int const MAX_RETRY_COUNT = 15;
+    std::chrono::milliseconds retryDelayDemand(int numAttemptsMade) const;
+    size_t getMaxDemandSize() const;
     int availableOutboundPendingSlots() const;
 
   public:
@@ -115,9 +145,9 @@ class OverlayManagerImpl : public OverlayManager
                          Peer::pointer peer) override;
     void forgetFloodedMsg(Hash const& msgID) override;
     void recvTxDemand(FloodDemand const& dmd, Peer::pointer peer) override;
-    bool
-    broadcastMessage(StellarMessage const& msg,
-                     std::optional<Hash> const hash = std::nullopt) override;
+    bool broadcastMessage(StellarMessage const& msg,
+                          std::optional<Hash> const hash = std::nullopt,
+                          uint32_t minOverlayVersion = 0) override;
     void connectTo(PeerBareAddress const& address) override;
 
     void maybeAddInboundConnection(Peer::pointer peer) override;

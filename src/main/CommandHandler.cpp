@@ -102,6 +102,10 @@ CommandHandler::CommandHandler(Application& app) : mApp(app)
 #ifndef BUILD_TESTS
         addRoute("getsurveyresult", &CommandHandler::getSurveyResult);
         addRoute("surveytopology", &CommandHandler::surveyTopology);
+        addRoute("startsurveycollecting",
+                 &CommandHandler::startSurveyCollecting);
+        addRoute("stopsurveycollecting", &CommandHandler::stopSurveyCollecting);
+        addRoute("surveytimeslicedata", &CommandHandler::surveyTimeSliceData);
 #endif
         addRoute("unban", &CommandHandler::unban);
     }
@@ -125,6 +129,9 @@ CommandHandler::CommandHandler(Application& app) : mApp(app)
     addRoute("testtx", &CommandHandler::testTx);
     addRoute("getsurveyresult", &CommandHandler::getSurveyResult);
     addRoute("surveytopology", &CommandHandler::surveyTopology);
+    addRoute("startsurveycollecting", &CommandHandler::startSurveyCollecting);
+    addRoute("stopsurveycollecting", &CommandHandler::stopSurveyCollecting);
+    addRoute("surveytimeslicedata", &CommandHandler::surveyTimeSliceData);
 #endif
 }
 
@@ -1125,16 +1132,27 @@ CommandHandler::clearMetrics(std::string const& params, std::string& retStr)
 }
 
 void
-CommandHandler::surveyTopology(std::string const& params, std::string& retStr)
+CommandHandler::checkBooted() const
 {
-    ZoneScoped;
-
     if (mApp.getState() == Application::APP_CREATED_STATE ||
         mApp.getHerder().getState() == Herder::HERDER_BOOTING_STATE)
     {
         throw std::runtime_error(
             "Application is not fully booted, try again later");
     }
+}
+
+void
+CommandHandler::surveyTopology(std::string const& params, std::string& retStr)
+{
+    ZoneScoped;
+
+    CLOG_WARNING(
+        Overlay,
+        "`surveytopology` is deprecated and will be removed in a future "
+        "release.  Please use the new time sliced survey interface.");
+
+    checkBooted();
 
     std::map<std::string, std::string> map;
     http::server::server::parseParams(params, map);
@@ -1146,11 +1164,12 @@ CommandHandler::surveyTopology(std::string const& params, std::string& retStr)
 
     auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
 
-    bool success = surveyManager.startSurvey(
+    bool success = surveyManager.startSurveyReporting(
         SurveyMessageCommandType::SURVEY_TOPOLOGY, duration);
 
     surveyManager.addNodeToRunningSurveyBacklog(
-        SurveyMessageCommandType::SURVEY_TOPOLOGY, duration, id);
+        SurveyMessageCommandType::SURVEY_TOPOLOGY, duration, id, std::nullopt,
+        std::nullopt);
     retStr = "Adding node.";
 
     retStr += success ? "Survey started " : "Survey already running!";
@@ -1161,7 +1180,7 @@ CommandHandler::stopSurvey(std::string const&, std::string& retStr)
 {
     ZoneScoped;
     auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
-    surveyManager.stopSurvey();
+    surveyManager.stopSurveyReporting();
     retStr = "survey stopped";
 }
 
@@ -1171,6 +1190,78 @@ CommandHandler::getSurveyResult(std::string const&, std::string& retStr)
     ZoneScoped;
     auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
     retStr = surveyManager.getJsonResults().toStyledString();
+}
+
+void
+CommandHandler::startSurveyCollecting(std::string const& params,
+                                      std::string& retStr)
+{
+    ZoneScoped;
+    checkBooted();
+
+    std::map<std::string, std::string> map;
+    http::server::server::parseParams(params, map);
+
+    uint32_t const nonce = parseRequiredParam<uint32_t>(map, "nonce");
+
+    auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
+    if (surveyManager.broadcastStartSurveyCollecting(nonce))
+    {
+        retStr = "Requested network to start survey collecting.";
+    }
+    else
+    {
+        retStr = "Failed to start survey collecting. Another survey is active "
+                 "on the network.";
+    }
+}
+
+void
+CommandHandler::stopSurveyCollecting(std::string const& params,
+                                     std::string& retStr)
+{
+    ZoneScoped;
+    checkBooted();
+
+    std::map<std::string, std::string> map;
+    http::server::server::parseParams(params, map);
+
+    uint32_t const nonce = parseRequiredParam<uint32_t>(map, "nonce");
+
+    auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
+    surveyManager.broadcastStopSurveyCollecting(nonce);
+    retStr = "Requested network to stop survey collecting.";
+}
+
+void
+CommandHandler::surveyTimeSliceData(std::string const& params,
+                                    std::string& retStr)
+{
+    ZoneScoped;
+    checkBooted();
+
+    std::map<std::string, std::string> map;
+    http::server::server::parseParams(params, map);
+
+    auto duration =
+        std::chrono::seconds(parseRequiredParam<uint32>(map, "duration"));
+    auto idString = parseRequiredParam<std::string>(map, "node");
+    NodeID id = KeyUtils::fromStrKey<NodeID>(idString);
+    auto inboundPeerIndex = parseRequiredParam<uint32>(map, "inboundpeerindex");
+    auto outboundPeerIndex =
+        parseRequiredParam<uint32>(map, "outboundpeerindex");
+
+    auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
+
+    bool success = surveyManager.startSurveyReporting(
+        SurveyMessageCommandType::TIME_SLICED_SURVEY_TOPOLOGY, duration);
+
+    surveyManager.addNodeToRunningSurveyBacklog(
+        SurveyMessageCommandType::TIME_SLICED_SURVEY_TOPOLOGY, duration, id,
+        inboundPeerIndex, outboundPeerIndex);
+    retStr = "Adding node.";
+
+    retStr += success ? "Survey started " : "Survey already running!";
 }
 
 #ifdef BUILD_TESTS

@@ -22,6 +22,7 @@
 #include "overlay/PeerAuth.h"
 #include "overlay/PeerManager.h"
 #include "overlay/StellarXDR.h"
+#include "overlay/SurveyDataManager.h"
 #include "overlay/SurveyManager.h"
 #include "overlay/TxAdverts.h"
 #include "util/Decoder.h"
@@ -615,6 +616,10 @@ Peer::msgSummary(StellarMessage const& msg)
 
     case SURVEY_REQUEST:
     case SURVEY_RESPONSE:
+    case TIME_SLICED_SURVEY_REQUEST:
+    case TIME_SLICED_SURVEY_RESPONSE:
+    case TIME_SLICED_SURVEY_START_COLLECTING:
+    case TIME_SLICED_SURVEY_STOP_COLLECTING:
         return SurveyManager::getMsgSummary(msg);
     case SEND_MORE:
         return "SENDMORE";
@@ -678,10 +683,18 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
         mOverlayMetrics.mSendGetSCPStateMeter.Mark();
         break;
     case SURVEY_REQUEST:
+    case TIME_SLICED_SURVEY_REQUEST:
         mOverlayMetrics.mSendSurveyRequestMeter.Mark();
         break;
     case SURVEY_RESPONSE:
+    case TIME_SLICED_SURVEY_RESPONSE:
         mOverlayMetrics.mSendSurveyResponseMeter.Mark();
+        break;
+    case TIME_SLICED_SURVEY_START_COLLECTING:
+        getOverlayMetrics().mSendStartSurveyCollectingMeter.Mark();
+        break;
+    case TIME_SLICED_SURVEY_STOP_COLLECTING:
+        getOverlayMetrics().mSendStopSurveyCollectingMeter.Mark();
         break;
     case SEND_MORE:
     case SEND_MORE_EXTENDED:
@@ -963,6 +976,7 @@ Peer::recvRawMessage(StellarMessage const& stellarMsg)
     break;
 
     case SURVEY_REQUEST:
+    case TIME_SLICED_SURVEY_REQUEST:
     {
         auto t = mOverlayMetrics.mRecvSurveyRequestTimer.TimeScope();
         recvSurveyRequestMessage(stellarMsg);
@@ -970,9 +984,25 @@ Peer::recvRawMessage(StellarMessage const& stellarMsg)
     break;
 
     case SURVEY_RESPONSE:
+    case TIME_SLICED_SURVEY_RESPONSE:
     {
         auto t = mOverlayMetrics.mRecvSurveyResponseTimer.TimeScope();
         recvSurveyResponseMessage(stellarMsg);
+    }
+    break;
+
+    case TIME_SLICED_SURVEY_START_COLLECTING:
+    {
+        auto t =
+            getOverlayMetrics().mRecvStartSurveyCollectingTimer.TimeScope();
+        recvSurveyStartCollectingMessage(stellarMsg);
+    }
+    break;
+
+    case TIME_SLICED_SURVEY_STOP_COLLECTING:
+    {
+        auto t = getOverlayMetrics().mRecvStopSurveyCollectingTimer.TimeScope();
+        recvSurveyStopCollectingMessage(stellarMsg);
     }
     break;
 
@@ -1170,6 +1200,12 @@ Peer::maybeProcessPingResponse(Hash const& id)
             CLOG_DEBUG(Overlay, "Latency {}: {} ms", toString(),
                        mLastPing.count());
             mOverlayMetrics.mConnectionLatencyTimer.Update(mLastPing);
+            mApp.getOverlayManager().getSurveyManager().modifyPeerData(
+                *this, [&](CollectingPeerData& peerData) {
+                    peerData.mLatencyTimer.Update(
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            mLastPing));
+                });
         }
     }
 }
@@ -1665,6 +1701,22 @@ Peer::recvSurveyResponseMessage(StellarMessage const& msg)
 {
     ZoneScoped;
     mAppConnector.getOverlayManager().getSurveyManager().relayOrProcessResponse(
+        msg, shared_from_this());
+}
+
+void
+Peer::recvSurveyStartCollectingMessage(StellarMessage const& msg)
+{
+    ZoneScoped;
+    mApp.getOverlayManager().getSurveyManager().relayStartSurveyCollecting(
+        msg, shared_from_this());
+}
+
+void
+Peer::recvSurveyStopCollectingMessage(StellarMessage const& msg)
+{
+    ZoneScoped;
+    mApp.getOverlayManager().getSurveyManager().relayStopSurveyCollecting(
         msg, shared_from_this());
 }
 

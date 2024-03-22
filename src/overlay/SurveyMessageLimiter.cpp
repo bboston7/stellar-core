@@ -5,6 +5,7 @@
 #include "SurveyMessageLimiter.h"
 #include "herder/Herder.h"
 #include "main/Application.h"
+#include "overlay/SurveyDataManager.h"
 
 namespace stellar
 {
@@ -136,6 +137,57 @@ SurveyMessageLimiter::recordAndValidateResponse(
 
     // mark response as seen
     surveyedIt->second = true;
+    return true;
+}
+
+bool
+SurveyMessageLimiter::validateStartSurveyCollecting(
+    TimeSlicedSurveyStartCollectingMessage const& startSurvey,
+    SurveyDataManager& surveyDataManager,
+    std::function<bool()> onSuccessValidation)
+{
+    if (!surveyLedgerNumValid(startSurvey.ledgerNum))
+    {
+        // Request too old (or otherwise invalid)
+        return false;
+    }
+
+    if (surveyDataManager.surveyIsActive())
+    {
+        // Survey already active, toss
+        return false;
+    }
+
+    if (!onSuccessValidation())
+    {
+        return false;
+    }
+
+    // Unlike survey versions 0 and 1, we do not need to check for too many
+    // surveys in flight as V2 only allows a single survey at a time, enforced
+    // via the `SurveyDataManager`.
+    return true;
+}
+
+bool
+SurveyMessageLimiter::validateStopSurveyCollecting(
+    TimeSlicedSurveyStopCollectingMessage const& stopSurvey,
+    std::function<bool()> onSuccessValidation)
+{
+    if (!surveyLedgerNumValid(stopSurvey.ledgerNum))
+    {
+        // Request too old (or otherwise invalid)
+        return false;
+    }
+
+    if (!onSuccessValidation())
+    {
+        return false;
+    }
+
+    // Unlike survey versions 0 and 1, we do not need to check for too many
+    // surveys in flight as V2 only allows a single survey at a time, enforced
+    // via the `SurveyDataManager`.
     return true;
 }
 

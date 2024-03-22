@@ -249,6 +249,8 @@ class Peer : public std::enable_shared_from_this<Peer>,
     void recvPeers(StellarMessage const& msg);
     void recvSurveyRequestMessage(StellarMessage const& msg);
     void recvSurveyResponseMessage(StellarMessage const& msg);
+    void recvSurveyStartCollectingMessage(StellarMessage const& msg);
+    void recvSurveyStopCollectingMessage(StellarMessage const& msg);
     void recvSendMore(StellarMessage const& msg);
 
     void recvGetTxSet(StellarMessage const& msg);
@@ -371,13 +373,19 @@ class Peer : public std::enable_shared_from_this<Peer>,
     }
 
     NodeID
-    getPeerID()
+    getPeerID() const
     {
         return mPeerID;
     }
 
     PeerMetrics&
     getPeerMetrics()
+    {
+        return mPeerMetrics;
+    }
+
+    PeerMetrics const&
+    getPeerMetrics() const
     {
         return mPeerMetrics;
     }
