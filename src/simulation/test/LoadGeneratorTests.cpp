@@ -395,7 +395,7 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
 
     invokeLoadCfg.getMutSorobanConfig().nInstances = numInstances;
     constexpr int maxInvokeFail = 5;
-    invokeLoadCfg.setMinSorobanPercentSuccess(0); //100 - maxInvokeFail);
+    invokeLoadCfg.setMinSorobanPercentSuccess(100 - maxInvokeFail);
 
     // Use tight bounds to we can verify storage works properly
     auto& invokeCfg = invokeLoadCfg.getMutSorobanInvokeConfig();
@@ -441,151 +441,151 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         REQUIRE(txsFailed.count() < maxInvokeFail);
     }
 
-    // auto instanceKeys = loadGen.getContractInstanceKeysForTesting();
-    // auto codeKeyOp = loadGen.getCodeKeyForTesting();
-    // REQUIRE(codeKeyOp);
-    // REQUIRE(codeKeyOp->type() == CONTRACT_CODE);
-    // REQUIRE(instanceKeys.size() == static_cast<size_t>(numInstances));
+    auto instanceKeys = loadGen.getContractInstanceKeysForTesting();
+    auto codeKeyOp = loadGen.getCodeKeyForTesting();
+    REQUIRE(codeKeyOp);
+    REQUIRE(codeKeyOp->type() == CONTRACT_CODE);
+    REQUIRE(instanceKeys.size() == static_cast<size_t>(numInstances));
 
-    // // Check that each key is unique and exists in the DB
-    // // This ugly math mimics what we do in loadgen, where we calculate the total
-    // // number of bytes we can write, then divide the bytes between the number of
-    // // data entries we want to write and convert this value back to
-    // // kilobytes for the contract invocation. Thus we need to redundantly divide
-    // // then multiply by 1024 to mimic rounding behavior.
-    // // TODO: This shows the contract overhead bytes! Should it really be in the
-    // // numerator here? Or should it be subtracted after the division? Why would
-    // // it be spread out over the number of data entries? On second thought, I
-    // // think it might just be awkwardly handled here and it's fine to be in the
-    // // numerator?
-    // auto expectedDataEntrySize =
-    //     (ioBytes - loadGen.getContactOverheadBytesForTesting()) /
-    //     numDataEntries;
+    // Check that each key is unique and exists in the DB
+    // This ugly math mimics what we do in loadgen, where we calculate the total
+    // number of bytes we can write, then divide the bytes between the number of
+    // data entries we want to write and convert this value back to
+    // kilobytes for the contract invocation. Thus we need to redundantly divide
+    // then multiply by 1024 to mimic rounding behavior.
+    // TODO: This shows the contract overhead bytes! Should it really be in the
+    // numerator here? Or should it be subtracted after the division? Why would
+    // it be spread out over the number of data entries? On second thought, I
+    // think it might just be awkwardly handled here and it's fine to be in the
+    // numerator?
+    auto expectedDataEntrySize =
+        (ioBytes - loadGen.getContactOverheadBytesForTesting()) /
+        numDataEntries;
 
-    // UnorderedSet<LedgerKey> keys;
-    // for (auto const& instanceKey : instanceKeys)
-    // {
-    //     REQUIRE(instanceKey.type() == CONTRACT_DATA);
-    //     REQUIRE(instanceKey.contractData().key.type() ==
-    //             SCV_LEDGER_KEY_CONTRACT_INSTANCE);
-    //     REQUIRE(keys.find(instanceKey) == keys.end());
-    //     keys.insert(instanceKey);
+    UnorderedSet<LedgerKey> keys;
+    for (auto const& instanceKey : instanceKeys)
+    {
+        REQUIRE(instanceKey.type() == CONTRACT_DATA);
+        REQUIRE(instanceKey.contractData().key.type() ==
+                SCV_LEDGER_KEY_CONTRACT_INSTANCE);
+        REQUIRE(keys.find(instanceKey) == keys.end());
+        keys.insert(instanceKey);
 
-    //     auto const& contractID = instanceKey.contractData().contract;
-    //     for (auto i = 0; i < numDataEntries; ++i)
-    //     {
-    //         auto lk = contractDataKey(contractID, txtest::makeU32(i),
-    //                                   ContractDataDurability::PERSISTENT);
+        auto const& contractID = instanceKey.contractData().contract;
+        for (auto i = 0; i < numDataEntries; ++i)
+        {
+            auto lk = contractDataKey(contractID, txtest::makeU32(i),
+                                      ContractDataDurability::PERSISTENT);
 
-    //         LedgerTxn ltx(app.getLedgerTxnRoot());
-    //         auto entry = ltx.load(lk);
-    //         REQUIRE(entry);
-    //         uint32_t sizeBytes =
-    //             static_cast<uint32_t>(xdr::xdr_size(entry.current()));
-    //         REQUIRE((sizeBytes > expectedDataEntrySize &&
-    //                  sizeBytes < 100 + expectedDataEntrySize));
+            LedgerTxn ltx(app.getLedgerTxnRoot());
+            auto entry = ltx.load(lk);
+            REQUIRE(entry);
+            uint32_t sizeBytes =
+                static_cast<uint32_t>(xdr::xdr_size(entry.current()));
+            REQUIRE((sizeBytes > expectedDataEntrySize &&
+                     sizeBytes < 100 + expectedDataEntrySize));
 
-    //         REQUIRE(keys.find(lk) == keys.end());
-    //         keys.insert(lk);
-    //     }
-    // }
+            REQUIRE(keys.find(lk) == keys.end());
+            keys.insert(lk);
+        }
+    }
 
-    // // Test MIXED_CLASSIC_SOROBAN mode
-    // SECTION("Mix with classic")
-    // {
-    //     constexpr uint32_t numMixedTxs = 200;
-    //     auto mixLoadCfg = GeneratedLoadConfig::txLoad(
-    //         LoadGenMode::MIXED_CLASSIC_SOROBAN, nAccounts, numMixedTxs,
-    //         /* txRate */ 1);
+    // Test MIXED_CLASSIC_SOROBAN mode
+    SECTION("Mix with classic")
+    {
+        constexpr uint32_t numMixedTxs = 200;
+        auto mixLoadCfg = GeneratedLoadConfig::txLoad(
+            LoadGenMode::MIXED_CLASSIC_SOROBAN, nAccounts, numMixedTxs,
+            /* txRate */ 1);
 
-    //     auto& mixCfg = mixLoadCfg.getMutMixClassicSorobanConfig();
-    //     mixCfg.payWeight = 50;
-    //     mixCfg.sorobanInvokeWeight = 45;
-    //     constexpr uint32_t uploadWeight = 5;
-    //     mixCfg.sorobanUploadWeight = uploadWeight;
+        auto& mixCfg = mixLoadCfg.getMutMixClassicSorobanConfig();
+        mixCfg.payWeight = 50;
+        mixCfg.sorobanInvokeWeight = 45;
+        constexpr uint32_t uploadWeight = 5;
+        mixCfg.sorobanUploadWeight = uploadWeight;
 
-    //     auto& mixInvokeCfg = mixLoadCfg.getMutSorobanInvokeConfig();
-    //     mixInvokeCfg.nDataEntriesIntervals = {numDataEntries,
-    //                                           numDataEntries + 1};
-    //     mixInvokeCfg.nDataEntriesWeights = {1};
-    //     mixInvokeCfg.ioBytesIntervals = {ioBytes, ioBytes + 1};
-    //     mixInvokeCfg.ioBytesWeights = {1};
+        auto& mixInvokeCfg = mixLoadCfg.getMutSorobanInvokeConfig();
+        mixInvokeCfg.nDataEntriesIntervals = {numDataEntries,
+                                              numDataEntries + 1};
+        mixInvokeCfg.nDataEntriesWeights = {1};
+        mixInvokeCfg.ioBytesIntervals = {ioBytes, ioBytes + 1};
+        mixInvokeCfg.ioBytesWeights = {1};
 
-    //     mixInvokeCfg.txSizeBytesIntervals = {0, 40'000, 60'000, 100'000};
-    //     mixInvokeCfg.txSizeBytesWeights = {1, 2, 1};
-    //     mixInvokeCfg.instructionsIntervals = {0, 5'000'000, 10'000'000};
-    //     mixInvokeCfg.instructionsWeights = {3, 2};
+        mixInvokeCfg.txSizeBytesIntervals = {0, 40'000, 60'000, 100'000};
+        mixInvokeCfg.txSizeBytesWeights = {1, 2, 1};
+        mixInvokeCfg.instructionsIntervals = {0, 5'000'000, 10'000'000};
+        mixInvokeCfg.instructionsWeights = {3, 2};
 
-    //     // Because we can't preflight TXs, some invocations will fail due to too
-    //     // few resources. This is expected, as our instruction counts are
-    //     // approximations. Additionally, many upload transactions will fail as
-    //     // they are likely to generate invalid wasm. Therefore, we check that
-    //     // all but `maxInvokeFail + 1.5 * uploadWeight` transactions succeed. In
-    //     // case the random sampling produces more upload transactions than
-    //     // expected, we allow for a 50% margin of error on the number of upload
-    //     // transactions.
-    //     constexpr int maxSorobanFail = 1.5 * uploadWeight + maxInvokeFail;
-    //     mixLoadCfg.setMinSorobanPercentSuccess(100 - maxSorobanFail);
+        // Because we can't preflight TXs, some invocations will fail due to too
+        // few resources. This is expected, as our instruction counts are
+        // approximations. Additionally, many upload transactions will fail as
+        // they are likely to generate invalid wasm. Therefore, we check that
+        // all but `maxInvokeFail + 1.5 * uploadWeight` transactions succeed. In
+        // case the random sampling produces more upload transactions than
+        // expected, we allow for a 50% margin of error on the number of upload
+        // transactions.
+        constexpr int maxSorobanFail = 1.5 * uploadWeight + maxInvokeFail;
+        mixLoadCfg.setMinSorobanPercentSuccess(100 - maxSorobanFail);
 
-    //     loadGen.generateLoad(mixLoadCfg);
-    //     auto numSuccessBefore = getSuccessfulTxCount();
-    //     auto numFailedBefore =
-    //         app.getMetrics()
-    //             .NewCounter({"ledger", "apply-soroban", "failure"})
-    //             .count();
-    //     simulation->crankUntil(
-    //         [&]() {
-    //             return app.getMetrics()
-    //                        .NewMeter({"loadgen", "run", "complete"}, "run")
-    //                        .count() == 6;
-    //         },
-    //         300 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+        loadGen.generateLoad(mixLoadCfg);
+        auto numSuccessBefore = getSuccessfulTxCount();
+        auto numFailedBefore =
+            app.getMetrics()
+                .NewCounter({"ledger", "apply-soroban", "failure"})
+                .count();
+        simulation->crankUntil(
+            [&]() {
+                return app.getMetrics()
+                           .NewMeter({"loadgen", "run", "complete"}, "run")
+                           .count() == 6;
+            },
+            300 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
 
-    //     // Check results
-    //     for (auto node : nodes)
-    //     {
-    //         // All classic transactions should succeed
-    //         auto& classicSucceeded = node->getMetrics().NewCounter(
-    //             {"ledger", "apply-classic", "success"});
-    //         auto& classicFailed = node->getMetrics().NewCounter(
-    //             {"ledger", "apply-classic", "failure"});
-    //         REQUIRE(classicFailed.count() == 0);
-    //         int64_t classicTotal = classicSucceeded.count();
+        // Check results
+        for (auto node : nodes)
+        {
+            // All classic transactions should succeed
+            auto& classicSucceeded = node->getMetrics().NewCounter(
+                {"ledger", "apply-classic", "success"});
+            auto& classicFailed = node->getMetrics().NewCounter(
+                {"ledger", "apply-classic", "failure"});
+            REQUIRE(classicFailed.count() == 0);
+            int64_t classicTotal = classicSucceeded.count();
 
-    //         // Check soroban results
-    //         auto& sorobanSucceeded = node->getMetrics().NewCounter(
-    //             {"ledger", "apply-soroban", "success"});
-    //         auto& sorobanFailed = node->getMetrics().NewCounter(
-    //             {"ledger", "apply-soroban", "failure"});
-    //         REQUIRE(sorobanSucceeded.count() > numSuccessBefore + numMixedTxs -
-    //                                                classicTotal -
-    //                                                maxSorobanFail);
-    //         REQUIRE(sorobanFailed.count() <= maxSorobanFail + numFailedBefore);
-    //     }
-    // }
+            // Check soroban results
+            auto& sorobanSucceeded = node->getMetrics().NewCounter(
+                {"ledger", "apply-soroban", "success"});
+            auto& sorobanFailed = node->getMetrics().NewCounter(
+                {"ledger", "apply-soroban", "failure"});
+            REQUIRE(sorobanSucceeded.count() > numSuccessBefore + numMixedTxs -
+                                                   classicTotal -
+                                                   maxSorobanFail);
+            REQUIRE(sorobanFailed.count() <= maxSorobanFail + numFailedBefore);
+        }
+    }
 
-    // // Test invoke mode with too many transactions that fail to apply
-    // SECTION("Invoke with too many failed transactions")
-    // {
-    //     auto invokeFailCfg = GeneratedLoadConfig::txLoad(
-    //         LoadGenMode::SOROBAN_INVOKE, nAccounts, numSorobanTxs,
-    //         /* txRate */ 1);
+    // Test invoke mode with too many transactions that fail to apply
+    SECTION("Invoke with too many failed transactions")
+    {
+        auto invokeFailCfg = GeneratedLoadConfig::txLoad(
+            LoadGenMode::SOROBAN_INVOKE, nAccounts, numSorobanTxs,
+            /* txRate */ 1);
 
-    //     invokeFailCfg.getMutSorobanConfig().nInstances = numInstances;
+        invokeFailCfg.getMutSorobanConfig().nInstances = numInstances;
 
-    //     // Set success percentage to 100% and leave other parameters at default.
-    //     invokeFailCfg.setMinSorobanPercentSuccess(100);
+        // Set success percentage to 100% and leave other parameters at default.
+        invokeFailCfg.setMinSorobanPercentSuccess(100);
 
-    //     // LoadGen should fail
-    //     loadGen.generateLoad(invokeFailCfg);
-    //     simulation->crankUntil(
-    //         [&]() {
-    //             return app.getMetrics()
-    //                        .NewMeter({"loadgen", "run", "failed"}, "run")
-    //                        .count() == 1;
-    //         },
-    //         300 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
-    // }
+        // LoadGen should fail
+        loadGen.generateLoad(invokeFailCfg);
+        simulation->crankUntil(
+            [&]() {
+                return app.getMetrics()
+                           .NewMeter({"loadgen", "run", "failed"}, "run")
+                           .count() == 1;
+            },
+            300 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+    }
 }
 
 TEST_CASE("Multi-op pretend transactions are valid", "[loadgen]")
