@@ -1534,6 +1534,8 @@ LedgerManagerImpl::applyTransactions(
             if (tx->isSoroban())
             {
                 ++sorobanTxSucceeded;
+                std::cout << "Soroban tx success:"
+                          << std::endl;
             }
             else
             {
@@ -1545,6 +1547,8 @@ LedgerManagerImpl::applyTransactions(
             if (tx->isSoroban())
             {
                 ++sorobanTxFailed;
+                std::cout << "Soroban tx failed: " << results.result.result.code()
+                          << std::endl;
             }
             else
             {

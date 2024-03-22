@@ -62,10 +62,11 @@ git = "https://github.com/stellar/rs-soroban-env"
 package = "soroban-env-host"
 rev = "fc602f26deea647d73393a9c2c88f522646f7400"
 
+# TODO: Update after merging new loadgen contract. Also figure out how to set version
 [dependencies.soroban-test-wasms]
-version = "=20.2.0"
-git = "https://github.com/stellar/rs-soroban-env"
-rev = "1bfc0f2a2ee134efc1e1b0d5270281d0cba61c2e"
+#version = "=20.2.0"
+git = "https://github.com/bboston7/rs-soroban-env"
+rev = "bbaef35ba40865c59c146608807eaa6f8c8d09e9"
 
 [dependencies.soroban-synth-wasm]
 version = "=20.2.0"

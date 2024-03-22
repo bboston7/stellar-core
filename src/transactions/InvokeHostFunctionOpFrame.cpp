@@ -428,6 +428,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
             if (!validateContractLedgerEntry(lk, entrySize, sorobanConfig,
                                              appConfig, mParentTx))
             {
+                std::cout << "invoke fail 1" << std::endl;
                 this->innerResult().code(
                     INVOKE_HOST_FUNCTION_RESOURCE_LIMIT_EXCEEDED);
                 return false;
@@ -441,6 +442,8 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
                     {makeU64SCVal(metrics.mLedgerReadByte),
                      makeU64SCVal(resources.readBytes)});
 
+                // TODO: This is where it's failing
+                std::cout << "invoke fail 2" << std::endl;
                 this->innerResult().code(
                     INVOKE_HOST_FUNCTION_RESOURCE_LIMIT_EXCEEDED);
                 return false;
@@ -518,6 +521,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
                 "operation instructions exceeds amount specified",
                 {makeU64SCVal(out.cpu_insns),
                  makeU64SCVal(resources.instructions)});
+            std::cout << "invoke fail 3" << std::endl;
             innerResult().code(INVOKE_HOST_FUNCTION_RESOURCE_LIMIT_EXCEEDED);
         }
         else if (sorobanConfig.txMemoryLimit() < out.mem_bytes)
@@ -527,6 +531,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
                 "operation memory usage exceeds network config limit",
                 {makeU64SCVal(out.mem_bytes),
                  makeU64SCVal(sorobanConfig.txMemoryLimit())});
+            std::cout << "invoke fail 4" << std::endl;
             innerResult().code(INVOKE_HOST_FUNCTION_RESOURCE_LIMIT_EXCEEDED);
         }
         else
@@ -546,6 +551,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
         if (!validateContractLedgerEntry(LedgerEntryKey(le), buf.data.size(),
                                          sorobanConfig, appConfig, mParentTx))
         {
+            std::cout << "invoke fail 5" << std::endl;
             innerResult().code(INVOKE_HOST_FUNCTION_RESOURCE_LIMIT_EXCEEDED);
             return false;
         }
@@ -568,6 +574,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
                     "operation byte-write resources exceeds amount specified",
                     {makeU64SCVal(metrics.mLedgerWriteByte),
                      makeU64SCVal(resources.writeBytes)});
+                std::cout << "invoke fail 6" << std::endl;
                 innerResult().code(
                     INVOKE_HOST_FUNCTION_RESOURCE_LIMIT_EXCEEDED);
                 return false;
@@ -643,6 +650,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
                 "total events size exceeds network config maximum",
                 {makeU64SCVal(metrics.mEmitEventByte),
                  makeU64SCVal(sorobanConfig.txMaxContractEventsSizeBytes())});
+            std::cout << "invoke fail 7" << std::endl;
             innerResult().code(INVOKE_HOST_FUNCTION_RESOURCE_LIMIT_EXCEEDED);
             return false;
         }
@@ -661,6 +669,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
             "return value pushes events size above network config maximum",
             {makeU64SCVal(metrics.mEmitEventByte),
              makeU64SCVal(sorobanConfig.txMaxContractEventsSizeBytes())});
+        std::cout << "invoke fail 8" << std::endl;
         innerResult().code(INVOKE_HOST_FUNCTION_RESOURCE_LIMIT_EXCEEDED);
         return false;
     }

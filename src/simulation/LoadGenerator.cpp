@@ -1338,6 +1338,7 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
                                             uint64_t accountId,
                                             GeneratedLoadConfig const& cfg)
 {
+    std::cout << "invoke" << std::endl;
     auto account = findAccount(accountId, ledgerNum);
     auto instanceIter = mContractInstances.find(accountId);
     releaseAssert(instanceIter != mContractInstances.end());
@@ -1434,7 +1435,8 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     // We don't have a good way of knowing how many bytes we will need to read
     // since the previous invocation writes a random number of bytes, so use
     // upper bound
-    resources.readBytes = (invokeCfg.ioBytesIntervals.back() - 1);
+    // TODO: Need extra 1024 to account for read in remainder body?
+    resources.readBytes = (invokeCfg.ioBytesIntervals.back() + 1024);
     resources.writeBytes = totalWriteBytes;
 
     // Approximate TX size before padding and footprint, slightly over estimated
@@ -1456,6 +1458,8 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
             generateFee(cfg.maxGeneratedFeeRate, mApp,
                         /* opsCnt */ 1),
             resourceFee));
+
+    std::cout << "resourceFee: " << resourceFee << std::endl;
 
     return std::make_pair(account, tx);
 }
@@ -2003,6 +2007,9 @@ LoadGenerator::waitTillComplete(GeneratedLoadConfig cfg)
         {
             CLOG_INFO(LoadGen, "Load generation failed to meet minimum success "
                                "rate for soroban invoke transactions.");
+            std::cout << "Failed to meet minimum success rate for soroban invoke "
+                         "transactions: " << cfg.getMinSorobanPercentSuccess()
+                      << std::endl;
             emitFailure(false);
         }
         return;

@@ -1288,6 +1288,7 @@ TransactionFrame::processSignatures(ValidationType cv,
 
     if (!allOpsValid)
     {
+        std::cout << "mrf 2" << std::endl;
         markResultFailed();
         return false;
     }
@@ -1577,6 +1578,7 @@ TransactionFrame::checkValidWithOptionallyChargedFee(
                 // it's OK to just fast fail here and not try to call
                 // checkValid on all operations as the resulting object
                 // is only used by applications
+                std::cout << "mrf 3" << std::endl;
                 markResultFailed();
                 return false;
             }
@@ -1759,6 +1761,7 @@ TransactionFrame::applyOperations(SignatureChecker& signatureChecker,
         }
         else
         {
+            std::cout << "mrf 1" << std::endl;
             markResultFailed();
             if (protocolVersionStartsFrom(ledgerVersion,
                                           SOROBAN_PROTOCOL_VERSION) &&

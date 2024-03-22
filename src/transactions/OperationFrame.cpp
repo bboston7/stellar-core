@@ -145,9 +145,12 @@ OperationFrame::apply(Application& app, SignatureChecker& signatureChecker,
     bool res;
     CLOG_TRACE(Tx, "{}", xdr_to_string(mOperation, "Operation"));
     res = checkValid(app, signatureChecker, ltx, true);
+    std::cout << "check valid res: " << res << "\n";
     if (res)
     {
         res = doApply(app, ltx, sorobanBasePrngSeed);
+        std::cout << "do apply res: " << res << "\n";
+        std::cout << xdr_to_string(mResult, "OperationResult") << "\n";
         CLOG_TRACE(Tx, "{}", xdr_to_string(mResult, "OperationResult"));
     }
 
