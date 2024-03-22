@@ -1592,7 +1592,7 @@ TEST_CASE("loadgen Wasm executes properly", "[tx][soroban][loadgen]")
     uint64_t guestCycles = 10;
     uint64_t hostCycles = 5;
     uint32_t numEntries = 2;
-    uint32_t sizeKiloBytes = 3;
+    uint32_t sizeBytes = 3 * 1024;
 
     // This function should write numEntries keys, where each key ID is
     // a U32 that starts at startingIndex and is incremented for each key
@@ -1613,7 +1613,7 @@ TEST_CASE("loadgen Wasm executes properly", "[tx][soroban][loadgen]")
     auto invocation = loadgenContract.prepareInvocation(
         fnName,
         {makeU64(guestCycles), makeU64(hostCycles), makeU32(numEntries),
-         makeU32(sizeKiloBytes)},
+         makeU32(sizeBytes)},
         invocationSpec);
     REQUIRE(invocation.invoke());
 
@@ -1630,7 +1630,7 @@ TEST_CASE("loadgen Wasm executes properly", "[tx][soroban][loadgen]")
 
         // Check that size is correct, plus some overhead
         REQUIRE(
-            (size > sizeKiloBytes * 1024 && size < sizeKiloBytes * 1024 + 100));
+            (size > sizeBytes && size < sizeBytes + 100));
     }
 }
 
