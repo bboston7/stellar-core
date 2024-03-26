@@ -3879,10 +3879,17 @@ TEST_CASE("soroban txs accepted by the network",
     SECTION("soroban only")
     {
         currLoadGenCount = loadGenDone.count();
-        // Now generate soroban txs.
-        loadGen.generateLoad(GeneratedLoadConfig::txLoad(
+        auto uploadCfg = GeneratedLoadConfig::txLoad(
             LoadGenMode::SOROBAN_UPLOAD, numAccounts,
-            /* nTxs */ 100, desiredTxRate, /*offset*/ 0));
+            /* nTxs */ 100, desiredTxRate, /*offset*/ 0);
+
+        // Make sure that a significant fraction of some soroban txs get
+        // applied (some may fail due to exceeding the declared resource
+        // limits or due to XDR parsing errors).
+        uploadCfg.setMinSorobanPercentSuccess(50);
+
+        // Now generate soroban txs.
+        loadGen.generateLoad(uploadCfg);
 
         simulation->crankUntil(
             [&]() { return loadGenDone.count() > currLoadGenCount; },
@@ -3890,11 +3897,6 @@ TEST_CASE("soroban txs accepted by the network",
         auto& loadGenFailed = nodes[0]->getMetrics().NewMeter(
             {"loadgen", "run", "failed"}, "run");
         REQUIRE(loadGenFailed.count() == 0);
-        // Make sure that a significant fraction of some soroban txs get
-        // applied (some may fail due to exceeding the declared resource
-        // limits or due to XDR parsing errors).
-        lastSorobanSucceeded = sorobanTxsSucceeded.count();
-        REQUIRE(lastSorobanSucceeded > 50);
 
         SECTION("upgrade max soroban tx set size")
         {
@@ -3928,6 +3930,8 @@ TEST_CASE("soroban txs accepted by the network",
                 LoadGenMode::SOROBAN_UPLOAD, numAccounts,
                 /* nTxs */ 100, desiredTxRate * 5, /*offset*/ 0);
             loadCfg.skipLowFeeTxs = true;
+            // Make sure some soroban txs get applied.
+            loadCfg.setMinSorobanPercentSuccess(50);
             loadGen.generateLoad(loadCfg);
 
             bool upgradeApplied = false;
@@ -3947,9 +3951,6 @@ TEST_CASE("soroban txs accepted by the network",
                 },
                 10 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
             REQUIRE(loadGenFailed.count() == 0);
-            // Make sure some soroban txs get applied.
-            REQUIRE(sorobanTxsSucceeded.count() - lastSorobanSucceeded > 50);
-            lastSorobanSucceeded = sorobanTxsSucceeded.count();
             REQUIRE(upgradeApplied);
         }
     }
@@ -3983,6 +3984,9 @@ TEST_CASE("soroban txs accepted by the network",
                                             /* nTxs */ 500, desiredTxRate * 3,
                                             /* offset */ 0, maxInclusionFee);
 
+            // Make sure some soroban txs get applied.
+            sorobanConfig.setMinSorobanPercentSuccess(40);
+
             // Ignore low fees, submit at a tx rate higher than the network
             // allows to trigger surge pricing
             sorobanConfig.skipLowFeeTxs = true;
@@ -4009,8 +4013,6 @@ TEST_CASE("soroban txs accepted by the network",
         REQUIRE(classicTxsSucceeded.count() - lastClassicSucceeded ==
                 classicTxCount);
         REQUIRE(classicTxsFailed.count() == 0);
-        // Make sure some soroban txs get applied.
-        REQUIRE(sorobanTxsSucceeded.count() - lastSorobanSucceeded > 20);
     }
 }
 
