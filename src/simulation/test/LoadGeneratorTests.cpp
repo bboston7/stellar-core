@@ -536,10 +536,10 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         for (auto node : nodes)
         {
             // All classic transactions should succeed
-            auto& classicSucceeded = node->getMetrics().NewCounter(
-                {"ledger", "apply-classic", "success"});
-            auto& classicFailed = node->getMetrics().NewCounter(
-                {"ledger", "apply-classic", "failure"});
+            auto& classicSucceeded =
+                node->getMetrics().NewCounter({"ledger", "apply", "success"});
+            auto& classicFailed =
+                node->getMetrics().NewCounter({"ledger", "apply", "failure"});
             REQUIRE(classicFailed.count() == 0);
             int64_t classicTotal = classicSucceeded.count();
 

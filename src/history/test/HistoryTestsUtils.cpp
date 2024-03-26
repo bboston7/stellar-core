@@ -527,7 +527,7 @@ CatchupSimulation::generateRandomLedger(uint32_t version)
 
     auto txsSucceeded = [this]() {
         return this->mApp.getMetrics()
-                   .NewCounter({"ledger", "apply-classic", "success"})
+                   .NewCounter({"ledger", "apply", "success"})
                    .count() +
                this->mApp.getMetrics()
                    .NewCounter({"ledger", "apply-soroban", "success"})

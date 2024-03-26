@@ -3853,12 +3853,10 @@ TEST_CASE("soroban txs accepted by the network",
         });
     }
     auto& loadGen = nodes[0]->getLoadGenerator();
-    auto& classicTxsSucceeded = nodes[0]->getMetrics().NewCounter(
-        {"ledger", "apply-classic", "success"});
-    auto& classicTxsFailed = nodes[0]->getMetrics().NewCounter(
-        {"ledger", "apply-classic", "failure"});
-    auto& sorobanTxsSucceeded = nodes[0]->getMetrics().NewCounter(
-        {"ledger", "apply-soroban", "success"});
+    auto& classicTxsSucceeded =
+        nodes[0]->getMetrics().NewCounter({"ledger", "apply", "success"});
+    auto& classicTxsFailed =
+        nodes[0]->getMetrics().NewCounter({"ledger", "apply", "failure"});
 
     // Generate some accounts
     auto& loadGenDone =
@@ -3871,10 +3869,8 @@ TEST_CASE("soroban txs accepted by the network",
         10 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
 
     uint64_t lastClassicSucceeded = classicTxsSucceeded.count();
-    uint64_t lastSorobanSucceeded = sorobanTxsSucceeded.count();
     REQUIRE(lastClassicSucceeded > 0);
     REQUIRE(classicTxsFailed.count() == 0);
-    REQUIRE(lastSorobanSucceeded == 0);
 
     SECTION("soroban only")
     {

@@ -143,9 +143,9 @@ LedgerManagerImpl::LedgerManagerImpl(Application& app)
     , mLedgerAge(
           app.getMetrics().NewCounter({"ledger", "age", "current-seconds"}))
     , mClassicTransactionApplySucceeded(
-          app.getMetrics().NewCounter({"ledger", "apply-classic", "success"}))
+          app.getMetrics().NewCounter({"ledger", "apply", "success"}))
     , mClassicTransactionApplyFailed(
-          app.getMetrics().NewCounter({"ledger", "apply-classic", "failure"}))
+          app.getMetrics().NewCounter({"ledger", "apply", "failure"}))
     , mSorobanTransactionApplySucceeded(
           app.getMetrics().NewCounter({"ledger", "apply-soroban", "success"}))
     , mSorobanTransactionApplyFailed(
