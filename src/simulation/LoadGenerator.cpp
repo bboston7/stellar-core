@@ -425,6 +425,8 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
         checkDistribution(invokeCfg.instructionsIntervals,
                           invokeCfg.instructionsWeights, uint64_t{0},
                           uint64_t{5000000});
+        checkDistribution(invokeCfg.nAdditionalReadEntriesIntervals,
+                          invokeCfg.nAdditionalReadEntriesWeights, 0u, 6u);
     }
 
     if (cfg.mode != LoadGenMode::CREATE)
@@ -1414,10 +1416,15 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
         }
     }
 
+    auto additionalReadEntries = static_cast<uint32_t>(
+        rand_piecewise(invokeCfg.nAdditionalReadEntriesIntervals,
+                       invokeCfg.nAdditionalReadEntriesWeights));
+
     auto guestCyclesU64 = makeU64(guestCycles);
     auto hostCyclesU64 = makeU64(hostCycles);
     auto numEntriesU32 = makeU32(numEntries);
     auto bytesPerEntryU32 = makeU32(bytesPerEntry);
+    auto additionalReadEntriesU32 = makeU32(additionalReadEntries);
 
     Operation op;
     op.body.type(INVOKE_HOST_FUNCTION);
@@ -1426,7 +1433,7 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     ihf.invokeContract().contractAddress = instance.contractID;
     ihf.invokeContract().functionName = "do_work";
     ihf.invokeContract().args = {guestCyclesU64, hostCyclesU64, numEntriesU32,
-                                 bytesPerEntryU32};
+                                 bytesPerEntryU32, additionalReadEntriesU32};
 
     // baseInstructionCount is a very rough estimate and may be a significant
     // underestimation based on the IO load used, so use max instructions
@@ -1436,7 +1443,9 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     // since the previous invocation writes a random number of bytes, so use
     // upper bound
     // TODO: Need extra 1024 to account for read in remainder body?
-    resources.readBytes = (invokeCfg.ioBytesIntervals.back() + 1024);
+    // TODO: Update comment to reflect additional read entries stuff
+    resources.readBytes = invokeCfg.ioBytesIntervals.back() + 1024 +
+                          additionalReadEntries * bytesPerEntry;
     resources.writeBytes = totalWriteBytes;
 
     // Approximate TX size before padding and footprint, slightly over estimated
@@ -2007,9 +2016,10 @@ LoadGenerator::waitTillComplete(GeneratedLoadConfig cfg)
         {
             CLOG_INFO(LoadGen, "Load generation failed to meet minimum success "
                                "rate for soroban invoke transactions.");
-            std::cout << "Failed to meet minimum success rate for soroban invoke "
-                         "transactions: " << cfg.getMinSorobanPercentSuccess()
-                      << std::endl;
+            std::cout
+                << "Failed to meet minimum success rate for soroban invoke "
+                   "transactions: "
+                << cfg.getMinSorobanPercentSuccess() << std::endl;
             emitFailure(false);
         }
         return;

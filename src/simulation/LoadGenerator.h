@@ -73,10 +73,17 @@ struct GeneratedLoadConfig
     {
         // Range of kilo bytes and num entries for disk IO, where ioKiloBytes is
         // the total amount of disk IO that the TX requires
+        // TODO: All of these probably need more descriptive names (data entries
+        // should have `rw` in the name, comment should be updated ot state
+        // `bytes`, etc)
         std::vector<uint32_t> nDataEntriesIntervals = {};
         std::vector<uint32_t> nDataEntriesWeights = {};
         std::vector<uint32_t> ioBytesIntervals = {};
         std::vector<uint32_t> ioBytesWeights = {};
+        // TODO: Add to F#
+        // TODO: Document in markdown file
+        std::vector<uint32_t> nAdditionalReadEntriesIntervals = {};
+        std::vector<uint32_t> nAdditionalReadEntriesWeights = {};
 
         // Size of transactions
         std::vector<uint32_t> txSizeBytesIntervals = {};

@@ -1289,6 +1289,12 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
                 parseOptionalVectorParam<uint32_t>(map, "bytesintervals");
             invokeCfg.ioBytesWeights =
                 parseOptionalVectorParam<uint32_t>(map, "bytesweights");
+            invokeCfg.nAdditionalReadEntriesIntervals =
+                parseOptionalVectorParam<uint32_t>(
+                    map, "additionalreadentriesintervals");
+            invokeCfg.nAdditionalReadEntriesWeights =
+                parseOptionalVectorParam<uint32_t>(
+                    map, "additionalreadentriesweights");
             invokeCfg.txSizeBytesIntervals =
                 parseOptionalVectorParam<uint32_t>(map, "txsizeintervals");
             invokeCfg.txSizeBytesWeights =

@@ -64,9 +64,9 @@ rev = "fc602f26deea647d73393a9c2c88f522646f7400"
 
 # TODO: Update after merging new loadgen contract. Also figure out how to set version
 [dependencies.soroban-test-wasms]
-#version = "=20.2.0"
+version = "=20.3.0"
 git = "https://github.com/bboston7/rs-soroban-env"
-rev = "bbaef35ba40865c59c146608807eaa6f8c8d09e9"
+rev = "47b87d050ec77a15af44985b604d2252ce8a7e8f"
 
 [dependencies.soroban-synth-wasm]
 version = "=20.2.0"
