@@ -129,9 +129,9 @@ struct GeneratedLoadConfig
     {
         // Weights determining the distribution of PAY, SOROBAN_UPLOAD, and
         // SOROBAN_INVOKE load
-        uint32_t payWeight = 0;
-        uint32_t sorobanUploadWeight = 0;
-        uint32_t sorobanInvokeWeight = 0;
+        double payWeight = 0;
+        double sorobanUploadWeight = 0;
+        double sorobanInvokeWeight = 0;
     };
 
     static GeneratedLoadConfig createAccountsLoad(uint32_t nAccounts,
@@ -440,10 +440,10 @@ class LoadGenerator
     createMixedClassicSorobanTransaction(uint32_t ledgerNum,
                                          uint64_t sourceAccountId,
                                          GeneratedLoadConfig const& cfg);
-    // Set SOROBAN_UPLOAD resources to random values according to the
-    // distributions in `cfg`.
-    void sorobanRandomUploadResources(
-        SorobanResources& resources, uint32_t& wasmSize,
+    // Returns a pair containing random SOROBAN_UPLOAD resources and a uint32_t
+    // containing a random wasm size, both sampled from the distributions in
+    // `cfg`.
+    std::pair<SorobanResources, uint32_t> sorobanRandomUploadResources(
         GeneratedLoadConfig::SorobanUploadConfig const& cfg);
     void maybeHandleFailedTx(TransactionFramePtr tx,
                              TestAccountPtr sourceAccount,
