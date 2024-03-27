@@ -51,52 +51,7 @@ constexpr uint32_t DEFAULT_WASM_BYTES = 35 * 1024;
 constexpr uint32_t DEFAULT_NUM_DATA_ENTRIES = 2;
 constexpr uint32_t DEFAULT_IO_KILOBYTES = 1;
 constexpr uint32_t DEFAULT_TX_SIZE_BYTES = 256;
-
-// Populate a JSON array `arr` with the contents of `vec`
-template <typename T>
-void
-fillJsonArray(Json::Value& arr, std::vector<T> const& vec)
-{
-    std::for_each(vec.begin(), vec.end(),
-                  [&](auto const& v) { arr.append(v); });
-}
-
-// This specialized version of `fillJsonArray` for `uint64_t` is necessary
-// because the JSON library requires an explicit cast to `Json::UInt64` for each
-// element in `vec`.
-template <>
-void
-fillJsonArray(Json::Value& arr, std::vector<uint64_t> const& vec)
-{
-    std::for_each(vec.begin(), vec.end(), [&](auto const& v) {
-        arr.append(static_cast<Json::UInt64>(v));
-    });
-}
-
-// TODO: Remove after changing distribution type
-// If a distribution is not set, set it to the provided defaults in `lo` and
-// `hi`. Additionally, check a distribution for correctness (`weights.size()`
-// must be one less than `intervals.size()`).
-template <typename T>
-void
-checkDistribution(std::vector<T>& intervals, std::vector<uint32_t>& weights,
-                  T defaultLo, T defaultHi)
-{
-    if (intervals.empty() && weights.empty())
-    {
-        intervals = {defaultLo, defaultHi};
-        weights = {1};
-    }
-    if (intervals.size() < 2)
-    {
-        throw std::runtime_error("intervals must have at least 2 elements");
-    }
-    if (weights.size() != intervals.size() - 1)
-    {
-        throw std::runtime_error("weights must have exactly one fewer element "
-                                 "than the corresponding intervals");
-    }
-}
+constexpr uint64_t DEFAULT_INSTRUCTIONS = 28'000'000;
 
 // Sample from a discrete distribution of `values` with weights `weights`.
 // Returns `defaultValue` if `values` is empty.
@@ -418,15 +373,6 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
         }
     }
 
-    if (cfg.modeInvokes())
-    {
-        // Set sensible defaults for missing invoke config options
-        auto& invokeCfg = cfg.getMutSorobanInvokeConfig();
-        checkDistribution(invokeCfg.instructionsIntervals,
-                          invokeCfg.instructionsWeights, uint64_t{0},
-                          uint64_t{5000000});
-    }
-
     if (cfg.mode != LoadGenMode::CREATE)
     {
         // Mark all accounts "available" as source accounts
@@ -646,10 +592,6 @@ GeneratedLoadConfig::getStatus() const
     {
         ret["instances"] = getSorobanConfig().nInstances;
         ret["wasms"] = getSorobanConfig().nWasms;
-        fillJsonArray(ret["instructions_intervals"],
-                      getSorobanInvokeConfig().instructionsIntervals);
-        fillJsonArray(ret["instructions_weights"],
-                      getSorobanInvokeConfig().instructionsWeights);
     }
 
     if (mode == LoadGenMode::MIXED_CLASSIC_SOROBAN)
@@ -1325,7 +1267,6 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     auto const& instance = instanceIter->second;
 
     auto const& networkCfg = mApp.getLedgerManager().getSorobanNetworkConfig();
-    auto const& invokeCfg = cfg.getSorobanInvokeConfig();
 
     // Approximate instruction measurements from loadgen contract. While the
     // guest and host cycle counts are exact, and we can predict the cost of
@@ -1338,8 +1279,10 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     uint64_t const instructionsPerHostCycle = 5030;
 
     // Pick random number of cycles between bounds
-    uint64_t targetInstructions = static_cast<uint64_t>(rand_piecewise(
-        invokeCfg.instructionsIntervals, invokeCfg.instructionsWeights));
+    uint64_t targetInstructions =
+        sampleDiscrete(appCfg.LOADGEN_INSTRUCTIONS_FOR_TESTING,
+                       appCfg.LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING,
+                       DEFAULT_INSTRUCTIONS);
 
     // Randomly select a number of guest cycles
     uint64_t guestCyclesMax = targetInstructions / instructionsPerGuestCycle;
@@ -1421,10 +1364,10 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     // Approximate TX size before padding and footprint, slightly over estimated
     // so we stay below limits, plus footprint size
     uint32_t const txOverheadBytes = 260 + xdr::xdr_size(resources);
-    uint32_t desiredTxBytes = sampleDiscrete(
-        appCfg.LOADGEN_TX_SIZE_BYTES_FOR_TESTING,
-        appCfg.LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING,
-        DEFAULT_TX_SIZE_BYTES);
+    uint32_t desiredTxBytes =
+        sampleDiscrete(appCfg.LOADGEN_TX_SIZE_BYTES_FOR_TESTING,
+                       appCfg.LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING,
+                       DEFAULT_TX_SIZE_BYTES);
     auto paddingBytes =
         txOverheadBytes > desiredTxBytes ? 0 : desiredTxBytes - txOverheadBytes;
     increaseOpSize(op, paddingBytes);
@@ -2281,20 +2224,6 @@ GeneratedLoadConfig::getSorobanConfig() const
 {
     releaseAssert(isSoroban() && mode != LoadGenMode::SOROBAN_UPLOAD);
     return sorobanConfig;
-}
-
-GeneratedLoadConfig::SorobanInvokeConfig&
-GeneratedLoadConfig::getMutSorobanInvokeConfig()
-{
-    releaseAssert(modeInvokes());
-    return sorobanInvokeConfig;
-}
-
-GeneratedLoadConfig::SorobanInvokeConfig const&
-GeneratedLoadConfig::getSorobanInvokeConfig() const
-{
-    releaseAssert(modeInvokes());
-    return sorobanInvokeConfig;
 }
 
 GeneratedLoadConfig::SorobanUpgradeConfig&

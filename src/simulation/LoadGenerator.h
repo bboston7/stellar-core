@@ -60,14 +60,6 @@ struct GeneratedLoadConfig
         uint32_t nWasms = 0;
     };
 
-    // Config parameters for SOROBAN_UPLOAD and MIXED_CLASSIC_SOROBAN
-    struct SorobanInvokeConfig
-    {
-        // Instruction count
-        std::vector<uint64_t> instructionsIntervals = {};
-        std::vector<uint32_t> instructionsWeights = {};
-    };
-
     // Config settings for SOROBAN_CREATE_UPGRADE
     struct SorobanUpgradeConfig
     {
@@ -130,8 +122,6 @@ struct GeneratedLoadConfig
 
     SorobanConfig& getMutSorobanConfig();
     SorobanConfig const& getSorobanConfig() const;
-    SorobanInvokeConfig& getMutSorobanInvokeConfig();
-    SorobanInvokeConfig const& getSorobanInvokeConfig() const;
     SorobanUpgradeConfig& getMutSorobanUpgradeConfig();
     SorobanUpgradeConfig const& getSorobanUpgradeConfig() const;
     MixClassicSorobanConfig& getMutMixClassicSorobanConfig();
@@ -183,7 +173,6 @@ struct GeneratedLoadConfig
 
   private:
     SorobanConfig sorobanConfig;
-    SorobanInvokeConfig sorobanInvokeConfig;
     SorobanUpgradeConfig sorobanUpgradeConfig;
     MixClassicSorobanConfig mixClassicSorobanConfig;
 

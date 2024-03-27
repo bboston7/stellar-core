@@ -61,6 +61,8 @@ static const std::unordered_set<std::string> TESTING_ONLY_OPTIONS = {
     "LOADGEN_IO_KILOBYTES_DISTRIBUTION_FOR_TESTING"
     "LOADGEN_TX_SIZE_BYTES_FOR_TESTING",
     "LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING"
+    "LOADGEN_INSTRUCTIONS_FOR_TESTING",
+    "LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING"
     "CATCHUP_WAIT_MERGES_TX_APPLY_FOR_TESTING",
     "ARTIFICIALLY_DELAY_BUCKET_APPLICATION_FOR_TESTING",
     "ARTIFICIALLY_SLEEP_MAIN_THREAD_FOR_TESTING",
@@ -136,6 +138,8 @@ Config::Config() : NODE_SEED(SecretKey::random())
     LOADGEN_IO_KILOBYTES_DISTRIBUTION_FOR_TESTING = {};
     LOADGEN_TX_SIZE_BYTES_FOR_TESTING = {};
     LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING = {};
+    LOADGEN_INSTRUCTIONS_FOR_TESTING = {};
+    LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING = {};
     CATCHUP_WAIT_MERGES_TX_APPLY_FOR_TESTING = false;
     ARTIFICIALLY_SLEEP_MAIN_THREAD_FOR_TESTING =
         std::chrono::microseconds::zero();
@@ -1489,6 +1493,16 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                 LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING =
                     readIntArray<uint32>(item);
             }
+            else if (item.first == "LOADGEN_INSTRUCTIONS_FOR_TESTING")
+            {
+                LOADGEN_INSTRUCTIONS_FOR_TESTING = readIntArray<uint64>(item);
+            }
+            else if (item.first ==
+                     "LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING")
+            {
+                LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING =
+                    readIntArray<uint32>(item);
+            }
             else if (item.first == "CATCHUP_WAIT_MERGES_TX_APPLY_FOR_TESTING")
             {
                 CATCHUP_WAIT_MERGES_TX_APPLY_FOR_TESTING = readBool(item);
@@ -1644,6 +1658,11 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
             LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING,
             "LOADGEN_TX_SIZE_BYTES_FOR_TESTING",
             "LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING");
+        verifyLoadGenDistribution(
+            LOADGEN_INSTRUCTIONS_FOR_TESTING,
+            LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING,
+            "LOADGEN_INSTRUCTIONS_FOR_TESTING",
+            "LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING");
 
         gIsProductionNetwork = NETWORK_PASSPHRASE ==
                                "Public Global Stellar Network ; September 2015";

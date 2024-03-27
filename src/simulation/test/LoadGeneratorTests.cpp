@@ -108,6 +108,9 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
             cfg.LOADGEN_IO_KILOBYTES_DISTRIBUTION_FOR_TESTING = {1};
             cfg.LOADGEN_TX_SIZE_BYTES_FOR_TESTING = {20'000, 50'000, 80'000};
             cfg.LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING = {1, 2, 1};
+            cfg.LOADGEN_INSTRUCTIONS_FOR_TESTING = {1'000'000, 5'000'000,
+                                                    10'000'000};
+            cfg.LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING = {1, 2, 3};
             return cfg;
         });
 
@@ -405,10 +408,6 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
     constexpr int maxInvokeFail = 10; // TODO: Reduce back down to 5?
     invokeLoadCfg.setMinSorobanPercentSuccess(100 - maxInvokeFail);
 
-    auto& invokeCfg = invokeLoadCfg.getMutSorobanInvokeConfig();
-    invokeCfg.instructionsIntervals = {0, 10'000'000};
-    invokeCfg.instructionsWeights = {1};
-
     loadGen.generateLoad(invokeLoadCfg);
     simulation->crankUntil(
         [&]() {
@@ -495,13 +494,6 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         constexpr uint32_t uploadWeight = 5;
         mixCfg.sorobanUploadWeight = uploadWeight;
 
-        auto& mixInvokeCfg = mixLoadCfg.getMutSorobanInvokeConfig();
-
-        // TODO: Use these instead of the other intervals once everything is in
-        // the app config
-        mixInvokeCfg.instructionsIntervals = {0, 5'000'000, 10'000'000};
-        mixInvokeCfg.instructionsWeights = {3, 2};
-
         // Because we can't preflight TXs, some invocations will fail due to too
         // few resources. This is expected, as our instruction counts are
         // approximations. Additionally, many upload transactions will fail as
@@ -531,10 +523,10 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         for (auto node : nodes)
         {
             // All classic transactions should succeed
-            auto& classicSucceeded = node->getMetrics().NewCounter(
-                {"ledger", "apply", "success"});
-            auto& classicFailed = node->getMetrics().NewCounter(
-                {"ledger", "apply", "failure"});
+            auto& classicSucceeded =
+                node->getMetrics().NewCounter({"ledger", "apply", "success"});
+            auto& classicFailed =
+                node->getMetrics().NewCounter({"ledger", "apply", "failure"});
             REQUIRE(classicFailed.count() == 0);
             int64_t classicTotal = classicSucceeded.count();
 

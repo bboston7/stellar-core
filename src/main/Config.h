@@ -263,6 +263,11 @@ class Config : public std::enable_shared_from_this<Config>
     std::vector<uint32_t> LOADGEN_TX_SIZE_BYTES_FOR_TESTING;
     std::vector<uint32_t> LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING;
 
+    // Instructions per transaction for SOROBAN_INVOKE and MIX_CLASSIC_SOROBAN
+    // loadgen modes
+    std::vector<uint64_t> LOADGEN_INSTRUCTIONS_FOR_TESTING;
+    std::vector<uint32_t> LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING;
+
     // Waits for merges to complete before applying transactions during catchup
     bool CATCHUP_WAIT_MERGES_TX_APPLY_FOR_TESTING;
 
