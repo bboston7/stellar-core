@@ -106,6 +106,8 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
             cfg.LOADGEN_NUM_DATA_ENTRIES_DISTRIBUTION_FOR_TESTING = {1};
             cfg.LOADGEN_IO_KILOBYTES_FOR_TESTING = {ioKiloBytes};
             cfg.LOADGEN_IO_KILOBYTES_DISTRIBUTION_FOR_TESTING = {1};
+            cfg.LOADGEN_TX_SIZE_BYTES_FOR_TESTING = {20'000, 50'000, 80'000};
+            cfg.LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING = {1, 2, 1};
             return cfg;
         });
 
@@ -404,8 +406,6 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
     invokeLoadCfg.setMinSorobanPercentSuccess(100 - maxInvokeFail);
 
     auto& invokeCfg = invokeLoadCfg.getMutSorobanInvokeConfig();
-    invokeCfg.txSizeBytesIntervals = {0, 100'000};
-    invokeCfg.txSizeBytesWeights = {1};
     invokeCfg.instructionsIntervals = {0, 10'000'000};
     invokeCfg.instructionsWeights = {1};
 
@@ -499,8 +499,6 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
 
         // TODO: Use these instead of the other intervals once everything is in
         // the app config
-        mixInvokeCfg.txSizeBytesIntervals = {0, 40'000, 60'000, 100'000};
-        mixInvokeCfg.txSizeBytesWeights = {1, 2, 1};
         mixInvokeCfg.instructionsIntervals = {0, 5'000'000, 10'000'000};
         mixInvokeCfg.instructionsWeights = {3, 2};
 

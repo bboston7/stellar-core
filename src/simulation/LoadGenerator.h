@@ -63,10 +63,6 @@ struct GeneratedLoadConfig
     // Config parameters for SOROBAN_UPLOAD and MIXED_CLASSIC_SOROBAN
     struct SorobanInvokeConfig
     {
-        // Size of transactions
-        std::vector<uint32_t> txSizeBytesIntervals = {};
-        std::vector<uint32_t> txSizeBytesWeights = {};
-
         // Instruction count
         std::vector<uint64_t> instructionsIntervals = {};
         std::vector<uint32_t> instructionsWeights = {};

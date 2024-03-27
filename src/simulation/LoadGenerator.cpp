@@ -50,6 +50,7 @@ constexpr unsigned short DEFAULT_OP_COUNT = 1;
 constexpr uint32_t DEFAULT_WASM_BYTES = 35 * 1024;
 constexpr uint32_t DEFAULT_NUM_DATA_ENTRIES = 2;
 constexpr uint32_t DEFAULT_IO_KILOBYTES = 1;
+constexpr uint32_t DEFAULT_TX_SIZE_BYTES = 256;
 
 // Populate a JSON array `arr` with the contents of `vec`
 template <typename T>
@@ -421,8 +422,6 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
     {
         // Set sensible defaults for missing invoke config options
         auto& invokeCfg = cfg.getMutSorobanInvokeConfig();
-        checkDistribution(invokeCfg.txSizeBytesIntervals,
-                          invokeCfg.txSizeBytesWeights, 0u, 1001u);
         checkDistribution(invokeCfg.instructionsIntervals,
                           invokeCfg.instructionsWeights, uint64_t{0},
                           uint64_t{5000000});
@@ -647,10 +646,6 @@ GeneratedLoadConfig::getStatus() const
     {
         ret["instances"] = getSorobanConfig().nInstances;
         ret["wasms"] = getSorobanConfig().nWasms;
-        fillJsonArray(ret["tx_size_bytes_intervals"],
-                      getSorobanInvokeConfig().txSizeBytesIntervals);
-        fillJsonArray(ret["tx_size_bytes_weights"],
-                      getSorobanInvokeConfig().txSizeBytesWeights);
         fillJsonArray(ret["instructions_intervals"],
                       getSorobanInvokeConfig().instructionsIntervals);
         fillJsonArray(ret["instructions_weights"],
@@ -1426,8 +1421,10 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     // Approximate TX size before padding and footprint, slightly over estimated
     // so we stay below limits, plus footprint size
     uint32_t const txOverheadBytes = 260 + xdr::xdr_size(resources);
-    uint32_t desiredTxBytes = static_cast<uint32_t>(rand_piecewise(
-        invokeCfg.txSizeBytesIntervals, invokeCfg.txSizeBytesWeights));
+    uint32_t desiredTxBytes = sampleDiscrete(
+        appCfg.LOADGEN_TX_SIZE_BYTES_FOR_TESTING,
+        appCfg.LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING,
+        DEFAULT_TX_SIZE_BYTES);
     auto paddingBytes =
         txOverheadBytes > desiredTxBytes ? 0 : desiredTxBytes - txOverheadBytes;
     increaseOpSize(op, paddingBytes);
