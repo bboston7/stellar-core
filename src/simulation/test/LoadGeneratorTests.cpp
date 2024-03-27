@@ -94,6 +94,7 @@ TEST_CASE("generate load with unique accounts", "[loadgen]")
 TEST_CASE("generate soroban load", "[loadgen][soroban]")
 {
     auto const numDataEntries = 5;
+    auto const ioKiloBytes = 15;
 
     Hash networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
     Simulation::pointer simulation =
@@ -103,6 +104,8 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
             // Use tight bounds to we can verify storage works properly
             cfg.LOADGEN_NUM_DATA_ENTRIES_FOR_TESTING = {numDataEntries};
             cfg.LOADGEN_NUM_DATA_ENTRIES_DISTRIBUTION_FOR_TESTING = {1};
+            cfg.LOADGEN_IO_KILOBYTES_FOR_TESTING = {ioKiloBytes};
+            cfg.LOADGEN_IO_KILOBYTES_DISTRIBUTION_FOR_TESTING = {1};
             return cfg;
         });
 
@@ -363,7 +366,6 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
 
     auto const numInstances = 10;
     auto const numSorobanTxs = 100;
-    auto const ioKiloBytes = 15;
 
     numTxsBefore = getSuccessfulTxCount();
     loadGen.generateLoad(GeneratedLoadConfig::createSorobanInvokeSetupLoad(
@@ -401,11 +403,7 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
     constexpr int maxInvokeFail = 10; // TODO: Reduce back down to 5?
     invokeLoadCfg.setMinSorobanPercentSuccess(100 - maxInvokeFail);
 
-    // Use tight bounds to we can verify storage works properly
     auto& invokeCfg = invokeLoadCfg.getMutSorobanInvokeConfig();
-    invokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
-    invokeCfg.ioKiloBytesWeights = {1};
-
     invokeCfg.txSizeBytesIntervals = {0, 100'000};
     invokeCfg.txSizeBytesWeights = {1};
     invokeCfg.instructionsIntervals = {0, 10'000'000};
@@ -498,8 +496,6 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         mixCfg.sorobanUploadWeight = uploadWeight;
 
         auto& mixInvokeCfg = mixLoadCfg.getMutSorobanInvokeConfig();
-        mixInvokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
-        mixInvokeCfg.ioKiloBytesWeights = {1};
 
         // TODO: Use these instead of the other intervals once everything is in
         // the app config

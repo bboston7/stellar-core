@@ -49,6 +49,7 @@ namespace
 constexpr unsigned short DEFAULT_OP_COUNT = 1;
 constexpr uint32_t DEFAULT_WASM_BYTES = 35 * 1024;
 constexpr uint32_t DEFAULT_NUM_DATA_ENTRIES = 2;
+constexpr uint32_t DEFAULT_IO_KILOBYTES = 1;
 
 // Populate a JSON array `arr` with the contents of `vec`
 template <typename T>
@@ -420,8 +421,6 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
     {
         // Set sensible defaults for missing invoke config options
         auto& invokeCfg = cfg.getMutSorobanInvokeConfig();
-        checkDistribution(invokeCfg.ioKiloBytesIntervals,
-                          invokeCfg.ioKiloBytesWeights, 1u, 6u);
         checkDistribution(invokeCfg.txSizeBytesIntervals,
                           invokeCfg.txSizeBytesWeights, 0u, 1001u);
         checkDistribution(invokeCfg.instructionsIntervals,
@@ -648,10 +647,6 @@ GeneratedLoadConfig::getStatus() const
     {
         ret["instances"] = getSorobanConfig().nInstances;
         ret["wasms"] = getSorobanConfig().nWasms;
-        fillJsonArray(ret["io_kilo_bytes_intervals"],
-                      getSorobanInvokeConfig().ioKiloBytesIntervals);
-        fillJsonArray(ret["io_kilo_bytes_weights"],
-                      getSorobanInvokeConfig().ioKiloBytesWeights);
         fillJsonArray(ret["tx_size_bytes_intervals"],
                       getSorobanInvokeConfig().txSizeBytesIntervals);
         fillJsonArray(ret["tx_size_bytes_weights"],
@@ -1373,10 +1368,13 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
         resources.footprint.readWrite.emplace_back(lk);
     }
 
+    std::vector<uint32_t> const& ioKilobytesValues =
+        appCfg.LOADGEN_IO_KILOBYTES_FOR_TESTING;
     auto totalWriteBytes =
-        static_cast<uint32_t>(rand_piecewise(invokeCfg.ioKiloBytesIntervals,
-                                             invokeCfg.ioKiloBytesWeights) *
-                              1024);
+        sampleDiscrete(ioKilobytesValues,
+                       appCfg.LOADGEN_IO_KILOBYTES_DISTRIBUTION_FOR_TESTING,
+                       DEFAULT_IO_KILOBYTES) *
+        1024;
 
     if (totalWriteBytes < mContactOverheadBytes)
     {
@@ -1418,7 +1416,11 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     // We don't have a good way of knowing how many bytes we will need to read
     // since the previous invocation writes a random number of bytes, so use
     // upper bound
-    resources.readBytes = (invokeCfg.ioKiloBytesIntervals.back() - 1) * 1024;
+    uint32_t const maxReadKilobytes =
+        ioKilobytesValues.empty() ? DEFAULT_IO_KILOBYTES
+                                  : *std::max_element(ioKilobytesValues.begin(),
+                                                      ioKilobytesValues.end());
+    resources.readBytes = maxReadKilobytes * 1024;
     resources.writeBytes = totalWriteBytes;
 
     // Approximate TX size before padding and footprint, slightly over estimated

@@ -1273,10 +1273,6 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
         if (cfg.modeInvokes())
         {
             auto& invokeCfg = cfg.getMutSorobanInvokeConfig();
-            invokeCfg.ioKiloBytesIntervals =
-                parseOptionalVectorParam<uint32_t>(map, "kilobytesintervals");
-            invokeCfg.ioKiloBytesWeights =
-                parseOptionalVectorParam<uint32_t>(map, "kilobytesweights");
             invokeCfg.txSizeBytesIntervals =
                 parseOptionalVectorParam<uint32_t>(map, "txsizeintervals");
             invokeCfg.txSizeBytesWeights =

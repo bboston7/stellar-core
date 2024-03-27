@@ -63,11 +63,6 @@ struct GeneratedLoadConfig
     // Config parameters for SOROBAN_UPLOAD and MIXED_CLASSIC_SOROBAN
     struct SorobanInvokeConfig
     {
-        // Range of kilo bytes and num entries for disk IO, where ioKiloBytes is
-        // the total amount of disk IO that the TX requires
-        std::vector<uint32_t> ioKiloBytesIntervals = {};
-        std::vector<uint32_t> ioKiloBytesWeights = {};
-
         // Size of transactions
         std::vector<uint32_t> txSizeBytesIntervals = {};
         std::vector<uint32_t> txSizeBytesWeights = {};

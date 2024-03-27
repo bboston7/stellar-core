@@ -253,6 +253,11 @@ class Config : public std::enable_shared_from_this<Config>
     std::vector<uint32_t> LOADGEN_NUM_DATA_ENTRIES_FOR_TESTING;
     std::vector<uint32_t> LOADGEN_NUM_DATA_ENTRIES_DISTRIBUTION_FOR_TESTING;
 
+    // Total kilobytes of IO per transaction for SOROBAN_UPLOAD and
+    // MIX_CLASSIC_SOROBAN loadgen modes.
+    std::vector<uint32_t> LOADGEN_IO_KILOBYTES_FOR_TESTING;
+    std::vector<uint32_t> LOADGEN_IO_KILOBYTES_DISTRIBUTION_FOR_TESTING;
+
     // Waits for merges to complete before applying transactions during catchup
     bool CATCHUP_WAIT_MERGES_TX_APPLY_FOR_TESTING;
 
