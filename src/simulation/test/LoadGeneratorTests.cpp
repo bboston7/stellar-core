@@ -552,20 +552,19 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         }
     }
 
-    // Test invoke mode with too many transactions that fail to apply
-    SECTION("Invoke with too many failed transactions")
+    // Test minimum percent success with too many transactions that fail to
+    // apply by requiring a 100% success rate for SOROBAN_UPLOAD mode
+    SECTION("Too many failed transactions")
     {
-        auto invokeFailCfg = GeneratedLoadConfig::txLoad(
-            LoadGenMode::SOROBAN_INVOKE, nAccounts, numSorobanTxs,
+        auto uploadFailCfg = GeneratedLoadConfig::txLoad(
+            LoadGenMode::SOROBAN_UPLOAD, nAccounts, numSorobanTxs,
             /* txRate */ 1);
 
-        invokeFailCfg.getMutSorobanConfig().nInstances = numInstances;
-
         // Set success percentage to 100% and leave other parameters at default.
-        invokeFailCfg.setMinSorobanPercentSuccess(100);
+        uploadFailCfg.setMinSorobanPercentSuccess(100);
 
         // LoadGen should fail
-        loadGen.generateLoad(invokeFailCfg);
+        loadGen.generateLoad(uploadFailCfg);
         simulation->crankUntil(
             [&]() {
                 return app.getMetrics()
