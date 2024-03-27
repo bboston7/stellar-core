@@ -45,10 +45,10 @@ using namespace txtest;
 
 namespace
 {
-// Default distribution settings
+// Default distribution settings, largely based on averages seen on testnet
 constexpr unsigned short DEFAULT_OP_COUNT = 1;
-// Based on average size seen on testnet
 constexpr uint32_t DEFAULT_WASM_BYTES = 35 * 1024;
+constexpr uint32_t DEFAULT_NUM_DATA_ENTRIES = 2;
 
 // Populate a JSON array `arr` with the contents of `vec`
 template <typename T>
@@ -420,8 +420,6 @@ LoadGenerator::start(GeneratedLoadConfig& cfg)
     {
         // Set sensible defaults for missing invoke config options
         auto& invokeCfg = cfg.getMutSorobanInvokeConfig();
-        checkDistribution(invokeCfg.nDataEntriesIntervals,
-                          invokeCfg.nDataEntriesWeights, 0u, 11u);
         checkDistribution(invokeCfg.ioKiloBytesIntervals,
                           invokeCfg.ioKiloBytesWeights, 1u, 6u);
         checkDistribution(invokeCfg.txSizeBytesIntervals,
@@ -650,10 +648,6 @@ GeneratedLoadConfig::getStatus() const
     {
         ret["instances"] = getSorobanConfig().nInstances;
         ret["wasms"] = getSorobanConfig().nWasms;
-        fillJsonArray(ret["data_entries_intervals"],
-                      getSorobanInvokeConfig().nDataEntriesIntervals);
-        fillJsonArray(ret["data_entries_weights"],
-                      getSorobanInvokeConfig().nDataEntriesWeights);
         fillJsonArray(ret["io_kilo_bytes_intervals"],
                       getSorobanInvokeConfig().ioKiloBytesIntervals);
         fillJsonArray(ret["io_kilo_bytes_weights"],
@@ -1333,6 +1327,8 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
                                             uint64_t accountId,
                                             GeneratedLoadConfig const& cfg)
 {
+    auto const& appCfg = mApp.getConfig();
+
     auto account = findAccount(accountId, ledgerNum);
     auto instanceIter = mContractInstances.find(accountId);
     releaseAssert(instanceIter != mContractInstances.end());
@@ -1366,8 +1362,10 @@ LoadGenerator::invokeSorobanLoadTransaction(uint32_t ledgerNum,
     SorobanResources resources;
     resources.footprint.readOnly = instance.readOnlyKeys;
 
-    auto numEntries = static_cast<uint32_t>(rand_piecewise(
-        invokeCfg.nDataEntriesIntervals, invokeCfg.nDataEntriesWeights));
+    auto numEntries =
+        sampleDiscrete(appCfg.LOADGEN_NUM_DATA_ENTRIES_FOR_TESTING,
+                       appCfg.LOADGEN_NUM_DATA_ENTRIES_DISTRIBUTION_FOR_TESTING,
+                       DEFAULT_NUM_DATA_ENTRIES);
     for (uint32_t i = 0; i < numEntries; ++i)
     {
         auto lk = contractDataKey(instance.contractID, makeU32(i),

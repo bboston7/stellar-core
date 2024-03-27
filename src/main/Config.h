@@ -248,6 +248,11 @@ class Config : public std::enable_shared_from_this<Config>
     std::vector<uint32_t> LOADGEN_WASM_BYTES_FOR_TESTING;
     std::vector<uint32_t> LOADGEN_WASM_BYTES_DISTRIBUTION_FOR_TESTING;
 
+    // Number of data entries for SOROBAN_INVOKE and MIX_CLASSIC_SOROBAN loadgen
+    // modes
+    std::vector<uint32_t> LOADGEN_NUM_DATA_ENTRIES_FOR_TESTING;
+    std::vector<uint32_t> LOADGEN_NUM_DATA_ENTRIES_DISTRIBUTION_FOR_TESTING;
+
     // Waits for merges to complete before applying transactions during catchup
     bool CATCHUP_WAIT_MERGES_TX_APPLY_FOR_TESTING;
 

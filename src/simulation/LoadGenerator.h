@@ -65,8 +65,6 @@ struct GeneratedLoadConfig
     {
         // Range of kilo bytes and num entries for disk IO, where ioKiloBytes is
         // the total amount of disk IO that the TX requires
-        std::vector<uint32_t> nDataEntriesIntervals = {};
-        std::vector<uint32_t> nDataEntriesWeights = {};
         std::vector<uint32_t> ioKiloBytesIntervals = {};
         std::vector<uint32_t> ioKiloBytesWeights = {};
 

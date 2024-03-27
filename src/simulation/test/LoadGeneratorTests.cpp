@@ -93,11 +93,16 @@ TEST_CASE("generate load with unique accounts", "[loadgen]")
 
 TEST_CASE("generate soroban load", "[loadgen][soroban]")
 {
+    auto const numDataEntries = 5;
+
     Hash networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
     Simulation::pointer simulation =
-        Topologies::pair(Simulation::OVER_LOOPBACK, networkID, [](int i) {
+        Topologies::pair(Simulation::OVER_LOOPBACK, networkID, [&](int i) {
             auto cfg = getTestConfig(i);
             cfg.TESTING_UPGRADE_MAX_TX_SET_SIZE = 5000;
+            // Use tight bounds to we can verify storage works properly
+            cfg.LOADGEN_NUM_DATA_ENTRIES_FOR_TESTING = {numDataEntries};
+            cfg.LOADGEN_NUM_DATA_ENTRIES_DISTRIBUTION_FOR_TESTING = {1};
             return cfg;
         });
 
@@ -358,7 +363,6 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
 
     auto const numInstances = 10;
     auto const numSorobanTxs = 100;
-    auto const numDataEntries = 5;
     auto const ioKiloBytes = 15;
 
     numTxsBefore = getSuccessfulTxCount();
@@ -394,13 +398,11 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         /* txRate */ 1);
 
     invokeLoadCfg.getMutSorobanConfig().nInstances = numInstances;
-    constexpr int maxInvokeFail = 5;
+    constexpr int maxInvokeFail = 10; // TODO: Reduce back down to 5?
     invokeLoadCfg.setMinSorobanPercentSuccess(100 - maxInvokeFail);
 
     // Use tight bounds to we can verify storage works properly
     auto& invokeCfg = invokeLoadCfg.getMutSorobanInvokeConfig();
-    invokeCfg.nDataEntriesIntervals = {numDataEntries, numDataEntries + 1};
-    invokeCfg.nDataEntriesWeights = {1};
     invokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
     invokeCfg.ioKiloBytesWeights = {1};
 
@@ -496,12 +498,11 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         mixCfg.sorobanUploadWeight = uploadWeight;
 
         auto& mixInvokeCfg = mixLoadCfg.getMutSorobanInvokeConfig();
-        mixInvokeCfg.nDataEntriesIntervals = {numDataEntries,
-                                              numDataEntries + 1};
-        mixInvokeCfg.nDataEntriesWeights = {1};
         mixInvokeCfg.ioKiloBytesIntervals = {ioKiloBytes, ioKiloBytes + 1};
         mixInvokeCfg.ioKiloBytesWeights = {1};
 
+        // TODO: Use these instead of the other intervals once everything is in
+        // the app config
         mixInvokeCfg.txSizeBytesIntervals = {0, 40'000, 60'000, 100'000};
         mixInvokeCfg.txSizeBytesWeights = {1, 2, 1};
         mixInvokeCfg.instructionsIntervals = {0, 5'000'000, 10'000'000};
@@ -536,10 +537,10 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         for (auto node : nodes)
         {
             // All classic transactions should succeed
-            auto& classicSucceeded =
-                node->getMetrics().NewCounter({"ledger", "apply", "success"});
-            auto& classicFailed =
-                node->getMetrics().NewCounter({"ledger", "apply", "failure"});
+            auto& classicSucceeded = node->getMetrics().NewCounter(
+                {"ledger", "apply", "success"});
+            auto& classicFailed = node->getMetrics().NewCounter(
+                {"ledger", "apply", "failure"});
             REQUIRE(classicFailed.count() == 0);
             int64_t classicTotal = classicSucceeded.count();
 

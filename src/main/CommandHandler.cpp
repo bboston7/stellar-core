@@ -1268,13 +1268,11 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
             }
         }
 
+        // TODO: Update markdown docs on distributions
+
         if (cfg.modeInvokes())
         {
             auto& invokeCfg = cfg.getMutSorobanInvokeConfig();
-            invokeCfg.nDataEntriesIntervals =
-                parseOptionalVectorParam<uint32_t>(map, "dataentriesintervals");
-            invokeCfg.nDataEntriesWeights =
-                parseOptionalVectorParam<uint32_t>(map, "dataentriesweights");
             invokeCfg.ioKiloBytesIntervals =
                 parseOptionalVectorParam<uint32_t>(map, "kilobytesintervals");
             invokeCfg.ioKiloBytesWeights =

@@ -36,6 +36,7 @@ rand_uniform(T lo, T hi)
 
 // Sample a piecewise constant distribution with intervals `intervals` and
 // weights `weights`.
+// TODO: Remove
 template <typename T, typename U>
 double
 rand_piecewise(T const& intervals, U const& weights)
