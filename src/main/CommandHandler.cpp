@@ -1232,8 +1232,6 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
             }
         }
 
-        // TODO: Update markdown docs on distributions
-
         if (cfg.mode == LoadGenMode::SOROBAN_CREATE_UPGRADE)
         {
             auto& upgradeCfg = cfg.getMutSorobanUpgradeConfig();

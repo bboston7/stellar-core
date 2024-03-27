@@ -240,9 +240,6 @@ class Config : public std::enable_shared_from_this<Config>
     std::vector<unsigned short> LOADGEN_OP_COUNT_FOR_TESTING;
     std::vector<uint32> LOADGEN_OP_COUNT_DISTRIBUTION_FOR_TESTING;
 
-    // TODO: All of these parameters need more documentation to explain how the
-    // distributions work. They also need to be added to the example config.
-
     // Size of wasm blobs for SOROBAN_UPLOAD and MIX_CLASSIC_SOROBAN loadgen
     // modes
     std::vector<uint32_t> LOADGEN_WASM_BYTES_FOR_TESTING;

@@ -405,7 +405,7 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
         /* txRate */ 1);
 
     invokeLoadCfg.getMutSorobanConfig().nInstances = numInstances;
-    constexpr int maxInvokeFail = 10; // TODO: Reduce back down to 5?
+    constexpr int maxInvokeFail = 5;
     invokeLoadCfg.setMinSorobanPercentSuccess(100 - maxInvokeFail);
 
     loadGen.generateLoad(invokeLoadCfg);
