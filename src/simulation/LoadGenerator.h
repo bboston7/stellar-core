@@ -61,14 +61,6 @@ struct GeneratedLoadConfig
     };
 
     // Config parameters for SOROBAN_UPLOAD and MIXED_CLASSIC_SOROBAN
-    struct SorobanUploadConfig
-    {
-        // Size of wasm blobs
-        std::vector<uint32_t> wasmBytesIntervals = {};
-        std::vector<uint32_t> wasmBytesWeights = {};
-    };
-
-    // Config parameters for SOROBAN_UPLOAD and MIXED_CLASSIC_SOROBAN
     struct SorobanInvokeConfig
     {
         // Range of kilo bytes and num entries for disk IO, where ioKiloBytes is
@@ -149,8 +141,6 @@ struct GeneratedLoadConfig
 
     SorobanConfig& getMutSorobanConfig();
     SorobanConfig const& getSorobanConfig() const;
-    SorobanUploadConfig& getMutSorobanUploadConfig();
-    SorobanUploadConfig const& getSorobanUploadConfig() const;
     SorobanInvokeConfig& getMutSorobanInvokeConfig();
     SorobanInvokeConfig const& getSorobanInvokeConfig() const;
     SorobanUpgradeConfig& getMutSorobanUpgradeConfig();
@@ -204,7 +194,6 @@ struct GeneratedLoadConfig
 
   private:
     SorobanConfig sorobanConfig;
-    SorobanUploadConfig sorobanUploadConfig;
     SorobanInvokeConfig sorobanInvokeConfig;
     SorobanUpgradeConfig sorobanUpgradeConfig;
     MixClassicSorobanConfig mixClassicSorobanConfig;
@@ -431,9 +420,8 @@ class LoadGenerator
                                           uint64_t accountId,
                                           GeneratedLoadConfig const& cfg);
     std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
-    sorobanRandomWasmTransaction(
-        uint32_t ledgerNum, uint64_t accountId, uint32_t inclusionFee,
-        GeneratedLoadConfig::SorobanUploadConfig const& cfg);
+    sorobanRandomWasmTransaction(uint32_t ledgerNum, uint64_t accountId,
+                                 uint32_t inclusionFee);
 
     // Create a transaction in MIXED_CLASSIC_SOROBAN mode
     std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
@@ -442,9 +430,8 @@ class LoadGenerator
                                          GeneratedLoadConfig const& cfg);
     // Returns a pair containing random SOROBAN_UPLOAD resources and a uint32_t
     // containing a random wasm size, both sampled from the distributions in
-    // `cfg`.
-    std::pair<SorobanResources, uint32_t> sorobanRandomUploadResources(
-        GeneratedLoadConfig::SorobanUploadConfig const& cfg);
+    // the application config.
+    std::pair<SorobanResources, uint32_t> sorobanRandomUploadResources();
     void maybeHandleFailedTx(TransactionFramePtr tx,
                              TestAccountPtr sourceAccount,
                              TransactionQueue::AddResult status,

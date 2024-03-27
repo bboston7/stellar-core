@@ -232,6 +232,7 @@ parseOptionalParam(std::map<std::string, std::string> const& map,
 // Parse a vector parameter `key`. If it exists in `map`, the value of `key`
 // should be a whitespace separated list of values. If `key` does not exist in
 // `map` this function returns an empty vector.
+// TODO: Remove
 template <typename T>
 std::vector<T>
 parseOptionalVectorParam(std::map<std::string, std::string> const& map,
@@ -1265,15 +1266,6 @@ CommandHandler::generateLoad(std::string const& params, std::string& retStr)
                 sorobanCfg.nWasms =
                     parseOptionalParamOrDefault<uint32_t>(map, "wasms", 0);
             }
-        }
-
-        if (cfg.modeUploads())
-        {
-            auto& uploadCfg = cfg.getMutSorobanUploadConfig();
-            uploadCfg.wasmBytesIntervals =
-                parseOptionalVectorParam<uint32_t>(map, "wasmbytesintervals");
-            uploadCfg.wasmBytesWeights =
-                parseOptionalVectorParam<uint32_t>(map, "wasmbytesweights");
         }
 
         if (cfg.modeInvokes())
