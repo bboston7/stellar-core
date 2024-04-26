@@ -716,3 +716,117 @@ TEST_CASE("Multi-op mixed transactions are valid", "[loadgen]")
     REQUIRE(dexOps > 0);
     REQUIRE(dexOps + nonDexOps == 3 * 100);
 }
+
+// TODO: Docs
+// TODO: This issue also affects reads, so should be called something like "i/o
+// bytes", rather than "write bytes"
+TEST_CASE("soroban invoke load write bytes resources rounds up",
+          "[loadgen][soroban]")
+{
+    auto const numDataEntries = 3;
+    auto const ioKiloBytes = 1;
+
+    Hash networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    Simulation::pointer simulation =
+        Topologies::pair(Simulation::OVER_LOOPBACK, networkID, [&](int i) {
+            auto cfg = getTestConfig(i);
+            cfg.TESTING_UPGRADE_MAX_TX_SET_SIZE = 5000;
+            // Use tight bounds to we can verify storage works properly
+            cfg.LOADGEN_NUM_DATA_ENTRIES_FOR_TESTING = {numDataEntries};
+            cfg.LOADGEN_NUM_DATA_ENTRIES_DISTRIBUTION_FOR_TESTING = {1};
+            cfg.LOADGEN_IO_KILOBYTES_FOR_TESTING = {ioKiloBytes};
+            cfg.LOADGEN_IO_KILOBYTES_DISTRIBUTION_FOR_TESTING = {1};
+
+            cfg.LOADGEN_TX_SIZE_BYTES_FOR_TESTING = {20'000, 50'000, 80'000};
+            cfg.LOADGEN_TX_SIZE_BYTES_DISTRIBUTION_FOR_TESTING = {1, 2, 1};
+            cfg.LOADGEN_INSTRUCTIONS_FOR_TESTING = {1'000'000, 5'000'000,
+                                                    10'000'000};
+            cfg.LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING = {1, 2, 3};
+            return cfg;
+        });
+
+    simulation->startAllNodes();
+    simulation->crankUntil(
+        [&]() { return simulation->haveAllExternalized(3, 1); },
+        2 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+
+    auto nodes = simulation->getNodes();
+    auto& app = *nodes[0]; // pick a node to generate load
+    auto& loadGen = app.getLoadGenerator();
+    auto getSuccessfulTxCount = [&]() {
+        return nodes[0]
+            ->getMetrics()
+            .NewCounter({"ledger", "apply-soroban", "success"})
+            .count();
+    };
+
+    auto constexpr mode = LoadGenMode::SOROBAN_INVOKE;
+    auto constexpr nAccounts = 20;
+    loadGen.generateLoad(GeneratedLoadConfig::createAccountsLoad(
+        /* nAccounts */ nAccounts,
+        /* txRate */ 1));
+    simulation->crankUntil(
+        [&]() {
+            return app.getMetrics()
+                       .NewMeter({"loadgen", "run", "complete"}, "run")
+                       .count() == 1;
+        },
+        100 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+
+    // Manually override network settings for invoke load gen
+    for (auto node : nodes)
+    {
+        overrideSorobanNetworkConfigForTest(*node);
+        modifySorobanNetworkConfig(*node, [&](SorobanNetworkConfig& cfg) {
+            // Entries should never expire
+            cfg.mStateArchivalSettings.maxEntryTTL = 1'000'000;
+            cfg.mStateArchivalSettings.minPersistentTTL = 1'000'000;
+
+            // Set write limits so that we can write all keys in a single TX
+            // during setup
+            cfg.mTxMaxWriteLedgerEntries = cfg.mTxMaxReadLedgerEntries;
+            cfg.mTxMaxWriteBytes = cfg.mTxMaxReadBytes;
+
+            // Allow every TX to have the maximum TX resources
+            cfg.mLedgerMaxInstructions =
+                cfg.mTxMaxInstructions * cfg.mLedgerMaxTxCount;
+            cfg.mLedgerMaxReadLedgerEntries =
+                cfg.mTxMaxReadLedgerEntries * cfg.mLedgerMaxTxCount;
+            cfg.mLedgerMaxReadBytes =
+                cfg.mTxMaxReadBytes * cfg.mLedgerMaxTxCount;
+            cfg.mLedgerMaxWriteLedgerEntries =
+                cfg.mTxMaxWriteLedgerEntries * cfg.mLedgerMaxTxCount;
+            cfg.mLedgerMaxWriteBytes =
+                cfg.mTxMaxWriteBytes * cfg.mLedgerMaxTxCount;
+            cfg.mLedgerMaxTransactionsSizeBytes =
+                cfg.mTxMaxSizeBytes * cfg.mLedgerMaxTxCount;
+        });
+    }
+
+    auto constexpr numInstances = 10;
+    loadGen.generateLoad(GeneratedLoadConfig::createSorobanInvokeSetupLoad(
+        /* nAccounts */ nAccounts, numInstances,
+        /* txRate */ 1));
+    simulation->crankUntil(
+        [&]() {
+            return app.getMetrics()
+                       .NewMeter({"loadgen", "run", "complete"}, "run")
+                       .count() == 2;
+        },
+        100 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+
+    auto constexpr nTxs = 100;
+    auto cfg = GeneratedLoadConfig::txLoad(
+        LoadGenMode::SOROBAN_INVOKE, nAccounts, nTxs, /* txRate */ 1,
+        /* offset */ 0, /* maxFee */ std::nullopt);
+    cfg.setMinSorobanPercentSuccess(80);
+    loadGen.generateLoad(cfg);
+    // TODO: Flip to "success" once fixed.
+    simulation->crankUntil(
+        [&]() {
+            return app.getMetrics()
+                       .NewMeter({"loadgen", "run", "complete"}, "run")
+                       .count() == 1;
+        },
+        100 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+}
