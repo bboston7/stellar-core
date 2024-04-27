@@ -691,10 +691,10 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
         mOverlayMetrics.mSendSurveyResponseMeter.Mark();
         break;
     case TIME_SLICED_SURVEY_START_COLLECTING:
-        getOverlayMetrics().mSendStartSurveyCollectingMeter.Mark();
+        mOverlayMetrics.mSendStartSurveyCollectingMeter.Mark();
         break;
     case TIME_SLICED_SURVEY_STOP_COLLECTING:
-        getOverlayMetrics().mSendStopSurveyCollectingMeter.Mark();
+        mOverlayMetrics.mSendStopSurveyCollectingMeter.Mark();
         break;
     case SEND_MORE:
     case SEND_MORE_EXTENDED:
@@ -993,15 +993,14 @@ Peer::recvRawMessage(StellarMessage const& stellarMsg)
 
     case TIME_SLICED_SURVEY_START_COLLECTING:
     {
-        auto t =
-            getOverlayMetrics().mRecvStartSurveyCollectingTimer.TimeScope();
+        auto t = mOverlayMetrics.mRecvStartSurveyCollectingTimer.TimeScope();
         recvSurveyStartCollectingMessage(stellarMsg);
     }
     break;
 
     case TIME_SLICED_SURVEY_STOP_COLLECTING:
     {
-        auto t = getOverlayMetrics().mRecvStopSurveyCollectingTimer.TimeScope();
+        auto t = mOverlayMetrics.mRecvStopSurveyCollectingTimer.TimeScope();
         recvSurveyStopCollectingMessage(stellarMsg);
     }
     break;
@@ -1200,7 +1199,7 @@ Peer::maybeProcessPingResponse(Hash const& id)
             CLOG_DEBUG(Overlay, "Latency {}: {} ms", toString(),
                        mLastPing.count());
             mOverlayMetrics.mConnectionLatencyTimer.Update(mLastPing);
-            mApp.getOverlayManager().getSurveyManager().modifyPeerData(
+            mAppConnector.getOverlayManager().getSurveyManager().modifyPeerData(
                 *this, [&](CollectingPeerData& peerData) {
                     peerData.mLatencyTimer.Update(
                         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -1708,16 +1707,18 @@ void
 Peer::recvSurveyStartCollectingMessage(StellarMessage const& msg)
 {
     ZoneScoped;
-    mApp.getOverlayManager().getSurveyManager().relayStartSurveyCollecting(
-        msg, shared_from_this());
+    mAppConnector.getOverlayManager()
+        .getSurveyManager()
+        .relayStartSurveyCollecting(msg, shared_from_this());
 }
 
 void
 Peer::recvSurveyStopCollectingMessage(StellarMessage const& msg)
 {
     ZoneScoped;
-    mApp.getOverlayManager().getSurveyManager().relayStopSurveyCollecting(
-        msg, shared_from_this());
+    mAppConnector.getOverlayManager()
+        .getSurveyManager()
+        .relayStopSurveyCollecting(msg, shared_from_this());
 }
 
 void

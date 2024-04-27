@@ -103,35 +103,6 @@ class OverlayManagerImpl : public OverlayManager
 
     PeersList mInboundPeers;
     PeersList mOutboundPeers;
-
-    // This gets called once when starting
-    // and it continues to call itself every FLOOD_DEMAND_PERIOD_MS.
-    void demand();
-    VirtualTimer mDemandTimer;
-    struct DemandHistory
-    {
-        VirtualClock::time_point firstDemanded;
-        VirtualClock::time_point lastDemanded;
-        UnorderedMap<NodeID, VirtualClock::time_point> peers;
-        bool latencyRecorded{false};
-    };
-    UnorderedMap<Hash, DemandHistory> mDemandHistoryMap;
-
-    std::queue<Hash> mPendingDemands;
-    enum class DemandStatus
-    {
-        DEMAND,      // Demand
-        RETRY_LATER, // The timer hasn't expired, and we need to come back to
-                     // this.
-        DISCARD      // We should never demand this txn from this peer.
-    };
-    DemandStatus demandStatus(Hash const& txHash, Peer::pointer) const;
-
-    // After `MAX_RETRY_COUNT` attempts with linear back-off, we assume that
-    // no one has the transaction.
-    int const MAX_RETRY_COUNT = 15;
-    std::chrono::milliseconds retryDelayDemand(int numAttemptsMade) const;
-    size_t getMaxDemandSize() const;
     int availableOutboundPendingSlots() const;
 
   public:
