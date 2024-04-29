@@ -154,7 +154,8 @@ SurveyMessageLimiter::validateStartSurveyCollecting(
 
     if (surveyDataManager.surveyIsActive())
     {
-        // Survey already active, toss
+        // A survey already active, toss. Only one survey may be active at a
+        // time.
         return false;
     }
 
@@ -163,9 +164,6 @@ SurveyMessageLimiter::validateStartSurveyCollecting(
         return false;
     }
 
-    // Unlike survey versions 0 and 1, we do not need to check for too many
-    // surveys in flight as V2 only allows a single survey at a time, enforced
-    // via the `SurveyDataManager`.
     return true;
 }
 
@@ -185,9 +183,6 @@ SurveyMessageLimiter::validateStopSurveyCollecting(
         return false;
     }
 
-    // Unlike survey versions 0 and 1, we do not need to check for too many
-    // surveys in flight as V2 only allows a single survey at a time, enforced
-    // via the `SurveyDataManager`.
     return true;
 }
 
