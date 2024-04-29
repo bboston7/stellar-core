@@ -16,6 +16,53 @@
 using namespace std::chrono_literals;
 using namespace stellar;
 
+namespace
+{
+// Begin survey collecting from `node`
+void
+startSurveyCollecting(Application& node, uint32_t nonce)
+{
+    std::string const cmd =
+        "startsurveycollecting?nonce=" + std::to_string(nonce);
+    node.getCommandHandler().manualCmd(cmd);
+}
+
+// Stop survey collecting from `node`
+void
+stopSurveyCollecting(Application& node, uint32_t nonce)
+{
+    std::string const cmd =
+        "stopsurveycollecting?nonce=" + std::to_string(nonce);
+    node.getCommandHandler().manualCmd(cmd);
+}
+
+// Request survey data from `surveyed`
+void
+surveyTimeSliceData(Application& surveyor, PublicKey const& surveyed,
+                    uint32_t inboundPeerIndex, uint32_t outboundPeerIndex)
+{
+    uint32_t constexpr duration = 100;
+    std::string const cmd =
+        "surveytimeslicedata?node=" + KeyUtils::toStrKey(surveyed) +
+        "&inboundpeerindex=" + std::to_string(inboundPeerIndex) +
+        "&outboundpeerindex=" + std::to_string(outboundPeerIndex) +
+        "&duration=" + std::to_string(duration);
+    surveyor.getCommandHandler().manualCmd(cmd);
+}
+
+// Get survey results from `node`
+Json::Value
+getSurveyResult(Application& node)
+{
+    auto const strResult =
+        node.getCommandHandler().manualCmd("getsurveyresult");
+    Json::Value result;
+    Json::Reader reader;
+    REQUIRE(reader.parse(strResult, result));
+    return result;
+}
+} // namespace
+
 TEST_CASE("topology encrypted response memory check",
           "[overlay][survey][topology]")
 {
@@ -330,14 +377,8 @@ TEST_CASE("survey request process order", "[overlay][survey][topology]")
 
     auto getResults = [&](NodeID const& nodeID) {
         simulation->crankForAtLeast(std::chrono::seconds(1), false);
-        auto strResult =
-            simulation->getNode(nodeID)->getCommandHandler().manualCmd(
-                "getsurveyresult");
-
-        Json::Value result;
-        Json::Reader reader;
-        REQUIRE(reader.parse(strResult, result));
-        return result;
+        Application& node = *simulation->getNode(nodeID);
+        return getSurveyResult(node);
     };
 
     auto sendRequest = [&](PublicKey const& surveyor,
@@ -485,9 +526,7 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
     {
         // Start survey collecting
         Application& surveyor = *simulation->getNode(keyList[A]);
-        SurveyManager& surveyManager =
-            surveyor.getOverlayManager().getSurveyManager();
-        REQUIRE(surveyManager.broadcastStartSurveyCollecting(nonce));
+        startSurveyCollecting(surveyor, nonce);
 
         // Let survey run for a bit
         simulation->crankForAtLeast(5min, false);
@@ -496,7 +535,7 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         checkSurveyState(false);
 
         // Stop survey collecting
-        surveyManager.broadcastStopSurveyCollecting(nonce);
+        stopSurveyCollecting(surveyor, nonce);
 
         // Give the network time to transition to the reporting phase
         simulation->crankForAtLeast(1min, false);
@@ -505,18 +544,12 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         // reporting mode
         checkSurveyState(true);
 
-        // Start survey for collection
-        auto constexpr duration = 100s;
-        surveyManager.startSurveyReporting(TIME_SLICED_SURVEY_TOPOLOGY,
-                                           duration);
-
         // Request survey data from B
-        surveyManager.addNodeToRunningSurveyBacklog(TIME_SLICED_SURVEY_TOPOLOGY,
-                                                    duration, keyList[B], 0, 0);
+        surveyTimeSliceData(surveyor, keyList[B], 0, 0);
         crankForSurvey();
 
         // Check results
-        Json::Value topology = surveyManager.getJsonResults()["topology"];
+        Json::Value topology = getSurveyResult(surveyor)["topology"];
         REQUIRE(topology.size() == 1);
 
         // B responds with 2 new nodes (C and E)
@@ -554,14 +587,12 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
                 configList[B].NODE_IS_VALIDATOR);
 
         // Request survey data from C and E
-        surveyManager.addNodeToRunningSurveyBacklog(TIME_SLICED_SURVEY_TOPOLOGY,
-                                                    duration, keyList[C], 0, 0);
-        surveyManager.addNodeToRunningSurveyBacklog(TIME_SLICED_SURVEY_TOPOLOGY,
-                                                    duration, keyList[E], 0, 0);
+        surveyTimeSliceData(surveyor, keyList[C], 0, 0);
+        surveyTimeSliceData(surveyor, keyList[E], 0, 0);
         crankForSurvey();
 
         // In the next round, we sent requests to C and E
-        topology = surveyManager.getJsonResults()["topology"];
+        topology = getSurveyResult(surveyor)["topology"];
         REQUIRE(topology.size() == 3);
         REQUIRE(topology[keyStrList[C]]["inboundPeers"][0]["nodeId"] ==
                 keyStrList[B]);
@@ -572,10 +603,9 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         REQUIRE(topology[keyStrList[E]]["outboundPeers"].isNull());
 
         // Request survey data from B with non-zero peer indices.
-        surveyManager.addNodeToRunningSurveyBacklog(TIME_SLICED_SURVEY_TOPOLOGY,
-                                                    duration, keyList[B], 1, 1);
+        surveyTimeSliceData(surveyor, keyList[B], 1, 1);
         crankForSurvey();
-        topology = surveyManager.getJsonResults()["topology"];
+        topology = getSurveyResult(surveyor)["topology"];
         REQUIRE(topology.size() == 3);
         // Should have no inbound peers (requested index was too high)
         REQUIRE(topology[keyStrList[B]]["inboundPeers"].isNull());
@@ -585,10 +615,8 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         // Start a new survey collection with a different nonce from node B.
         // Call should fail as B should detect the already running survey.
         uint32_t constexpr conflictingNonce = 0xCAFE;
-        REQUIRE(!simulation->getNode(keyList[B])
-                     ->getOverlayManager()
-                     .getSurveyManager()
-                     .broadcastStartSurveyCollecting(conflictingNonce));
+        startSurveyCollecting(*simulation->getNode(keyList[B]),
+                              conflictingNonce);
 
         // Let survey run (though it shouldn't matter as B shouldn't even
         // generate a message to send)
@@ -623,7 +651,7 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         }
 
         // Start new survey collecting phase
-        REQUIRE(surveyManager.broadcastStartSurveyCollecting(nonce));
+        startSurveyCollecting(surveyor, nonce);
         crankForSurvey();
 
         // All nodes should have active surveys
@@ -742,9 +770,7 @@ TEST_CASE("Time sliced dynamic topology survey", "[overlay][survey][topology]")
 
     // Start survey collection from A
     Application& surveyor = *simulation->getNode(keyList[A]);
-    SurveyManager& surveyManager =
-        surveyor.getOverlayManager().getSurveyManager();
-    REQUIRE(surveyManager.broadcastStartSurveyCollecting(nonce));
+    startSurveyCollecting(surveyor, nonce);
     crankForSurvey();
 
     // A through E should all be in the collecting phase
@@ -769,7 +795,7 @@ TEST_CASE("Time sliced dynamic topology survey", "[overlay][survey][topology]")
                      {F});
 
     // Stop survey collecting
-    surveyManager.broadcastStopSurveyCollecting(nonce);
+    stopSurveyCollecting(surveyor, nonce);
     crankForSurvey();
 
     // A through D should be in the reporting phase
@@ -792,22 +818,14 @@ TEST_CASE("Time sliced dynamic topology survey", "[overlay][survey][topology]")
     checkSurveyState(/*expectedNonce*/ std::nullopt, /*isReporting*/ false,
                      {F});
 
-    // Start survey for collection
-    auto constexpr duration = 100s;
-    surveyManager.startSurveyReporting(TIME_SLICED_SURVEY_TOPOLOGY, duration);
-    crankForSurvey();
-
     // Request survey data from B, E, and F
-    surveyManager.addNodeToRunningSurveyBacklog(TIME_SLICED_SURVEY_TOPOLOGY,
-                                                duration, keyList[B], 0, 0);
-    surveyManager.addNodeToRunningSurveyBacklog(TIME_SLICED_SURVEY_TOPOLOGY,
-                                                duration, keyList[E], 0, 0);
-    surveyManager.addNodeToRunningSurveyBacklog(TIME_SLICED_SURVEY_TOPOLOGY,
-                                                duration, keyList[F], 0, 0);
+    surveyTimeSliceData(surveyor, keyList[B], 0, 0);
+    surveyTimeSliceData(surveyor, keyList[E], 0, 0);
+    surveyTimeSliceData(surveyor, keyList[F], 0, 0);
     crankForSurvey();
 
     // Check results
-    Json::Value topology = surveyManager.getJsonResults()["topology"];
+    Json::Value topology = getSurveyResult(surveyor)["topology"];
     REQUIRE(topology.size() == 3);
 
     // B has 1 inbound peer active for entire time slice (A)
@@ -839,10 +857,7 @@ TEST_CASE("Time sliced dynamic topology survey", "[overlay][survey][topology]")
     // broadcast the request as it does already have an active survey itself.
     // All other nodes should ignore the request.
     uint32_t constexpr conflictingNonce = 0xCAFE;
-    REQUIRE(simulation->getNode(keyList[F])
-                ->getOverlayManager()
-                .getSurveyManager()
-                .broadcastStartSurveyCollecting(conflictingNonce));
+    startSurveyCollecting(*simulation->getNode(keyList[F]), conflictingNonce);
     crankForSurvey();
 
     // Nodes A through D should still be in the reporting phase with the old
