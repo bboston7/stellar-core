@@ -1009,7 +1009,8 @@ SurveyManager::addPeerToBacklog(NodeID const& nodeToSurvey)
     if (mPeersToSurvey.count(nodeToSurvey) != 0 ||
         nodeToSurvey == mApp.getConfig().NODE_SEED.getPublicKey())
     {
-        return;
+        throw std::runtime_error("addPeerToBacklog failed: Peer is already in "
+                                 "the backlog, or peer is self.");
     }
 
     mBadResponseNodes.erase(nodeToSurvey);

@@ -116,6 +116,8 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     void topOffRequests(SurveyMessageCommandType type);
     void updateSurveyExpiration(std::chrono::seconds surveyDuration);
 
+    // Add `nodeToSurvey` to the survey backlog. Throws if the node is
+    // already queued up to survey, or if the node itself is the surveyor.
     void addPeerToBacklog(NodeID const& nodeToSurvey);
 
     // returns true if signature is valid

@@ -36,8 +36,9 @@ stopSurveyCollecting(Application& node, uint32_t nonce)
     node.getCommandHandler().manualCmd(cmd);
 }
 
-// Request survey data from `surveyed`
-void
+// Request survey data from `surveyed`. Returns `true` iff the request succeeded
+// in adding `surveyed` to the backlog.
+bool
 surveyTimeSliceData(Application& surveyor, PublicKey const& surveyed,
                     uint32_t inboundPeerIndex, uint32_t outboundPeerIndex)
 {
@@ -47,7 +48,10 @@ surveyTimeSliceData(Application& surveyor, PublicKey const& surveyed,
         "&inboundpeerindex=" + std::to_string(inboundPeerIndex) +
         "&outboundpeerindex=" + std::to_string(outboundPeerIndex) +
         "&duration=" + std::to_string(duration);
-    surveyor.getCommandHandler().manualCmd(cmd);
+    std::string const response = surveyor.getCommandHandler().manualCmd(cmd);
+
+    // Detect failure by looking for the word "failed" in the response
+    return response.find("failed") == std::string::npos;
 }
 
 // Get survey results from `node`
@@ -545,7 +549,7 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         checkSurveyState(true);
 
         // Request survey data from B
-        surveyTimeSliceData(surveyor, keyList[B], 0, 0);
+        REQUIRE(surveyTimeSliceData(surveyor, keyList[B], 0, 0));
         crankForSurvey();
 
         // Check results
@@ -587,8 +591,8 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
                 configList[B].NODE_IS_VALIDATOR);
 
         // Request survey data from C and E
-        surveyTimeSliceData(surveyor, keyList[C], 0, 0);
-        surveyTimeSliceData(surveyor, keyList[E], 0, 0);
+        REQUIRE(surveyTimeSliceData(surveyor, keyList[C], 0, 0));
+        REQUIRE(surveyTimeSliceData(surveyor, keyList[E], 0, 0));
         crankForSurvey();
 
         // In the next round, we sent requests to C and E
@@ -603,7 +607,7 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         REQUIRE(topology[keyStrList[E]]["outboundPeers"].isNull());
 
         // Request survey data from B with non-zero peer indices.
-        surveyTimeSliceData(surveyor, keyList[B], 1, 1);
+        REQUIRE(surveyTimeSliceData(surveyor, keyList[B], 1, 1));
         crankForSurvey();
         topology = getSurveyResult(surveyor)["topology"];
         REQUIRE(topology.size() == 3);
@@ -611,6 +615,18 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         REQUIRE(topology[keyStrList[B]]["inboundPeers"].isNull());
         // Should have just 1 outbound peer
         REQUIRE(topology[keyStrList[B]]["outboundPeers"].size() == 1);
+
+        // Request survey data from B twice. The second call (with different
+        // indices) should fail.
+        REQUIRE(surveyTimeSliceData(surveyor, keyList[B], 0, 0));
+        REQUIRE(!surveyTimeSliceData(surveyor, keyList[B], 1, 1));
+        crankForSurvey();
+        topology = getSurveyResult(surveyor)["topology"];
+        REQUIRE(topology.size() == 3);
+        // Should have 1 inbound peer and 2 outbound peers, indicating that the
+        // survey with 0 indices went through
+        REQUIRE(topology[keyStrList[B]]["inboundPeers"].size() == 1);
+        REQUIRE(topology[keyStrList[B]]["outboundPeers"].size() == 2);
 
         // Start a new survey collection with a different nonce from node B.
         // Call should fail as B should detect the already running survey.
@@ -819,9 +835,9 @@ TEST_CASE("Time sliced dynamic topology survey", "[overlay][survey][topology]")
                      {F});
 
     // Request survey data from B, E, and F
-    surveyTimeSliceData(surveyor, keyList[B], 0, 0);
-    surveyTimeSliceData(surveyor, keyList[E], 0, 0);
-    surveyTimeSliceData(surveyor, keyList[F], 0, 0);
+    REQUIRE(surveyTimeSliceData(surveyor, keyList[B], 0, 0));
+    REQUIRE(surveyTimeSliceData(surveyor, keyList[E], 0, 0));
+    REQUIRE(surveyTimeSliceData(surveyor, keyList[F], 0, 0));
     crankForSurvey();
 
     // Check results
