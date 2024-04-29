@@ -65,7 +65,9 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     void relayStartSurveyCollecting(StellarMessage const& msg,
                                     Peer::pointer peer);
 
-    void broadcastStopSurveyCollecting(uint32_t nonce);
+    // Stop survey collecting. Uses nonce of the currently running survey.
+    // Returns `false` if no survey is currently active.
+    bool broadcastStopSurveyCollecting();
 
     void relayStopSurveyCollecting(StellarMessage const& msg,
                                    Peer::pointer peer);

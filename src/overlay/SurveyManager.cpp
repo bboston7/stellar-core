@@ -230,9 +230,15 @@ SurveyManager::relayStartSurveyCollecting(StellarMessage const& msg,
     broadcast(msg);
 }
 
-void
-SurveyManager::broadcastStopSurveyCollecting(uint32_t nonce)
+bool
+SurveyManager::broadcastStopSurveyCollecting()
 {
+    std::optional<uint32_t> maybeNonce = mSurveyDataManager.getNonce();
+    if (!maybeNonce.has_value())
+    {
+        return false;
+    }
+
     StellarMessage newMsg;
     newMsg.type(TIME_SLICED_SURVEY_STOP_COLLECTING);
     auto& signedStopCollecting =
@@ -240,13 +246,15 @@ SurveyManager::broadcastStopSurveyCollecting(uint32_t nonce)
     auto& stopCollecting = signedStopCollecting.stopCollecting;
 
     stopCollecting.surveyorID = mApp.getConfig().NODE_SEED.getPublicKey();
-    stopCollecting.nonce = nonce;
+    stopCollecting.nonce = maybeNonce.value();
     stopCollecting.ledgerNum = mApp.getHerder().trackingConsensusLedgerIndex();
 
     auto sigBody = xdr::xdr_to_opaque(stopCollecting);
     signedStopCollecting.signature = mApp.getConfig().NODE_SEED.sign(sigBody);
 
     relayStopSurveyCollecting(newMsg, nullptr);
+
+    return true;
 }
 
 void

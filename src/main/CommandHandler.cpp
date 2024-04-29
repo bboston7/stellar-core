@@ -1217,20 +1217,21 @@ CommandHandler::startSurveyCollecting(std::string const& params,
 }
 
 void
-CommandHandler::stopSurveyCollecting(std::string const& params,
-                                     std::string& retStr)
+CommandHandler::stopSurveyCollecting(std::string const&, std::string& retStr)
 {
     ZoneScoped;
     checkBooted();
 
-    std::map<std::string, std::string> map;
-    http::server::server::parseParams(params, map);
-
-    uint32_t const nonce = parseRequiredParam<uint32_t>(map, "nonce");
-
     auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
-    surveyManager.broadcastStopSurveyCollecting(nonce);
-    retStr = "Requested network to stop survey collecting.";
+    if (surveyManager.broadcastStopSurveyCollecting())
+    {
+        retStr = "Requested network to stop survey collecting.";
+    }
+    else
+    {
+        retStr = "Failed to stop survey collecting. No survey is active on the "
+                 "network.";
+    }
 }
 
 void

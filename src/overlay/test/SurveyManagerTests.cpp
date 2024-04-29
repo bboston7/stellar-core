@@ -31,8 +31,7 @@ startSurveyCollecting(Application& node, uint32_t nonce)
 void
 stopSurveyCollecting(Application& node, uint32_t nonce)
 {
-    std::string const cmd =
-        "stopsurveycollecting?nonce=" + std::to_string(nonce);
+    std::string const cmd = "stopsurveycollecting";
     node.getCommandHandler().manualCmd(cmd);
 }
 
