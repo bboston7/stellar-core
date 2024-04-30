@@ -41,12 +41,10 @@ bool
 surveyTimeSliceData(Application& surveyor, PublicKey const& surveyed,
                     uint32_t inboundPeerIndex, uint32_t outboundPeerIndex)
 {
-    uint32_t constexpr duration = 100;
     std::string const cmd =
         "surveytimeslicedata?node=" + KeyUtils::toStrKey(surveyed) +
         "&inboundpeerindex=" + std::to_string(inboundPeerIndex) +
-        "&outboundpeerindex=" + std::to_string(outboundPeerIndex) +
-        "&duration=" + std::to_string(duration);
+        "&outboundpeerindex=" + std::to_string(outboundPeerIndex);
     std::string const response = surveyor.getCommandHandler().manualCmd(cmd);
 
     // Detect failure by looking for the word "failed" in the response

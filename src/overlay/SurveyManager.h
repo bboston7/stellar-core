@@ -33,16 +33,19 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     SurveyManager(Application& app);
 
     // Start/stop survey reporting. Must be called before/after gathering data
-    // during the reporting phase of a survey
-    bool startSurveyReporting(SurveyMessageCommandType type,
-                              std::chrono::seconds surveyDuration);
+    // during the reporting phase of a survey. `surveyDuration` must be provided
+    // for old style surveys, and must not be provided for time sliced surveys.
+    bool
+    startSurveyReporting(SurveyMessageCommandType type,
+                         std::optional<std::chrono::seconds> surveyDuration);
     void stopSurveyReporting();
 
     // Add a node to the backlog of nodes to survey. inboundPeerIndex and
     // outboundPeerIndex are mandatory for time sliced surveys and indicate
     // which peers the node should report on
     void addNodeToRunningSurveyBacklog(
-        SurveyMessageCommandType type, std::chrono::seconds surveyDuration,
+        SurveyMessageCommandType type,
+        std::optional<std::chrono::seconds> surveyDuration,
         NodeID const& nodeToSurvey, std::optional<uint32_t> inboundPeerIndex,
         std::optional<uint32_t> outboundPeerIndex);
 
@@ -116,7 +119,7 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
                        PeerStatList const& peerList) const;
 
     void topOffRequests(SurveyMessageCommandType type);
-    void updateSurveyExpiration(std::chrono::seconds surveyDuration);
+    void updateOldStyleSurveyExpiration(std::chrono::seconds surveyDuration);
 
     // Add `nodeToSurvey` to the survey backlog. Throws if the node is
     // already queued up to survey, or if the node itself is the surveyor.
@@ -142,6 +145,9 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     // Returns `true` if this node's configuration allows it to be surveyed by
     // `surveyorID`
     bool surveyorPermitted(NodeID const& surveyorID) const;
+
+    // Returns `true` if the survey has finished the reporting phase
+    bool surveyIsFinishedReporting();
 
     Application& mApp;
 

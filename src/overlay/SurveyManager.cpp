@@ -103,8 +103,9 @@ SurveyManager::SurveyManager(Application& app)
 }
 
 bool
-SurveyManager::startSurveyReporting(SurveyMessageCommandType type,
-                                    std::chrono::seconds surveyDuration)
+SurveyManager::startSurveyReporting(
+    SurveyMessageCommandType type,
+    std::optional<std::chrono::seconds> surveyDuration)
 {
     if (mRunningSurveyReportingPhaseType)
     {
@@ -127,7 +128,29 @@ SurveyManager::startSurveyReporting(SurveyMessageCommandType type,
     mCurve25519SecretKey = curve25519RandomSecret();
     mCurve25519PublicKey = curve25519DerivePublic(mCurve25519SecretKey);
 
-    updateSurveyExpiration(surveyDuration);
+    // Check surveyDuration (should only be set for old style surveys; time
+    // sliced surveys use a builtin timeout)
+    switch (type)
+    {
+    case SURVEY_TOPOLOGY:
+        if (!surveyDuration.has_value())
+        {
+            throw std::runtime_error(
+                "startSurveyReporting failed: missing survey duration");
+        }
+        updateOldStyleSurveyExpiration(surveyDuration.value());
+        break;
+    case TIME_SLICED_SURVEY_TOPOLOGY:
+        // Time sliced surveys have a built-in timeout, so one should not be
+        // passed in.
+        if (surveyDuration.has_value())
+        {
+            throw std::runtime_error(
+                "startSurveyReporting failed: unexpected survey duration");
+        }
+        break;
+    }
+
     // starts timer
     topOffRequests(type);
 
@@ -309,7 +332,8 @@ SurveyManager::relayStopSurveyCollecting(StellarMessage const& msg,
 
 void
 SurveyManager::addNodeToRunningSurveyBacklog(
-    SurveyMessageCommandType type, std::chrono::seconds surveyDuration,
+    SurveyMessageCommandType type,
+    std::optional<std::chrono::seconds> surveyDuration,
     NodeID const& nodeToSurvey, std::optional<uint32_t> inboundPeersIndex,
     std::optional<uint32_t> outboundPeersIndex)
 {
@@ -320,10 +344,26 @@ SurveyManager::addNodeToRunningSurveyBacklog(
     }
 
     addPeerToBacklog(nodeToSurvey);
-    updateSurveyExpiration(surveyDuration);
 
-    if (type == TIME_SLICED_SURVEY_TOPOLOGY)
+    switch (type)
     {
+    case SURVEY_TOPOLOGY:
+        if (!surveyDuration.has_value())
+        {
+            throw std::runtime_error("addNodeToRunningSurveyBacklog failed: "
+                                     "missing survey duration");
+        }
+        updateOldStyleSurveyExpiration(surveyDuration.value());
+        break;
+    case TIME_SLICED_SURVEY_TOPOLOGY:
+        // Time sliced surveys have a built-in timeout, so one should not be
+        // passed in.
+        if (surveyDuration.has_value())
+        {
+            throw std::runtime_error("addNodeToRunningSurveyBacklog failed: "
+                                     "unexpected survey duration");
+        }
+
         if (!inboundPeersIndex.has_value() || !outboundPeersIndex.has_value())
         {
             throw std::runtime_error(
@@ -332,6 +372,7 @@ SurveyManager::addNodeToRunningSurveyBacklog(
 
         mInboundPeerIndices[nodeToSurvey] = inboundPeersIndex.value();
         mOutboundPeerIndices[nodeToSurvey] = outboundPeersIndex.value();
+        break;
     }
 }
 
@@ -954,8 +995,7 @@ SurveyManager::getMsgSummary(StellarMessage const& msg)
 void
 SurveyManager::topOffRequests(SurveyMessageCommandType type)
 {
-    // Only stop the survey if all pending requests have been processed
-    if (mApp.getClock().now() > mSurveyExpirationTime && mPeersToSurvey.empty())
+    if (surveyIsFinishedReporting())
     {
         stopSurveyReporting();
         return;
@@ -1002,8 +1042,11 @@ SurveyManager::topOffRequests(SurveyMessageCommandType type)
 }
 
 void
-SurveyManager::updateSurveyExpiration(std::chrono::seconds surveyDuration)
+SurveyManager::updateOldStyleSurveyExpiration(
+    std::chrono::seconds surveyDuration)
 {
+    // This function should only be called for old style surveys
+    releaseAssert(mRunningSurveyReportingPhaseType.value() == SURVEY_TOPOLOGY);
     mSurveyExpirationTime = mApp.getClock().now() + surveyDuration;
 }
 
@@ -1087,6 +1130,34 @@ void
 SurveyManager::recordDroppedPeer(Peer const& peer)
 {
     mSurveyDataManager.recordDroppedPeer(peer);
+}
+
+bool
+SurveyManager::surveyIsFinishedReporting()
+{
+    if (!mRunningSurveyReportingPhaseType.has_value())
+    {
+        return true;
+    }
+
+    switch (mRunningSurveyReportingPhaseType.value())
+    {
+    case SURVEY_TOPOLOGY:
+        // Survey is finished if the survey duration has passed and there are no
+        // remaining peers to survey
+        return mApp.getClock().now() > mSurveyExpirationTime &&
+               mPeersToSurvey.empty();
+    case TIME_SLICED_SURVEY_TOPOLOGY:
+    {
+        // Survey is finished when reporting phase ends
+        std::optional<uint32_t> maybeNonce = mSurveyDataManager.getNonce();
+        if (!maybeNonce.has_value())
+        {
+            return true;
+        }
+        return !mSurveyDataManager.nonceIsReporting(maybeNonce.value());
+    }
+    }
 }
 
 #ifdef BUILD_TESTS

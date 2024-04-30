@@ -1244,8 +1244,6 @@ CommandHandler::surveyTimeSliceData(std::string const& params,
     std::map<std::string, std::string> map;
     http::server::server::parseParams(params, map);
 
-    auto duration =
-        std::chrono::seconds(parseRequiredParam<uint32>(map, "duration"));
     auto idString = parseRequiredParam<std::string>(map, "node");
     NodeID id = KeyUtils::fromStrKey<NodeID>(idString);
     auto inboundPeerIndex = parseRequiredParam<uint32>(map, "inboundpeerindex");
@@ -1255,11 +1253,13 @@ CommandHandler::surveyTimeSliceData(std::string const& params,
     auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
 
     bool success = surveyManager.startSurveyReporting(
-        SurveyMessageCommandType::TIME_SLICED_SURVEY_TOPOLOGY, duration);
+        SurveyMessageCommandType::TIME_SLICED_SURVEY_TOPOLOGY,
+        /*surveyDuration*/ std::nullopt);
 
     surveyManager.addNodeToRunningSurveyBacklog(
-        SurveyMessageCommandType::TIME_SLICED_SURVEY_TOPOLOGY, duration, id,
-        inboundPeerIndex, outboundPeerIndex);
+        SurveyMessageCommandType::TIME_SLICED_SURVEY_TOPOLOGY,
+        /*surveyDuration*/ std::nullopt, id, inboundPeerIndex,
+        outboundPeerIndex);
     retStr = "Adding node.";
 
     retStr += success ? "Survey started " : "Survey already running!";
