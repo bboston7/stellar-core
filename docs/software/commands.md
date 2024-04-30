@@ -394,15 +394,16 @@ format.
 * **surveytimeslicedata**
   `surveytimeslicedata?node=NODE_ID&inboundpeerindex=INBOUND_INDEX&outboundpeerindex=OUTBOUND_INDEX`<br>
   During the reporting phase of a survey, invoke this command to request
-  information recorded during the collecting phase from `NODE_ID`. A response
-  will include information about up to 25 inbound and outbound peers
-  respectively. If a node has more than 25 inbound and/or outbound peers, you
-  will need to survey them multiple times to get the complete peer list. You can
-  request peers starting from a specific index in each peer list by setting
-  `INBOUND_INDEX` and `OUTBOUND_INDEX` appropriately.
-  See [Changing default survey behavior](#changing-default-survey-behavior) for
-  details the default survey behavior, as well as how to change that behavior or
-  opt-out entirely.
+  information recorded during the collecting phase from `NODE_ID`. This command
+  adds the survey request to a backlog; it does not immediately send the
+  request. Use `getsurveyresult` to see the response. A response will include
+  information about up to 25 inbound and outbound peers respectively. If a node
+  has more than 25 inbound and/or outbound peers, you will need to survey them
+  multiple times to get the complete peer list. You can request peers starting
+  from a specific index in each peer list by setting `INBOUND_INDEX` and
+  `OUTBOUND_INDEX` appropriately.  See [Changing default survey
+  behavior](#changing-default-survey-behavior) for details the default survey
+  behavior, as well as how to change that behavior or opt-out entirely.
 
 * **getsurveyresult**
   `getsurveyresult`<br>
