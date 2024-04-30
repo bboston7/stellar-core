@@ -365,15 +365,15 @@ format.
   for, and `NODE_ID` is the public key you will add to the backlog to survey.
   Running this command while the survey is running will add the node to the
   backlog and reset the timer to run for `DURATION` seconds.  See [Changing
-  default survey behavior](#changing-default-survey-behavior) for details the
-  default survey behavior, as well as how to change that behavior or opt-out
+  default survey behavior](#changing-default-survey-behavior) for details about
+  the default survey behavior, as well as how to change that behavior or opt-out
   entirely.
 
 * **stopsurvey**
   `stopsurvey`<br>
   **This command is deprecated and will be removed in a future release. It is no
-  longer necessary to explicitly stop a survey in the new time sliced survey as
-  surveys expire automatically.**
+  longer necessary to explicitly stop a survey in the new time sliced survey
+  interface as these surveys expire automatically.**
   Will stop the survey if one is running. Noop if no survey is running
 
 * **startsurveycollecting**
@@ -381,8 +381,8 @@ format.
   Start a survey in the collecting phase with a given nonce. Does nothing if a
   survey is already running on the network as only one survey may run at a time.
   See [Changing default survey behavior](#changing-default-survey-behavior) for
-  details the default survey behavior, as well as how to change that behavior or
-  opt-out entirely.
+  details about the default survey behavior, as well as how to change that
+  behavior or opt-out entirely.
 
 * **stopsurveycollecting**
   `stopsurveycollecting`<br>
@@ -398,12 +398,12 @@ format.
   adds the survey request to a backlog; it does not immediately send the
   request. Use `getsurveyresult` to see the response. A response will include
   information about up to 25 inbound and outbound peers respectively. If a node
-  has more than 25 inbound and/or outbound peers, you will need to survey them
-  multiple times to get the complete peer list. You can request peers starting
-  from a specific index in each peer list by setting `INBOUND_INDEX` and
-  `OUTBOUND_INDEX` appropriately.  See [Changing default survey
-  behavior](#changing-default-survey-behavior) for details the default survey
-  behavior, as well as how to change that behavior or opt-out entirely.
+  has more than 25 inbound and/or outbound peers, you will need to survey the
+  node multiple times to get the complete peer list. You can request peers
+  starting from a specific index in each peer list by setting `INBOUND_INDEX`
+  and `OUTBOUND_INDEX` appropriately.  See [Changing default survey
+  behavior](#changing-default-survey-behavior) for details about the default
+  survey behavior, as well as how to change that behavior or opt-out entirely.
 
 * **getsurveyresult**
   `getsurveyresult`<br>
@@ -413,11 +413,10 @@ format.
 
 #### Changing default survey behavior
 By default, this node will respond to/relay a survey message if the message
-originated from a node in it's transitive quorum. This behaviour can be
-overridden by adding keys to `SURVEYOR_KEYS` in the config file, which will be
-the set of keys to check instead of the transitive quorum. If you would like
-to opt-out of this survey mechanism, just set `SURVEYOR_KEYS` to `$self` or a
-bogus key
+originated from a node in its transitive quorum. This behavior can be overridden
+by adding keys to `SURVEYOR_KEYS` in the config file, which will be the set of
+keys to check instead of the transitive quorum. If you would like to opt-out of
+this survey mechanism, just set `SURVEYOR_KEYS` to `$self` or a bogus key
 
 ### The following HTTP commands are exposed on test instances
 * **generateload** `generateload[?mode=
