@@ -357,13 +357,15 @@ format.
 
 * **surveytopology**
   `surveytopology?duration=DURATION&node=NODE_ID`<br>
+  **This command is deprecated and will be removed in a future release. Use
+  `surveytimeslicedata` instead.**
   Starts a survey that will request peer connectivity information from nodes
   in the backlog. `DURATION` is the number of seconds this survey will run
   for, and `NODE_ID` is the public key you will add to the backlog to survey.
   Running this command while the survey is running will add the node to the
   backlog and reset the timer to run for `DURATION` seconds. By default, this
-  node will respond to/relay a survey message if the message originated 
-  from a node in it's transitive quorum. This behaviour can be overridden by adding 
+  node will respond to/relay a survey message if the message originated
+  from a node in it's transitive quorum. This behaviour can be overridden by adding
   keys to `SURVEYOR_KEYS` in the config file, which will be the set of keys to check
   instead of the transitive quorum. If you would like to opt-out of this survey mechanism,
   just set `SURVEYOR_KEYS` to `$self` or a bogus key
