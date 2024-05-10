@@ -46,6 +46,7 @@ CSV_FIELD_NAMES = [ "group"
                   , "avg_out_edges"
                   , "avg_in_edges"
                   , "avg_duration"
+                  , "avg_conn_tier1"
                   ]
 
 LONG_FIELD_NAMES = { "group" : "Group"
@@ -58,6 +59,8 @@ LONG_FIELD_NAMES = { "group" : "Group"
                    , "avg_out_edges" : "Average out edges"
                    , "avg_in_edges" : "Average in edges"
                    , "avg_duration" : "Average number of seconds connected"
+                   , "avg_conn_tier1" : "Average number of connections to "
+                                        "tier1"
                    }
 
 CSV_OUT_NAME = "out.csv"
@@ -131,6 +134,24 @@ def avg_edges(nodes):
     return { "avg_out_edges" : out_edges / len(nodes)
            , "avg_in_edges" : in_edges / len(nodes) }
 
+def avg_connections_to_tier1(nodes):
+    total = 0
+    for node in nodes:
+        peers = set()
+        for (src, dest) in UNDIRECTED.edges(node):
+            peers.add(src)
+            peers.add(dest)
+
+        # Remove self from the peers set
+        assert node in peers
+        peers.remove(node)
+
+        # Add to the count of connections to tier 1
+        total += len(peers.intersection(TIER1.values()))
+
+    return total / len(nodes)
+
+
 def print_and_write_stats(stats, csv_writer):
     assert len(CSV_FIELD_NAMES) == len(stats)
     print()
@@ -140,10 +161,12 @@ def print_and_write_stats(stats, csv_writer):
 
 
 def get_stats(nodes, group_name):
+    avg_connections_to_tier1(nodes)
     return { "group" : group_name
            , "num_nodes" : len(nodes)
            , "avg_dist_sdf1" : avg_distance_from([TIER1["SDF 1"]], nodes)
            , "avg_dist_tier1" : avg_distance_from(TIER1.values(), nodes)
+           , "avg_conn_tier1" : avg_connections_to_tier1(nodes)
            } | avg_edges(nodes) | avg_bandwidth(nodes)
 
 def tier1_connectivity():
@@ -168,6 +191,8 @@ if __name__ == "__main__":
     no_response = [node for node in GRAPH.nodes if not node_responded(node)]
     assert(len(response) + len(no_response) == len(GRAPH.nodes))
 
+    responding_tier1 = [node for node in response if
+                        node in TIER1.values()]
     responding_non_tier1 = [node for node in response if
                             node not in TIER1.values()]
 
@@ -180,7 +205,13 @@ if __name__ == "__main__":
         csv_writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELD_NAMES)
         csv_writer.writeheader()
 
+        print_and_write_stats( get_stats(GRAPH.nodes, "All nodes")
+                             , csv_writer )
+
         print_and_write_stats( get_stats(response, "Responding nodes")
+                             , csv_writer )
+        print_and_write_stats( get_stats( responding_tier1
+                                        , "Responding nodes in tier 1" )
                              , csv_writer )
         print_and_write_stats( get_stats( responding_non_tier1
                                         , "Responding nodes that are not in "
