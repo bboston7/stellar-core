@@ -191,6 +191,7 @@ TransactionFrame::pushApplyTimeDiagnosticError(Config const& cfg,
                                                std::string&& message,
                                                xdr::xvector<SCVal>&& args)
 {
+    CLOG_ERROR(LoadGen, "pushApplyTimeDiagnosticError: {}", message);
     if (!cfg.ENABLE_SOROBAN_DIAGNOSTIC_EVENTS)
     {
         return;
