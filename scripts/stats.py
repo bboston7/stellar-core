@@ -42,7 +42,9 @@ CSV_FIELD_NAMES = [ "group"
                   , "avg_write_to"
                   , "rw_ratio"
                   , "avg_dist_sdf1"
+                  , "max_dist_sdf1"
                   , "avg_dist_tier1"
+                  , "max_dist_tier1"
                   , "avg_out_edges"
                   , "avg_in_edges"
                   , "avg_duration"
@@ -55,7 +57,9 @@ LONG_FIELD_NAMES = { "group" : "Group"
                    , "avg_write_to" : "Average write to"
                    , "rw_ratio" : "Read/Write ratio"
                    , "avg_dist_sdf1" : "Average distance from SDF1"
+                   , "max_dist_sdf1" : "Maximum distance from SDF1"
                    , "avg_dist_tier1" : "Average distance from tier 1"
+                   , "max_dist_tier1" : "Maximum distance from tier 1"
                    , "avg_out_edges" : "Average out edges"
                    , "avg_in_edges" : "Average in edges"
                    , "avg_duration" : "Average number of seconds connected"
@@ -112,18 +116,22 @@ def avg_bandwidth(nodes):
            , "avg_duration" : total_duration / num_edges
            }
 
-def avg_distance_from(sources, dests):
+def distance_from(sources, dests):
+    """ Returns a tuple with the average and max shortest path between sources
+    and dests"""
     total_dist = 0
+    max_dist = 0
     # Horribly inefficient. For each destination, compute the minimum distance
     # from it to any node in the sources list. Then, return the average of these
     # distances
     for dest in dests:
         min_dist = float("inf")
         for source in sources:
-            min_dist = min(min_dist,
-                           nx.shortest_path_length(UNDIRECTED, source, dest))
+            dist = nx.shortest_path_length(UNDIRECTED, source, dest)
+            min_dist = min(min_dist, dist)
+            max_dist = max(max_dist, dist)
         total_dist += min_dist
-    return total_dist / len(dests)
+    return (total_dist / len(dests), max_dist)
 
 def avg_edges(nodes):
     out_edges = 0
@@ -161,11 +169,14 @@ def print_and_write_stats(stats, csv_writer):
 
 
 def get_stats(nodes, group_name):
-    avg_connections_to_tier1(nodes)
+    (avg_dist_sdf1, max_dist_sdf1) = distance_from([TIER1["SDF 1"]], nodes)
+    (avg_dist_tier1, max_dist_tier1) = distance_from(TIER1.values(), nodes)
     return { "group" : group_name
            , "num_nodes" : len(nodes)
-           , "avg_dist_sdf1" : avg_distance_from([TIER1["SDF 1"]], nodes)
-           , "avg_dist_tier1" : avg_distance_from(TIER1.values(), nodes)
+           , "avg_dist_sdf1" : avg_dist_sdf1
+           , "max_dist_sdf1" : max_dist_sdf1
+           , "avg_dist_tier1" : avg_dist_tier1
+           , "max_dist_tier1" : max_dist_tier1
            , "avg_conn_tier1" : avg_connections_to_tier1(nodes)
            } | avg_edges(nodes) | avg_bandwidth(nodes)
 
