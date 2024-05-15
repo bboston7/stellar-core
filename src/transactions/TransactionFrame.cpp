@@ -1629,6 +1629,7 @@ TransactionFrame::checkSorobanResourceAndSetError(Application& app,
     if (!validateSorobanResources(sorobanConfig, app.getConfig(),
                                   ledgerVersion))
     {
+        CLOG_ERROR(LoadGen, "Transaction has invalid Soroban resources");
         getResult().result.code(txSOROBAN_INVALID);
         return false;
     }
