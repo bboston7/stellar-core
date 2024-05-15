@@ -156,6 +156,7 @@ TransactionFrame::pushSimpleDiagnosticError(Config const& cfg, SCErrorType ty,
                                             std::string&& message,
                                             xdr::xvector<SCVal>&& args)
 {
+    CLOG_ERROR(LoadGen, "pushSimpleDiagnosticError: {}", message);
     ContractEvent ce;
     ce.type = DIAGNOSTIC;
     ce.body.v(0);
