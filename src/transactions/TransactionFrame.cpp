@@ -1226,11 +1226,15 @@ TransactionFrame::commonValidPreSeqNum(
     if (chargeFee &&
         getInclusionFee() < getMinInclusionFee(*this, header.current()))
     {
+        CLOG_ERROR(LoadGen, "Transaction has insufficient fee: {} < {}",
+                   getFullFee(), getMinInclusionFee(*this, header.current()));
         getResult().result.code(txINSUFFICIENT_FEE);
         return false;
     }
     if (!chargeFee && getInclusionFee() < 0)
     {
+        CLOG_ERROR(LoadGen, "Transaction has negative fee: {}",
+                   getInclusionFee());
         getResult().result.code(txINSUFFICIENT_FEE);
         return false;
     }

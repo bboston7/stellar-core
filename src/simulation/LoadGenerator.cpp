@@ -1910,6 +1910,7 @@ LoadGenerator::checkMinimumSorobanSuccess(GeneratedLoadConfig const& cfg)
 
     int64_t nSuccessful =
         mApplySorobanSuccess.count() - mPreLoadgenApplySorobanSuccess;
+    CLOG_ERROR(LoadGen, "Soroban success rate: {}%", (nSuccessful * 100) / nTxns);
     return (nSuccessful * 100) / nTxns >= cfg.getMinSorobanPercentSuccess();
 }
 
