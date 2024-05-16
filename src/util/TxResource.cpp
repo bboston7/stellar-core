@@ -173,7 +173,7 @@ Resource::canAdd(Resource const& other) const
         if (INT64_MAX - mResources[i] < other.mResources[i])
         {
             CLOG_ERROR(LoadGen, "canAdd failed at idx {} with {} + {}", i,
-                       mResources[i], other.mResources[i])
+                       mResources[i], other.mResources[i]);
             return false;
         }
     }
