@@ -166,6 +166,7 @@ TxQueueLimiter::canAddTx(TransactionFrameBasePtr const& newTx,
     // For reporting, return _full_ minimum fee
     if (minInclusionFeeToBeatEvicted > 0)
     {
+        CLOG_ERROR(LoadGen, "minInclusionFeeToBeatEvicted: {}", minInclusionFeeToBeatEvicted);
         return std::make_pair(
             false, minInclusionFeeToBeatEvicted +
                        (newTx->getFullFee() - newTx->getInclusionFee()));

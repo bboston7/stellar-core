@@ -472,6 +472,9 @@ SurgePricingPriorityQueue::canFitWithEviction(
         // Ensure that this transaction is not from the same account.
         if (tx.getSourceID() == evictTx.getSourceID())
         {
+            CLOG_ERROR(LoadGen,
+                       "Transaction evicted from the queue is from the "
+                       "same account as the new transaction.");
             return std::make_pair(false, 0ll);
         }
 
