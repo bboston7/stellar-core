@@ -464,6 +464,7 @@ SurgePricingPriorityQueue::canFitWithEviction(
         // computation is a no-op.
         if (!mComparator.compareFeeOnly(evictTx, tx))
         {
+            CLOG_ERROR(LoadGen, "Evicted tx has higher fee than the new tx.");
             auto minFee = computeBetterFee(tx, evictTx.getInclusionFee(),
                                            evictTx.getNumOperations());
             return std::make_pair(

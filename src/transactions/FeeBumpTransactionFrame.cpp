@@ -262,6 +262,9 @@ FeeBumpTransactionFrame::commonValidPreSeqNum(AbstractLedgerTxn& ltx)
     auto minInclusionFee = getMinInclusionFee(*this, header.current());
     if (inclusionFee < minInclusionFee)
     {
+        CLOG_ERROR(LoadGen,
+                   "1: Fee bump transaction fee %ld too low, minimum is %ld",
+                   inclusionFee, minInclusionFee);
         getResult().result.code(txINSUFFICIENT_FEE);
         return false;
     }
@@ -291,6 +294,9 @@ FeeBumpTransactionFrame::commonValidPreSeqNum(AbstractLedgerTxn& ltx)
         {
             getResult().feeCharged = INT64_MAX;
         }
+        CLOG_ERROR(LoadGen,
+                   "2: Fee bump transaction fee %ld too low, minimum is %ld",
+                   getInclusionFee(), mInnerTx->getInclusionFee());
         getResult().result.code(txINSUFFICIENT_FEE);
         return false;
     }

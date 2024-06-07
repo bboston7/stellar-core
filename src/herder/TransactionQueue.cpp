@@ -310,6 +310,10 @@ TransactionQueue::canAdd(TransactionFrameBasePtr tx,
                 int64_t minFee;
                 if (!canReplaceByFee(tx, currentTx, minFee))
                 {
+                    CLOG_ERROR(LoadGen,
+                               "Fee bump transaction {} cannot replace {}",
+                               hexAbbrev(tx->getFullHash()),
+                               hexAbbrev(currentTx->getFullHash()));
                     tx->getResult().result.code(txINSUFFICIENT_FEE);
                     tx->getResult().feeCharged = minFee;
                     return TransactionQueue::AddResult::ADD_STATUS_ERROR;
@@ -337,6 +341,9 @@ TransactionQueue::canAdd(TransactionFrameBasePtr tx,
         ban({tx});
         if (canAddRes.second != 0)
         {
+            CLOG_ERROR(LoadGen,
+                       "Transaction {} cannot be added: insufficient fee",
+                       hexAbbrev(tx->getFullHash()));
             tx->getResult().result.code(txINSUFFICIENT_FEE);
             tx->getResult().feeCharged = canAddRes.second;
             return TransactionQueue::AddResult::ADD_STATUS_ERROR;
@@ -360,6 +367,7 @@ TransactionQueue::canAdd(TransactionFrameBasePtr tx,
     {
         return TransactionQueue::AddResult::ADD_STATUS_ERROR;
     }
+
 
     // Note: stateIter corresponds to getSourceID() which is not necessarily
     // the same as getFeeSourceID()
@@ -541,6 +549,7 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
     {
         return res;
     }
+
 
     // only evict if successful
     if (stateIter == mAccountStates.end())
