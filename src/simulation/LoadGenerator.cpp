@@ -698,8 +698,30 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
             {
                 CLOG_ERROR(LoadGen, "source account {} is pending",
                            sourceAccountId);
+                auto itInUse = mAccountsInUse.find(sourceAccountId);
+                if (itInUse != mAccountsInUse.end())
+                {
+                    CLOG_ERROR(LoadGen, "Account in mAccountsInUse");
+                }
+                else
+                {
+                    CLOG_ERROR(LoadGen, "Account not in mAccountsInUse");
+                }
+
+                auto itLastUsed = mLastUsedFor.find(sourceAccountId);
+                if (itLastUsed != mLastUsedFor.end())
+                {
+                    CLOG_ERROR(LoadGen, "Last used for {}",
+                               static_cast<int>(itLastUsed->second));
+                }
+                else
+                {
+                    CLOG_ERROR(LoadGen, "Account not in mLastUsedFor");
+                }
+
                 releaseAssert(false);
             }
+            mLastUsedFor[sourceAccountId] = cfg.mode;
 
             std::function<
                 std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>()>
@@ -931,10 +953,10 @@ LoadGenerator::getNextAvailableAccount()
 {
     releaseAssert(!mAccountsAvailable.empty());
 
-    auto sourceAccountIdx =
-        rand_uniform<uint64_t>(0, mAccountsAvailable.size() - 1);
+    // auto sourceAccountIdx =
+    //     rand_uniform<uint64_t>(0, mAccountsAvailable.size() - 1);
     auto it = mAccountsAvailable.begin();
-    std::advance(it, sourceAccountIdx);
+    // std::advance(it, sourceAccountIdx);
     uint64_t sourceAccountId = *it;
     mAccountsAvailable.erase(it);
     releaseAssert(mAccountsInUse.insert(sourceAccountId).second);
@@ -1786,6 +1808,7 @@ LoadGenerator::createMixedClassicSorobanTransaction(
     {
         // Create a payment transaction
         mLastMixedMode = LoadGenMode::PAY;
+        mLastUsedFor[sourceAccountId] = LoadGenMode::PAY;
         return paymentTransaction(cfg.nAccounts, cfg.offset, ledgerNum,
                                   sourceAccountId, 1, cfg.maxGeneratedFeeRate);
     }
@@ -1793,6 +1816,7 @@ LoadGenerator::createMixedClassicSorobanTransaction(
     {
         // Create a soroban upload transaction
         mLastMixedMode = LoadGenMode::SOROBAN_UPLOAD;
+        mLastUsedFor[sourceAccountId] = LoadGenMode::SOROBAN_UPLOAD;
         return sorobanRandomWasmTransaction(ledgerNum, sourceAccountId,
                                             generateFee(cfg.maxGeneratedFeeRate,
                                                         mApp,
@@ -1802,6 +1826,7 @@ LoadGenerator::createMixedClassicSorobanTransaction(
     {
         // Create a soroban invoke transaction
         mLastMixedMode = LoadGenMode::SOROBAN_INVOKE;
+        mLastUsedFor[sourceAccountId] = LoadGenMode::SOROBAN_INVOKE;
         return invokeSorobanLoadTransaction(ledgerNum, sourceAccountId, cfg);
     }
     default:
