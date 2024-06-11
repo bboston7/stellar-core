@@ -775,11 +775,13 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
                 };
                 break;
             case LoadGenMode::MIXED_CLASSIC_SOROBAN:
-                if (i == 0)
+                if (sourceAccountId < cfg.offset ||
+                    sourceAccountId >= cfg.offset + cfg.nAccounts)
                 {
-                    CLOG_ERROR(LoadGen,
-                               "{} accounts available at start of step",
-                               mAccountsAvailable.size() + 1);
+                    CLOG_ERROR(LoadGen, "offset: {}", cfg.offset);
+                    CLOG_ERROR(LoadGen, "nAccounts: {}", cfg.nAccounts);
+                    CLOG_ERROR(LoadGen, "sourceAccountId: {}", sourceAccountId);
+                    releaseAssert(false);
                 }
                 generateTx = [&]() {
                     return createMixedClassicSorobanTransaction(
@@ -1917,7 +1919,8 @@ LoadGenerator::checkMinimumSorobanSuccess(GeneratedLoadConfig const& cfg)
 
     int64_t nSuccessful =
         mApplySorobanSuccess.count() - mPreLoadgenApplySorobanSuccess;
-    CLOG_ERROR(LoadGen, "Soroban success rate: {}%", (nSuccessful * 100) / nTxns);
+    CLOG_ERROR(LoadGen, "Soroban success rate: {}%",
+               (nSuccessful * 100) / nTxns);
     return (nSuccessful * 100) / nTxns >= cfg.getMinSorobanPercentSuccess();
 }
 
