@@ -286,6 +286,13 @@ void
 LoadGenerator::reset()
 {
     CLOG_ERROR(LoadGen, "RESET!");
+    cleanupAccounts();
+    CLOG_ERROR(LoadGen, "Accounts still in use before reset: {}",
+               mAccountsInUse.size());
+    for (auto acc : mAccountsInUse)
+    {
+        CLOG_ERROR(LoadGen, "Account still in use: {}", acc);
+    }
     mAccounts.clear();
     mAccountsInUse.clear();
     mAccountsAvailable.clear();
@@ -686,6 +693,13 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
             }
 
             uint64_t sourceAccountId = getNextAvailableAccount();
+            if (mApp.getHerder().sourceAccountPending(
+                    findAccount(sourceAccountId, ledgerNum)->getPublicKey()))
+            {
+                CLOG_ERROR(LoadGen, "source account {} is pending",
+                           sourceAccountId);
+                releaseAssert(false);
+            }
 
             std::function<
                 std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>()>
