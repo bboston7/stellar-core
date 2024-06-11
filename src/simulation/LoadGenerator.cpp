@@ -719,9 +719,21 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
                     CLOG_ERROR(LoadGen, "Account not in mLastUsedFor");
                 }
 
+                auto itLastLedger = mLastLedgerUsed.find(sourceAccountId);
+                if (itLastLedger != mLastLedgerUsed.end())
+                {
+                    CLOG_ERROR(LoadGen, "Last used {} ledgers ago",
+                               ledgerNum - itLastLedger->second);
+                }
+                else
+                {
+                    CLOG_ERROR(LoadGen, "Account not in mLastLedgerUsed");
+                }
+
                 releaseAssert(false);
             }
             mLastUsedFor[sourceAccountId] = cfg.mode;
+            mLastLedgerUsed[sourceAccountId] = ledgerNum;
 
             std::function<
                 std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>()>
@@ -953,10 +965,10 @@ LoadGenerator::getNextAvailableAccount()
 {
     releaseAssert(!mAccountsAvailable.empty());
 
-    // auto sourceAccountIdx =
-    //     rand_uniform<uint64_t>(0, mAccountsAvailable.size() - 1);
+    auto sourceAccountIdx =
+        rand_uniform<uint64_t>(0, mAccountsAvailable.size() - 1);
     auto it = mAccountsAvailable.begin();
-    // std::advance(it, sourceAccountIdx);
+    std::advance(it, sourceAccountIdx);
     uint64_t sourceAccountId = *it;
     mAccountsAvailable.erase(it);
     releaseAssert(mAccountsInUse.insert(sourceAccountId).second);

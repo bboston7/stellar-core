@@ -304,11 +304,12 @@ class LoadGenerator
 
     // TODO: Remove
     std::unordered_map<uint64_t, LoadGenMode> mLastUsedFor;
+    std::unordered_map<uint64_t, uint32_t> mLastLedgerUsed;
 
     // Track account IDs that are currently being referenced by the transaction
     // queue (to avoid source account collisions during tx submission)
     std::unordered_set<uint64_t> mAccountsInUse;
-    std::set<uint64_t> mAccountsAvailable;
+    std::unordered_set<uint64_t> mAccountsAvailable;
     uint64_t getNextAvailableAccount();
 
     // For account creation only: allocate a few accounts for creation purposes
