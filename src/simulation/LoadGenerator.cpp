@@ -285,6 +285,7 @@ LoadGenerator::cleanupAccounts()
 void
 LoadGenerator::reset()
 {
+    CLOG_ERROR(LoadGen, "RESET!");
     mAccounts.clear();
     mAccountsInUse.clear();
     mAccountsAvailable.clear();
@@ -774,6 +775,12 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
                 };
                 break;
             case LoadGenMode::MIXED_CLASSIC_SOROBAN:
+                if (i == 0)
+                {
+                    CLOG_ERROR(LoadGen,
+                               "{} accounts available at start of step",
+                               mAccountsAvailable.size() + 1);
+                }
                 generateTx = [&]() {
                     return createMixedClassicSorobanTransaction(
                         ledgerNum, sourceAccountId, cfg);
