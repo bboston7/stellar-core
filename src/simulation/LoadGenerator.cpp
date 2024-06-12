@@ -692,7 +692,7 @@ LoadGenerator::generateLoad(GeneratedLoadConfig cfg)
                 return;
             }
 
-            uint64_t sourceAccountId = getNextAvailableAccount();
+            uint64_t sourceAccountId = getNextAvailableAccount(ledgerNum);
             if (mApp.getHerder().sourceAccountPending(
                     findAccount(sourceAccountId, ledgerNum)->getPublicKey()))
             {
@@ -961,17 +961,43 @@ LoadGenerator::submitTx(GeneratedLoadConfig const& cfg,
 }
 
 uint64_t
-LoadGenerator::getNextAvailableAccount()
+LoadGenerator::getNextAvailableAccount(uint32_t ledgerNum)
 {
-    releaseAssert(!mAccountsAvailable.empty());
+    // TODO: Here's what I think is going on: Over time, the overlay becomes
+    // bogged down and so some transactions get dropped and banned. The
+    // transactions spend ~8 ledgers in the queue (or maybe it's 4? I think it's
+    // doubled for soroban), then are banned for 10. IF some nodes are bogged
+    // down it may take more than 18 ledgers for a transaction to make it back
+    // to this node, in which case it will end up in the queue again (as the ban
+    // has expired). To account for this, we need to check whether the account
+    // has pending transactions, even though that was checked prior to placing
+    // it in the mAccountsAvailable set, as the pending status could have
+    // changed by receiving the same transaction back again. The question is
+    // what to do if this check indicates the account is pending. I see two
+    // options:
+    // 1. Try again. Continue trying until `mAccountsAvailable` is empty or some
+    //    other timeout.
+    // 2. Fail loadgen. This indicates a pretty brutal amount of network lag. At
+    //    the same time, a lagged network may very well produce this exact
+    //    behavior.
 
-    auto sourceAccountIdx =
-        rand_uniform<uint64_t>(0, mAccountsAvailable.size() - 1);
-    auto it = mAccountsAvailable.begin();
-    std::advance(it, sourceAccountIdx);
-    uint64_t sourceAccountId = *it;
-    mAccountsAvailable.erase(it);
-    releaseAssert(mAccountsInUse.insert(sourceAccountId).second);
+    uint64_t sourceAccountId;
+    do
+    {
+        // TODO: If I go with option 1, this condition should be a fail (and
+        // maybe the whole thing should be
+        // `while (!mAccountsAvailable.empty())`)
+        releaseAssert(!mAccountsAvailable.empty());
+
+        auto sourceAccountIdx =
+            rand_uniform<uint64_t>(0, mAccountsAvailable.size() - 1);
+        auto it = mAccountsAvailable.begin();
+        std::advance(it, sourceAccountIdx);
+        sourceAccountId = *it;
+        mAccountsAvailable.erase(it);
+        releaseAssert(mAccountsInUse.insert(sourceAccountId).second);
+    } while (mApp.getHerder().sourceAccountPending(
+                 findAccount(sourceAccountId, ledgerNum)->getPublicKey()));
     return sourceAccountId;
 }
 
@@ -1047,7 +1073,7 @@ LoadGenerator::creationTransaction(uint64_t startAccount, uint64_t numItems,
 {
     TestAccountPtr sourceAcc =
         mInitialAccountsCreated
-            ? findAccount(getNextAvailableAccount(), ledgerNum)
+            ? findAccount(getNextAvailableAccount(ledgerNum), ledgerNum)
             : mRoot;
     vector<Operation> creationOps = createAccounts(
         startAccount, numItems, ledgerNum, !mInitialAccountsCreated);
