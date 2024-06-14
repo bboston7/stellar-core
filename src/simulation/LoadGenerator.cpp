@@ -981,6 +981,12 @@ LoadGenerator::getNextAvailableAccount(uint32_t ledgerNum)
     //    the same time, a lagged network may very well produce this exact
     //    behavior.
 
+    // Additionally, transactions (at least invoke transactions, I didn't check
+    // the rest) don't have any preconditions and so are always valid.
+
+    // NOTE: It's also possible that accounts are still in use at reset time,
+    // which can screw up the accounting here.
+
     uint64_t sourceAccountId;
     do
     {
