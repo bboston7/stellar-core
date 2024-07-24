@@ -1219,7 +1219,7 @@ LoadGenerator::createUploadWasmTransaction(uint32_t ledgerNum,
 
     SorobanResources uploadResources{};
     uploadResources.instructions = 2'500'000;
-    uploadResources.readBytes = wasm.data.size() + 500;
+    uploadResources.readBytes = wasm.data.size() + 5000;
     uploadResources.writeBytes = wasm.data.size() + 500;
 
     Operation uploadOp;
@@ -1259,7 +1259,7 @@ LoadGenerator::createContractTransaction(uint32_t ledgerNum, uint64_t accountId,
     auto account = findAccount(accountId, ledgerNum);
     SorobanResources createResources{};
     createResources.instructions = 500'000;
-    createResources.readBytes = mContactOverheadBytes;
+    createResources.readBytes = mContactOverheadBytes + 5000;
     createResources.writeBytes = 300;
 
     auto salt = sha256(
