@@ -55,19 +55,17 @@ FlowControl::hasOutboundCapacity(StellarMessage const& msg,
             mFlowControlBytesCapacity->hasOutboundCapacity(msg));
 }
 
-// TODO: Can I remove `start` entirely?
+// TODO: Can I remove `start` entirely and initialize these member variables in
+// the constructor?
 void
-FlowControl::start(NodeID const& peerID, std::optional<uint32_t> enableFCBytes)
+FlowControl::start(NodeID const& peerID, uint32_t enableFCBytes)
 {
     releaseAssert(threadIsMain());
     std::lock_guard<std::mutex> guard(mFlowControlMutex);
     mNodeID = peerID;
 
-    if (enableFCBytes)
-    {
-        mFlowControlBytesCapacity = std::make_shared<FlowControlByteCapacity>(
-            mAppConnector.getConfig(), mNodeID, *enableFCBytes);
-    }
+    mFlowControlBytesCapacity = std::make_shared<FlowControlByteCapacity>(
+        mAppConnector.getConfig(), mNodeID, enableFCBytes);
 }
 
 void

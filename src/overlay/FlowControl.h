@@ -63,7 +63,9 @@ class FlowControl
 
     NodeID mNodeID;
     // TODO: Can I remove mFlowControlCapacity and just use
-    // mFlowControlBytesCapacity instead?
+    // mFlowControlBytesCapacity instead? I bet I can because
+    // mFlowControlBytesCapacity should have all of the same functions as
+    // mFlowControlCapacity and I can just call those instead?
     // TODO: does mFlowControlBytesCapacity really need to be a shared pointer?
     // Or can it just be a member variable?
     std::shared_ptr<FlowControlCapacity> mFlowControlCapacity;
@@ -180,7 +182,7 @@ class FlowControl
 
     Json::Value getFlowControlJsonInfo(bool compact) const;
 
-    void start(NodeID const& peerID, std::optional<uint32_t> enableFCBytes);
+    void start(NodeID const& peerID, uint32_t enableFCBytes);
 
     // Stop reading from this peer until capacity is released
     bool maybeThrottleRead();
