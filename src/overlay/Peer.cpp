@@ -160,8 +160,13 @@ Peer::endMessageProcessing(StellarMessage const& msg)
     // We may release reading capacity, which gets taken by the background
     // thread immediately, so we can't assert `canRead` here
     auto res = mFlowControl->endMessageProcessing(msg);
-    sendSendMore(static_cast<uint32>(res.first),
-                 static_cast<uint32>(res.second));
+    if (res.first > 0 || res.second > 0)
+    {
+        // TODO: Remove this and other added CLOG_ERRORs I added for debugging
+        CLOG_ERROR(Overlay, "sendSendMore from endMessageProcessing");
+        sendSendMore(static_cast<uint32>(res.first),
+                     static_cast<uint32>(res.second));
+    }
 
     // Now that we've released some capacity, maybe schedule more reads
     if (mFlowControl->stopThrottling())
@@ -692,8 +697,8 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
     ZoneScoped;
     releaseAssert(threadIsMain());
 
-    CLOG_TRACE(Overlay, "send: {} to : {}", msgSummary(*msg),
-               mAppConnector.getConfig().toShortString(mPeerID));
+    CLOG_TRACE(Overlay, "send: {} to : {} ({})", msgSummary(*msg),
+               mAppConnector.getConfig().toShortString(mPeerID), toString());
 
     switch (msg->type())
     {
@@ -1737,6 +1742,7 @@ Peer::recvAuth(StellarMessage const& msg)
 
     // Subtle: after successful auth, must send sendMore message first to
     // tell the other peer about the local node's reading capacity.
+    CLOG_ERROR(Overlay, "sendSendMore from recvAuth");
     sendSendMore(mAppConnector.getConfig().PEER_FLOOD_READING_CAPACITY,
                  fcBytes);
 
@@ -1936,6 +1942,7 @@ Peer::handleMaxTxSizeIncrease(uint32_t increase)
         mFlowControl->handleTxSizeIncrease(increase);
         // Send an additional SEND_MORE to let the other peer know we have more
         // capacity available (and possibly unblock it)
+        CLOG_ERROR(Overlay, "sendSendMore from handleMaxTxSizeIncrease");
         sendSendMore(0, increase);
     }
 }

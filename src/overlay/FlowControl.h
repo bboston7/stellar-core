@@ -168,6 +168,7 @@ class FlowControl
     // This method ensures local capacity is released now that we've finished
     // processing the message. It returns available capacity that can now be
     // requested from the peer.
+    // TODO: Update comment
     SendMoreCapacity endMessageProcessing(StellarMessage const& msg);
     bool canRead() const;
 
