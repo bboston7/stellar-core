@@ -16,8 +16,8 @@ namespace stellar
 class OverlayAppConnector;
 struct OverlayMetrics;
 
-// num messages, optional bytes if enabled
-using SendMoreCapacity = std::pair<uint64_t, std::optional<uint64_t>>;
+// num messages, bytes
+using SendMoreCapacity = std::pair<uint64_t, uint64_t>;
 
 // The FlowControl class allows core to throttle flood traffic among its
 // connections. If a connections wants to use flow control, it should maintain
@@ -62,7 +62,12 @@ class FlowControl
     std::optional<VirtualClock::time_point> mLastThrottle;
 
     NodeID mNodeID;
+    // TODO: Can I remove mFlowControlCapacity and just use
+    // mFlowControlBytesCapacity instead?
+    // TODO: does mFlowControlBytesCapacity really need to be a shared pointer?
+    // Or can it just be a member variable?
     std::shared_ptr<FlowControlCapacity> mFlowControlCapacity;
+    // TODO: Remove any conditionals around mFlowControlBytesCapacity
     std::shared_ptr<FlowControlByteCapacity> mFlowControlBytesCapacity;
 
     OverlayMetrics& mOverlayMetrics;

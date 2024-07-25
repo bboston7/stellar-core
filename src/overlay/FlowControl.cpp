@@ -55,6 +55,7 @@ FlowControl::hasOutboundCapacity(StellarMessage const& msg,
             mFlowControlBytesCapacity->hasOutboundCapacity(msg));
 }
 
+// TODO: Can I remove `start` entirely?
 void
 FlowControl::start(NodeID const& peerID, std::optional<uint32_t> enableFCBytes)
 {
@@ -137,9 +138,7 @@ FlowControl::getNextBatchToSend()
 
             batchToSend.push_back(front);
             ++sent;
-            auto& om = mOverlayMetrics;
 
-            auto const& diff = mAppConnector.now() - front.mTimeEmplaced;
             mFlowControlCapacity->lockOutboundCapacity(msg);
             if (mFlowControlBytesCapacity)
             {
@@ -281,15 +280,12 @@ FlowControl::endMessageProcessing(StellarMessage const& msg)
             shouldSendMore || mFloodDataProcessedBytes >= byteBatchSize;
     }
 
-    SendMoreCapacity res{0, std::nullopt};
+    SendMoreCapacity res{0, 0};
     if (shouldSendMore)
     {
         // First save result to return
         res.first = mFloodDataProcessed;
-        if (mFlowControlBytesCapacity)
-        {
-            res.second = mFloodDataProcessedBytes;
-        }
+        res.second = mFloodDataProcessedBytes;
 
         // Reset counters
         mFloodDataProcessed = 0;

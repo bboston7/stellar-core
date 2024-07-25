@@ -41,6 +41,8 @@
 // LATER: need to add some way of docking peers that are misbehaving by sending
 // you bad data
 
+// TODO: Remove AUTH_MSG_FLAG_FLOW_CONTROL_BYTES_REQUESTED XDR definition?
+
 namespace stellar
 {
 
@@ -156,15 +158,8 @@ Peer::endMessageProcessing(StellarMessage const& msg)
     // We may release reading capacity, which gets taken by the background
     // thread immediately, so we can't assert `canRead` here
     auto res = mFlowControl->endMessageProcessing(msg);
-    if (res.second)
-    {
-        sendSendMore(static_cast<uint32>(res.first),
-                     static_cast<uint32>(*res.second));
-    }
-    else if (res.first > 0)
-    {
-        sendSendMore(static_cast<uint32>(res.first));
-    }
+    sendSendMore(static_cast<uint32>(res.first),
+                 static_cast<uint32>(res.second));
 
     // Now that we've released some capacity, maybe schedule more reads
     if (mFlowControl->stopThrottling())
@@ -389,13 +384,6 @@ Peer::sendAuth()
     ZoneScoped;
     StellarMessage msg;
     msg.type(AUTH);
-#ifdef BUILD_TESTS
-    if (!mAppConnector.getOverlayManager()
-             .isFlowControlBytesDisabledForTesting())
-#endif
-    {
-        msg.auth().flags = AUTH_MSG_FLAG_FLOW_CONTROL_BYTES_REQUESTED;
-    }
     auto msgPtr = std::make_shared<StellarMessage const>(msg);
     sendMessage(msgPtr);
 }
@@ -594,18 +582,6 @@ Peer::sendErrorAndDrop(ErrorCode error, std::string const& message)
     releaseAssert(threadIsMain());
     sendError(error, message);
     drop(message, DropDirection::WE_DROPPED_REMOTE);
-}
-
-void
-Peer::sendSendMore(uint32_t numMessages)
-{
-    ZoneScoped;
-    releaseAssert(threadIsMain());
-
-    auto m = std::make_shared<StellarMessage>();
-    m->type(SEND_MORE);
-    m->sendMoreMessage().numMessages = numMessages;
-    sendMessage(m);
 }
 
 void
@@ -1749,40 +1725,14 @@ Peer::recvAuth(StellarMessage const& msg)
         return;
     }
 
-    // NOTE: Once min overlay version is
-    // MANDATORY_FLOW_CONTROL_BYTES_MIN_OVERLAY_VERSION we can remove this check
-    bool bothWantBytes =
-        msg.auth().flags == AUTH_MSG_FLAG_FLOW_CONTROL_BYTES_REQUESTED ||
-        getRemoteOverlayVersion() >=
-            MANDATORY_FLOW_CONTROL_BYTES_MIN_OVERLAY_VERSION;
-
-#ifdef BUILD_TESTS
-    if (mAppConnector.getOverlayManager()
-            .isFlowControlBytesDisabledForTesting())
-    {
-        bothWantBytes = false;
-    }
-#endif
-
-    std::optional<uint32_t> fcBytes =
-        bothWantBytes
-            ? std::optional<uint32_t>(mAppConnector.getOverlayManager()
-                                          .getFlowControlBytesConfig()
-                                          .mTotal)
-            : std::nullopt;
+    uint32_t fcBytes =
+        mAppConnector.getOverlayManager().getFlowControlBytesConfig().mTotal;
     mFlowControl->start(mPeerID, fcBytes);
 
     // Subtle: after successful auth, must send sendMore message first to
     // tell the other peer about the local node's reading capacity.
-    if (fcBytes)
-    {
-        sendSendMore(mAppConnector.getConfig().PEER_FLOOD_READING_CAPACITY,
-                     *fcBytes);
-    }
-    else
-    {
-        sendSendMore(mAppConnector.getConfig().PEER_FLOOD_READING_CAPACITY);
-    }
+    sendSendMore(mAppConnector.getConfig().PEER_FLOOD_READING_CAPACITY,
+                 fcBytes);
 
     auto weakSelf = std::weak_ptr<Peer>(shared_from_this());
     mTxAdverts->start([weakSelf](std::shared_ptr<StellarMessage const> msg) {

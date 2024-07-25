@@ -27,9 +27,6 @@ static size_t const MAX_SOROBAN_BYTE_ALLOWANCE =
 static size_t const MAX_CLASSIC_BYTE_ALLOWANCE =
     MAX_TX_SET_ALLOWANCE / 2; // 5 MB
 
-// Overlay version at which we started mandating flow control bytes
-uint32_t constexpr MANDATORY_FLOW_CONTROL_BYTES_MIN_OVERLAY_VERSION = 35;
-
 static_assert(MAX_TX_SET_ALLOWANCE >=
               MAX_SOROBAN_BYTE_ALLOWANCE + MAX_CLASSIC_BYTE_ALLOWANCE);
 
@@ -353,7 +350,6 @@ class Peer : public std::enable_shared_from_this<Peer>,
     // Queue up an advert to send, return true if the advert was queued, and
     // false otherwise (if advert is a duplicate, for example)
     bool sendAdvert(Hash const& txHash);
-    void sendSendMore(uint32_t numMessages);
     void sendSendMore(uint32_t numMessages, uint32_t numBytes);
 
     virtual void sendMessage(std::shared_ptr<StellarMessage const> msg,
