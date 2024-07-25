@@ -312,8 +312,7 @@ FlowControl::isSendMoreValid(StellarMessage const& msg,
     // If flow control in bytes isn't enabled, SEND_MORE must have non-zero
     // messages. If flow control in bytes is enabled, SEND_MORE_EXTENDED must
     // have non-zero bytes, but _can_ have 0 messages to support upgrades
-    if (mFlowControlBytesCapacity &&
-        msg.sendMoreExtendedMessage().numBytes == 0)
+    if (msg.sendMoreExtendedMessage().numBytes == 0)
     {
         errorMsg =
             fmt::format("invalid message {}",
