@@ -1258,7 +1258,7 @@ LoadGenerator::createContractTransaction(uint32_t ledgerNum, uint64_t accountId,
 
     auto account = findAccount(accountId, ledgerNum);
     SorobanResources createResources{};
-    createResources.instructions = 500'000;
+    createResources.instructions = 1'000'000;
     createResources.readBytes = mContactOverheadBytes + 1000;
     createResources.writeBytes = 300;
 
