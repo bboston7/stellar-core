@@ -529,44 +529,19 @@ TEST_CASE("flow control byte capacity", "[overlay][flowcontrol]")
     }
 }
 
-// Run a test where flow control is enabled on both nodes, and then run the same
-// test with flow controlled disabled on one of the nodes. `cfgMaybeDisabled`
-// is the config that will be used for the node that may have flow control
-// disabled. `f` is the test function that will be run.
-void
-runWithBothFlowControlModes(Config& cfgMaybeDisabled,
-                            std::function<void(Config, bool)> f)
-{
-    SECTION("bytes enabled on all")
-    {
-        f(cfgMaybeDisabled, true);
-    }
-    SECTION("bytes disabled on some")
-    {
-        cfgMaybeDisabled.OVERLAY_PROTOCOL_VERSION =
-            MANDATORY_FLOW_CONTROL_BYTES_MIN_OVERLAY_VERSION - 1;
-        f(cfgMaybeDisabled, false);
-    }
-}
-
 TEST_CASE("loopback peer flow control activation", "[overlay][flowcontrol]")
 {
     VirtualClock clock;
     std::vector<Config> cfgs = {getTestConfig(0), getTestConfig(1)};
-    auto cfg1Base = cfgs[0];
+    auto cfg1 = cfgs[0];
     auto cfg2 = cfgs[1];
-    REQUIRE(cfg1Base.PEER_FLOOD_READING_CAPACITY !=
-            cfg1Base.PEER_FLOOD_READING_CAPACITY_BYTES);
+    REQUIRE(cfg1.PEER_FLOOD_READING_CAPACITY !=
+            cfg1.PEER_FLOOD_READING_CAPACITY_BYTES);
 
-    auto runTest = [&](bool sendIllegalSendMore, Config cfg1,
-                       bool fcBytesEnabledOnAll) {
-        auto app1 = createTestApplication(clock, cfg1);
-        auto app2 = createTestApplication(clock, cfg2);
-
-        if (!fcBytesEnabledOnAll)
-        {
-            app1->getOverlayManager().disableFlowControlBytesForTesting();
-        }
+    auto runTest = [&](std::vector<Config> expectedCfgs,
+                       bool sendIllegalSendMore) {
+        auto app1 = createTestApplication(clock, expectedCfgs[0]);
+        auto app2 = createTestApplication(clock, expectedCfgs[1]);
 
         LoopbackPeerConnection conn(*app1, *app2);
         testutil::crankSome(clock);
@@ -575,51 +550,19 @@ TEST_CASE("loopback peer flow control activation", "[overlay][flowcontrol]")
         REQUIRE(conn.getAcceptor()->isAuthenticatedForTesting());
         REQUIRE(conn.getInitiator()->checkCapacity(conn.getAcceptor()));
         REQUIRE(conn.getAcceptor()->checkCapacity(conn.getInitiator()));
-        if (fcBytesEnabledOnAll)
-        {
-            REQUIRE(conn.getInitiator()->getFlowControl()->getCapacityBytes());
-            REQUIRE(conn.getAcceptor()->getFlowControl()->getCapacityBytes());
-        }
-        else
-        {
-            REQUIRE(!conn.getInitiator()->getFlowControl()->getCapacityBytes());
-            REQUIRE(!conn.getAcceptor()->getFlowControl()->getCapacityBytes());
-        }
+        REQUIRE(conn.getInitiator()->getFlowControl()->getCapacityBytes());
+        REQUIRE(conn.getAcceptor()->getFlowControl()->getCapacityBytes());
 
-        // 1. Try sending invalid SEND_MORE with invalid value
-        // 2. Try sending invalid SEND_MORE message type
+        // Try sending invalid SEND_MORE with invalid value
         if (sendIllegalSendMore)
         {
             std::string dropReason;
             SECTION("invalid value in the message")
             {
-                // if flow control is enabled, ensure it can't be disabled,
+                // Flow control is enabled, ensure it can't be disabled,
                 // and the misbehaving peer gets dropped
-                if (fcBytesEnabledOnAll)
-                {
-                    conn.getAcceptor()->sendSendMore(0, 0);
-                }
-                else
-                {
-                    conn.getAcceptor()->sendSendMore(0);
-                }
-                dropReason = fcBytesEnabledOnAll
-                                 ? "invalid message SEND_MORE_EXTENDED"
-                                 : "invalid message SEND_MORE";
-            }
-            SECTION("invalid message type")
-            {
-                if (fcBytesEnabledOnAll)
-                {
-                    conn.getAcceptor()->sendSendMore(1);
-                }
-                else
-                {
-                    conn.getAcceptor()->sendSendMore(1, 1);
-                }
-                dropReason = fcBytesEnabledOnAll
-                                 ? "unexpected message type SEND_MORE"
-                                 : "unexpected message type SEND_MORE_EXTENDED";
+                conn.getAcceptor()->sendSendMore(0, 0);
+                dropReason = "invalid message SEND_MORE_EXTENDED";
             }
             testutil::crankSome(clock);
             REQUIRE(!conn.getInitiator()->isConnectedForTesting());
@@ -631,26 +574,18 @@ TEST_CASE("loopback peer flow control activation", "[overlay][flowcontrol]")
         testutil::shutdownWorkScheduler(*app1);
     };
 
-    auto test = [&](Config cfg1, bool fcBytesEnabledOnAll) {
-        SECTION("basic")
-        {
-            // Successfully enabled flow control
-            runTest(false, cfg1, fcBytesEnabledOnAll);
-        }
-        SECTION("bad peer")
-        {
-            runTest(true, cfg1, fcBytesEnabledOnAll);
-        }
-    };
+    // Flow control without illegal SEND_MORE
+    runTest({cfg1, cfg2}, false);
 
-    runWithBothFlowControlModes(cfg1Base, test);
+    // Flow control with illegal SEND_MORE
+    runTest({cfg1, cfg2}, true);
 }
 
 TEST_CASE("drop peers that dont respect capacity", "[overlay][flowcontrol]")
 {
     VirtualClock clock;
     std::vector<Config> cfgs = {getTestConfig(0), getTestConfig(1)};
-    auto cfg1Base = cfgs[0];
+    auto cfg1 = cfgs[0];
     auto cfg2 = cfgs[1];
 
     // tx is invalid, but it doesn't matter
@@ -660,141 +595,90 @@ TEST_CASE("drop peers that dont respect capacity", "[overlay][flowcontrol]")
         getOperationGreaterThanMinMaxSizeBytes());
     uint32 txSize = static_cast<uint32>(xdr::xdr_argpack_size(msg));
 
-    auto test = [&](Config cfg1, bool fcBytesEnabledOnAll) {
-        if (fcBytesEnabledOnAll)
-        {
-            cfg1.PEER_FLOOD_READING_CAPACITY_BYTES =
-                txSize + 1 + Herder::FLOW_CONTROL_BYTES_EXTRA_BUFFER;
-            cfg1.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = 1;
-        }
-        else
-        {
-            // initiator can only accept 1 flood message at a time
-            cfg1.PEER_FLOOD_READING_CAPACITY = 1;
-            cfg1.FLOW_CONTROL_SEND_MORE_BATCH_SIZE = 1;
-            // Set PEER_READING_CAPACITY to something higher so that the
-            // initiator will read both messages right away and detect capacity
-            // violation
-            cfg1.PEER_READING_CAPACITY = 2;
-        }
-        auto app1 = createTestApplication(clock, cfg1, true, false);
+    cfg1.PEER_FLOOD_READING_CAPACITY_BYTES =
+        txSize + 1 + Herder::FLOW_CONTROL_BYTES_EXTRA_BUFFER;
+    cfg1.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = 1;
 
-        if (!fcBytesEnabledOnAll)
-        {
-            app1->getOverlayManager().disableFlowControlBytesForTesting();
-        }
-        else if (appProtocolVersionStartsFrom(*app1, SOROBAN_PROTOCOL_VERSION))
-        {
-            modifySorobanNetworkConfig(*app1,
-                                       [txSize](SorobanNetworkConfig& cfg) {
-                                           cfg.mTxMaxSizeBytes = txSize;
-                                       });
-        }
+    auto app1 = createTestApplication(clock, cfg1, true, false);
+    if (appProtocolVersionStartsFrom(*app1, SOROBAN_PROTOCOL_VERSION))
+    {
+        modifySorobanNetworkConfig(*app1, [txSize](SorobanNetworkConfig& cfg) {
+            cfg.mTxMaxSizeBytes = txSize;
+        });
+    }
 
-        auto app2 = createTestApplication(clock, cfg2, true, false);
-        app1->getHerder().setMaxClassicTxSize(txSize);
-        app2->getHerder().setMaxClassicTxSize(txSize);
-        app1->start();
-        app2->start();
+    auto app2 = createTestApplication(clock, cfg2, true, false);
+    app1->getHerder().setMaxClassicTxSize(txSize);
+    app2->getHerder().setMaxClassicTxSize(txSize);
+    app1->start();
+    app2->start();
 
-        LoopbackPeerConnection conn(*app1, *app2);
-        testutil::crankSome(clock);
-        REQUIRE(conn.getInitiator()->isAuthenticatedForTesting());
-        REQUIRE(conn.getAcceptor()->isAuthenticatedForTesting());
+    LoopbackPeerConnection conn(*app1, *app2);
+    testutil::crankSome(clock);
+    REQUIRE(conn.getInitiator()->isAuthenticatedForTesting());
+    REQUIRE(conn.getAcceptor()->isAuthenticatedForTesting());
 
-        // Acceptor sends too many flood messages, causing initiator to drop it
-        auto msgPtr = std::make_shared<StellarMessage>(msg);
-        conn.getAcceptor()->sendAuthenticatedMessage(msgPtr);
-        conn.getAcceptor()->sendAuthenticatedMessage(msgPtr);
-        testutil::crankSome(clock);
+    // Acceptor sends too many flood messages, causing initiator to drop it
+    auto msgPtr = std::make_shared<StellarMessage>(msg);
+    conn.getAcceptor()->sendAuthenticatedMessage(msgPtr);
+    conn.getAcceptor()->sendAuthenticatedMessage(msgPtr);
+    testutil::crankSome(clock);
 
-        REQUIRE(!conn.getInitiator()->isConnectedForTesting());
-        REQUIRE(!conn.getAcceptor()->isConnectedForTesting());
-        REQUIRE(conn.getInitiator()->getDropReason() ==
-                "unexpected flood message, peer at capacity");
+    REQUIRE(!conn.getInitiator()->isConnectedForTesting());
+    REQUIRE(!conn.getAcceptor()->isConnectedForTesting());
+    REQUIRE(conn.getInitiator()->getDropReason() ==
+            "unexpected flood message, peer at capacity");
 
-        testutil::shutdownWorkScheduler(*app2);
-        testutil::shutdownWorkScheduler(*app1);
-    };
-
-    runWithBothFlowControlModes(cfg1Base, test);
+    testutil::shutdownWorkScheduler(*app2);
+    testutil::shutdownWorkScheduler(*app1);
 }
 
 TEST_CASE("drop idle flow-controlled peers", "[overlay][flowcontrol]")
 {
     VirtualClock clock;
     std::vector<Config> cfgs = {getTestConfig(0), getTestConfig(1)};
-    auto cfg1Base = cfgs[0];
+    auto cfg1 = cfgs[0];
     auto cfg2 = cfgs[1];
 
     StellarMessage msg;
     msg.type(TRANSACTION);
     uint32 txSize = static_cast<uint32>(xdr::xdr_argpack_size(msg));
 
-    auto test = [&](Config cfg1, bool fcBytesEnabledOnAll) {
-        if (fcBytesEnabledOnAll)
-        {
-            cfg1.PEER_FLOOD_READING_CAPACITY_BYTES = txSize;
-            // Incorrectly set batch size, so that the node does not send flood
-            // requests
-            cfg1.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = txSize + 1;
-        }
-        else
-        {
-            cfg1.PEER_FLOOD_READING_CAPACITY = 1;
-            cfg1.PEER_READING_CAPACITY = 1;
-            // Incorrectly set batch size, so that the node does not send flood
-            // requests
-            cfg1.FLOW_CONTROL_SEND_MORE_BATCH_SIZE = 2;
-        }
-        auto app1 = createTestApplication(clock, cfg1);
-        auto app2 = createTestApplication(clock, cfg2);
+    cfg1.PEER_FLOOD_READING_CAPACITY_BYTES = txSize;
+    // Incorrectly set batch size, so that the node does not send flood
+    // requests
+    cfg1.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = txSize + 1;
 
-        if (!fcBytesEnabledOnAll)
-        {
-            app1->getOverlayManager().disableFlowControlBytesForTesting();
-        }
+    auto app1 = createTestApplication(clock, cfg1);
+    auto app2 = createTestApplication(clock, cfg2);
 
-        LoopbackPeerConnection conn(*app1, *app2);
-        testutil::crankSome(clock);
-        REQUIRE(conn.getInitiator()->isAuthenticatedForTesting());
-        REQUIRE(conn.getAcceptor()->isAuthenticatedForTesting());
+    LoopbackPeerConnection conn(*app1, *app2);
+    testutil::crankSome(clock);
+    REQUIRE(conn.getInitiator()->isAuthenticatedForTesting());
+    REQUIRE(conn.getAcceptor()->isAuthenticatedForTesting());
 
-        REQUIRE(conn.getAcceptor()->checkCapacity(conn.getInitiator()));
-        // Send outbound message and start the timer
-        conn.getAcceptor()->sendMessage(std::make_shared<StellarMessage>(msg),
-                                        false);
-        conn.getAcceptor()->sendMessage(std::make_shared<StellarMessage>(msg),
-                                        false);
+    REQUIRE(conn.getAcceptor()->checkCapacity(conn.getInitiator()));
+    // Send outbound message and start the timer
+    conn.getAcceptor()->sendMessage(std::make_shared<StellarMessage>(msg),
+                                    false);
+    conn.getAcceptor()->sendMessage(std::make_shared<StellarMessage>(msg),
+                                    false);
 
-        if (fcBytesEnabledOnAll)
-        {
-            REQUIRE(conn.getAcceptor()
-                        ->getFlowControl()
-                        ->getCapacityBytes()
-                        ->getOutboundCapacity() < txSize);
-        }
-        else
-        {
-            REQUIRE(conn.getAcceptor()
-                        ->getFlowControl()
-                        ->getCapacity()
-                        ->getOutboundCapacity() == 0);
-        }
+    REQUIRE(conn.getAcceptor()
+                ->getFlowControl()
+                ->getCapacityBytes()
+                ->getOutboundCapacity() < txSize);
 
-        testutil::crankFor(clock, Peer::PEER_SEND_MODE_IDLE_TIMEOUT +
-                                      std::chrono::seconds(5));
+    testutil::crankFor(clock, Peer::PEER_SEND_MODE_IDLE_TIMEOUT +
+                                  std::chrono::seconds(5));
 
-        REQUIRE(!conn.getInitiator()->isConnectedForTesting());
-        REQUIRE(!conn.getAcceptor()->isConnectedForTesting());
-        REQUIRE(conn.getAcceptor()->getDropReason() ==
-                "idle timeout (no new flood requests)");
+    REQUIRE(!conn.getInitiator()->isConnectedForTesting());
+    REQUIRE(!conn.getAcceptor()->isConnectedForTesting());
+    REQUIRE(conn.getAcceptor()->getDropReason() ==
+            "idle timeout (no new flood requests)");
 
-        testutil::shutdownWorkScheduler(*app2);
-        testutil::shutdownWorkScheduler(*app1);
-    };
-
-    runWithBothFlowControlModes(cfg1Base, test);
+    testutil::shutdownWorkScheduler(*app2);
+    testutil::shutdownWorkScheduler(*app1);
 }
 
 TEST_CASE("drop peers that overflow capacity", "[overlay][flowcontrol]")
@@ -2229,24 +2113,17 @@ TEST_CASE("overlay flow control", "[overlay][flowcontrol]")
             Herder::FLOW_CONTROL_BYTES_EXTRA_BUFFER;
         cfg.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = 100;
         cfg.TESTING_UPGRADE_MAX_TX_SET_SIZE = 1000;
-        cfg.OVERLAY_PROTOCOL_VERSION =
-            MANDATORY_FLOW_CONTROL_BYTES_MIN_OVERLAY_VERSION - 1;
         configs.push_back(cfg);
     }
 
     Application::pointer node = nullptr;
-    auto setupSimulation = [&](bool fcBytesEnabledOnAll) {
+    auto setupSimulation = [&]() {
         node = simulation->addNode(vNode1SecretKey, qSet, &configs[0]);
         auto a1 = simulation->addNode(vNode2SecretKey, qSet, &configs[1]);
         auto a2 = simulation->addNode(vNode3SecretKey, qSet, &configs[2]);
         node->getHerder().setMaxClassicTxSize(5900);
         a1->getHerder().setMaxClassicTxSize(5900);
         a2->getHerder().setMaxClassicTxSize(5900);
-
-        if (!fcBytesEnabledOnAll)
-        {
-            a2->getOverlayManager().disableFlowControlBytesForTesting();
-        }
 
         simulation->addPendingConnection(vNode1NodeID, vNode2NodeID);
         simulation->addPendingConnection(vNode2NodeID, vNode3NodeID);
@@ -2268,14 +2145,7 @@ TEST_CASE("overlay flow control", "[overlay][flowcontrol]")
 
     SECTION("enabled")
     {
-        SECTION("flow control in bytes on all")
-        {
-            setupSimulation(true);
-        }
-        SECTION("one peer disables")
-        {
-            setupSimulation(false);
-        }
+        setupSimulation();
 
         simulation->crankUntil(
             [&] { return simulation->haveAllExternalized(2, 1); },
@@ -2310,7 +2180,7 @@ TEST_CASE("overlay flow control", "[overlay][flowcontrol]")
         configs[2].PEER_FLOOD_READING_CAPACITY = 0;
         configs[2].PEER_FLOOD_READING_CAPACITY_BYTES = 0;
 
-        setupSimulation(true);
+        setupSimulation();
         REQUIRE_THROWS_AS(
             simulation->crankUntil(
                 [&] { return simulation->haveAllExternalized(2, 1); },

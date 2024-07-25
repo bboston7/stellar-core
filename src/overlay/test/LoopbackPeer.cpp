@@ -156,6 +156,8 @@ LoopbackPeer::drop(std::string const& reason, DropDirection direction)
     {
         CLOG_DEBUG(Overlay, "LoopbackPeer::drop {} in state {} we called:{}",
                    toString(), format_as(mState), format_as(mRole));
+        // TODO: remove vv or integrate into the above DEBUG log
+        CLOG_ERROR(Overlay, "Drop reason: {}", reason);
     }
     else if (direction == Peer::DropDirection::WE_DROPPED_REMOTE)
     {
@@ -562,19 +564,11 @@ bool
 LoopbackPeer::checkCapacity(std::shared_ptr<LoopbackPeer> otherPeer) const
 {
     // Outbound capacity is equal to the config on the other node
-    bool flowControlInBytes = getFlowControl()->getCapacityBytes() &&
-                              otherPeer->getFlowControl()->getCapacityBytes();
-    bool isValid = otherPeer->getConfig().PEER_FLOOD_READING_CAPACITY ==
-                   getFlowControl()->getCapacity()->getOutboundCapacity();
-    if (flowControlInBytes)
-    {
-        isValid = isValid &&
-                  (otherPeer->mAppConnector.getOverlayManager()
-                       .getFlowControlBytesConfig()
-                       .mTotal ==
-                   getFlowControl()->getCapacityBytes()->getOutboundCapacity());
-    }
-
-    return isValid;
+    return otherPeer->getConfig().PEER_FLOOD_READING_CAPACITY ==
+               getFlowControl()->getCapacity()->getOutboundCapacity() &&
+           otherPeer->mAppConnector.getOverlayManager()
+                   .getFlowControlBytesConfig()
+                   .mTotal ==
+               getFlowControl()->getCapacityBytes()->getOutboundCapacity();
 }
 }
