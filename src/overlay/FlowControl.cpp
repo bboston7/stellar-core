@@ -55,7 +55,9 @@ FlowControl::hasOutboundCapacity(StellarMessage const& msg,
 }
 
 // TODO: Can I remove `start` entirely and initialize these member variables in
-// the constructor?
+// the constructor? I think I need to remove nodeID, which is only used for
+// logging. Do that as a separate commit so it's easy to revert if that's an
+// undesirable change
 void
 FlowControl::start(NodeID const& peerID, uint32_t enableFCBytes)
 {
