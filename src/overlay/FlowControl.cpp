@@ -35,6 +35,9 @@ FlowControl::FlowControl(OverlayAppConnector& connector,
                          bool useBackgroundThread)
     : mFlowControlCapacity(std::make_shared<FlowControlMessageCapacity>(
           connector.getConfig(), mNodeID))
+    , mFlowControlBytesCapacity(std::make_shared<FlowControlByteCapacity>(
+          connector.getConfig(), mNodeID,
+          connector.getOverlayManager().getFlowControlBytesConfig().mTotal))
     , mOverlayMetrics(connector.getOverlayManager().getOverlayMetrics())
     , mAppConnector(connector)
     , mUseBackgroundThread(useBackgroundThread)
@@ -59,14 +62,11 @@ FlowControl::hasOutboundCapacity(StellarMessage const& msg,
 // logging. Do that as a separate commit so it's easy to revert if that's an
 // undesirable change
 void
-FlowControl::start(NodeID const& peerID, uint32_t enableFCBytes)
+FlowControl::start(NodeID const& peerID)
 {
     releaseAssert(threadIsMain());
     std::lock_guard<std::mutex> guard(mFlowControlMutex);
     mNodeID = peerID;
-
-    mFlowControlBytesCapacity = std::make_shared<FlowControlByteCapacity>(
-        mAppConnector.getConfig(), mNodeID, enableFCBytes);
 }
 
 void

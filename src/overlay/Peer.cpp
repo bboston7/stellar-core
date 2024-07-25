@@ -1733,7 +1733,7 @@ Peer::recvAuth(StellarMessage const& msg)
 
     uint32_t fcBytes =
         mAppConnector.getOverlayManager().getFlowControlBytesConfig().mTotal;
-    mFlowControl->start(mPeerID, fcBytes);
+    mFlowControl->start(mPeerID);
 
     // Subtle: after successful auth, must send sendMore message first to
     // tell the other peer about the local node's reading capacity.

@@ -182,7 +182,7 @@ class FlowControl
 
     Json::Value getFlowControlJsonInfo(bool compact) const;
 
-    void start(NodeID const& peerID, uint32_t enableFCBytes);
+    void start(NodeID const& peerID);
 
     // Stop reading from this peer until capacity is released
     bool maybeThrottleRead();
