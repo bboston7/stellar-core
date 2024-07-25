@@ -574,11 +574,17 @@ TEST_CASE("loopback peer flow control activation", "[overlay][flowcontrol]")
         testutil::shutdownWorkScheduler(*app1);
     };
 
-    // Flow control without illegal SEND_MORE
-    runTest({cfg1, cfg2}, false);
+    SECTION("basic")
+    {
+        // Flow control without illegal SEND_MORE
+        runTest({cfg1, cfg2}, false);
+    }
 
-    // Flow control with illegal SEND_MORE
-    runTest({cfg1, cfg2}, true);
+    SECTION("bad peer")
+    {
+        // Flow control with illegal SEND_MORE
+        runTest({cfg1, cfg2}, true);
+    }
 }
 
 TEST_CASE("drop peers that dont respect capacity", "[overlay][flowcontrol]")
