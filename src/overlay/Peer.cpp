@@ -162,8 +162,6 @@ Peer::endMessageProcessing(StellarMessage const& msg)
     auto res = mFlowControl->endMessageProcessing(msg);
     if (res.first > 0 || res.second > 0)
     {
-        // TODO: Remove this and other added CLOG_ERRORs I added for debugging
-        CLOG_ERROR(Overlay, "sendSendMore from endMessageProcessing");
         sendSendMore(static_cast<uint32>(res.first),
                      static_cast<uint32>(res.second));
     }
@@ -1742,7 +1740,6 @@ Peer::recvAuth(StellarMessage const& msg)
 
     // Subtle: after successful auth, must send sendMore message first to
     // tell the other peer about the local node's reading capacity.
-    CLOG_ERROR(Overlay, "sendSendMore from recvAuth");
     sendSendMore(mAppConnector.getConfig().PEER_FLOOD_READING_CAPACITY,
                  fcBytes);
 
@@ -1942,7 +1939,6 @@ Peer::handleMaxTxSizeIncrease(uint32_t increase)
         mFlowControl->handleTxSizeIncrease(increase);
         // Send an additional SEND_MORE to let the other peer know we have more
         // capacity available (and possibly unblock it)
-        CLOG_ERROR(Overlay, "sendSendMore from handleMaxTxSizeIncrease");
         sendSendMore(0, increase);
     }
 }

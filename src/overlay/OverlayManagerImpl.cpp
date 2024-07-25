@@ -359,8 +359,6 @@ OverlayManagerImpl::start()
 OverlayManager::AdjustedFlowControlConfig
 OverlayManagerImpl::getFlowControlBytesConfig() const
 {
-    auto const maxTxSize = mApp.getHerder().getMaxTxSize();
-    releaseAssert(maxTxSize > 0);
     auto const& cfg = mApp.getConfig();
 
     // If flow control parameters weren't provided in the config file, calculate
@@ -369,6 +367,8 @@ OverlayManagerImpl::getFlowControlBytesConfig() const
     if (cfg.PEER_FLOOD_READING_CAPACITY_BYTES == 0 &&
         cfg.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES == 0)
     {
+        auto const maxTxSize = mApp.getHerder().getMaxTxSize();
+        releaseAssert(maxTxSize > 0);
         if (!(INITIAL_PEER_FLOOD_READING_CAPACITY_BYTES -
                   INITIAL_FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES >=
               maxTxSize))
