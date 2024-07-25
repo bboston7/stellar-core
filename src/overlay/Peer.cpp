@@ -42,6 +42,8 @@
 // you bad data
 
 // TODO: Remove AUTH_MSG_FLAG_FLOW_CONTROL_BYTES_REQUESTED XDR definition?
+// Actually, I might need it because I think we still want to set it for older
+// clients.
 
 namespace stellar
 {
@@ -384,6 +386,10 @@ Peer::sendAuth()
     ZoneScoped;
     StellarMessage msg;
     msg.type(AUTH);
+    // TODO: I think I still need to set this for older clients? Without it
+    // they'll respond without flow control bytes and this client doesn't handle
+    // that anymore.
+    msg.auth().flags = AUTH_MSG_FLAG_FLOW_CONTROL_BYTES_REQUESTED;
     auto msgPtr = std::make_shared<StellarMessage const>(msg);
     sendMessage(msgPtr);
 }
