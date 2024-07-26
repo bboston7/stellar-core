@@ -540,6 +540,8 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
         else
         {
             CLOG_ERROR(LoadGen, "Reason push: trapped");
+            CLOG_ERROR(LoadGen, "Host function type: {}",
+                       format_as(mInvokeHostFunction.hostFunction.type()));
             innerResult().code(INVOKE_HOST_FUNCTION_TRAPPED);
         }
         return false;
