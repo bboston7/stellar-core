@@ -145,6 +145,19 @@ overrideNetworkSettingsToMin(Application& app)
     upgrade.newMaxSorobanTxSetSize() = 1;
     executeUpgrade(app, upgrade);
 }
+
+// Set high limits for soroban. Also configures flow control to support the
+// higher limits.
+void
+setHighSorobanLimits(Config& cfg)
+{
+    cfg.TESTING_SOROBAN_HIGH_LIMIT_OVERRIDE = true;
+
+    // Let OverlayManagerImpl compute flow control bytes values
+    cfg.PEER_FLOOD_READING_CAPACITY_BYTES = 0;
+    cfg.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = 0;
+}
+
 } // namespace
 
 TEST_CASE("Trustline stellar asset contract",
@@ -290,7 +303,7 @@ TEST_CASE("Native stellar asset contract",
           "[tx][soroban][invariant][conservationoflumens]")
 {
     auto cfg = getTestConfig();
-    cfg.TESTING_SOROBAN_HIGH_LIMIT_OVERRIDE = true;
+    setHighSorobanLimits(cfg);
 
     SorobanTest test(cfg);
     auto& app = test.getApp();
@@ -2522,7 +2535,7 @@ TEST_CASE("temp entry eviction", "[tx][soroban]")
         // override
         if (enableBucketListDB)
         {
-            cfg.TESTING_SOROBAN_HIGH_LIMIT_OVERRIDE = true;
+            setHighSorobanLimits(cfg);
         }
 
         SorobanTest test(cfg);
