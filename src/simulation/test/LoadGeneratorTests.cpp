@@ -112,6 +112,10 @@ TEST_CASE("generate soroban load", "[loadgen][soroban]")
             cfg.LOADGEN_INSTRUCTIONS_FOR_TESTING = {1'000'000, 5'000'000,
                                                     10'000'000};
             cfg.LOADGEN_INSTRUCTIONS_DISTRIBUTION_FOR_TESTING = {1, 2, 3};
+
+            // Let OverlayManager set flow control bytes parameters
+            cfg.PEER_FLOOD_READING_CAPACITY_BYTES = 0;
+            cfg.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = 0;
             return cfg;
         });
 
