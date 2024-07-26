@@ -208,6 +208,7 @@ TransactionFrame::pushValidationTimeDiagnosticError(Config const& cfg,
                                                     std::string&& message,
                                                     xdr::xvector<SCVal>&& args)
 {
+    CLOG_ERROR(LoadGen, "pushValidationTimeDiagnosticError: {}", message);
     if (!cfg.ENABLE_DIAGNOSTICS_FOR_TX_SUBMISSION)
     {
         return;

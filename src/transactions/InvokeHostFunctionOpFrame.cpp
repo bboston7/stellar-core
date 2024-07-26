@@ -390,6 +390,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
                                      lk.contractData().key});
                             }
                             // Cannot access an archived entry
+                            CLOG_ERROR(LoadGen, "Reason push: archived entry");
                             this->innerResult().code(
                                 INVOKE_HOST_FUNCTION_ENTRY_ARCHIVED);
                             return false;
@@ -514,6 +515,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
     {
         if (out.is_internal_error)
         {
+            CLOG_ERROR(LoadGen, "Reason push: internal error");
             throw std::runtime_error(
                 "Got internal error during Soroban host invocation.");
         }
@@ -537,6 +539,7 @@ InvokeHostFunctionOpFrame::doApply(Application& app, AbstractLedgerTxn& ltx,
         }
         else
         {
+            CLOG_ERROR(LoadGen, "Reason push: trapped");
             innerResult().code(INVOKE_HOST_FUNCTION_TRAPPED);
         }
         return false;
