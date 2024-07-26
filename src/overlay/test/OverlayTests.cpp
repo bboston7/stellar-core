@@ -2206,12 +2206,6 @@ TEST_CASE("database is purged at overlay start", "[overlay]")
     VirtualClock clock;
     auto cfg = getTestConfig();
     cfg.RUN_STANDALONE = false;
-    // These flow control options must be set to nonzero values or
-    // OverlayManagerImpl will attempt to compute them from Herder, but Herder
-    // isn't running so OverlayManagerImpl will crash.
-    cfg.PEER_FLOOD_READING_CAPACITY_BYTES = 100000;
-    cfg.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = 300000;
-
     auto app = createTestApplication(clock, cfg, true, false);
     auto& om = app->getOverlayManager();
     auto& peerManager = om.getPeerManager();

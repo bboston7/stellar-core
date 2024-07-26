@@ -309,6 +309,13 @@ getTestConfig(int instanceNumber, Config::TestDbMode mode)
         thisConfig.PEER_FLOOD_READING_CAPACITY = 20;
         thisConfig.FLOW_CONTROL_SEND_MORE_BATCH_SIZE = 10;
 
+        // Set nonzero default config values for flow control in bytes. Without
+        // these OverlayManagerImpl will attempt to compute them from Herder.
+        // However, some tests do not start Herder and those may crash if they
+        // start OverlayManagerImpl without these values set.
+        thisConfig.PEER_FLOOD_READING_CAPACITY_BYTES = 100000;
+        thisConfig.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = 300000;
+
         // Tests default to using SQL for ledger state
         thisConfig.DEPRECATED_SQL_LEDGER_STATE = true;
 
