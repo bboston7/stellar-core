@@ -65,6 +65,11 @@ TmpDirHistoryConfigurator::configure(Config& cfg, bool writable) const
 
     cfg.HISTORY[d] = HistoryArchiveConfiguration{d, getCmd, putCmd, mkdirCmd};
     cfg.TESTING_SOROBAN_HIGH_LIMIT_OVERRIDE = true;
+
+    // Let OverlayManagerImpl compute flow control bytes values
+    cfg.PEER_FLOOD_READING_CAPACITY_BYTES = 0;
+    cfg.FLOW_CONTROL_SEND_MORE_BATCH_SIZE_BYTES = 0;
+
     return cfg;
 }
 
