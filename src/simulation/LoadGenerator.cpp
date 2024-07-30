@@ -1263,11 +1263,13 @@ LoadGenerator::createContractTransaction(uint32_t ledgerNum, uint64_t accountId,
     createResources.readBytes = mContactOverheadBytes + 1000;
     createResources.writeBytes = 300;
 
-    auto salt = sha256(
+    std::string saltStr =
         std::to_string(mContractInstanceKeys.size()) + "run" +
         std::to_string(mApp.getMetrics()
                            .NewMeter({"loadgen", "run", "complete"}, "run")
-                           .count()));
+                           .count());
+    auto salt = sha256(saltStr);
+    CLOG_ERROR(LoadGen, "Salt: {}", saltStr);
     auto contractIDPreimage = makeContractIDPreimage(*account, salt);
 
     auto tx =
