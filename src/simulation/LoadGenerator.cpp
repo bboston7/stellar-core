@@ -1270,6 +1270,7 @@ LoadGenerator::createContractTransaction(uint32_t ledgerNum, uint64_t accountId,
                            .count());
     auto salt = sha256(saltStr);
     CLOG_ERROR(LoadGen, "Salt: {}", saltStr);
+    CLOG_ERROR(LoadGen, "Account: {}", accountId);
     auto contractIDPreimage = makeContractIDPreimage(*account, salt);
 
     auto tx =
