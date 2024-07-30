@@ -260,7 +260,7 @@ InvokeHostFunctionOpFrame::maybePopulateDiagnosticEvents(
     Config const& cfg, InvokeHostFunctionOutput const& output,
     HostFunctionMetrics const& metrics)
 {
-    if (cfg.ENABLE_SOROBAN_DIAGNOSTIC_EVENTS)
+    if (true)
     {
         xdr::xvector<DiagnosticEvent> diagnosticEvents;
         diagnosticEvents.reserve(output.diagnostic_events.size() + 20);
@@ -269,7 +269,7 @@ InvokeHostFunctionOpFrame::maybePopulateDiagnosticEvents(
             DiagnosticEvent evt;
             xdr::xdr_from_opaque(e.data, evt);
             diagnosticEvents.emplace_back(evt);
-            CLOG_DEBUG(Tx, "Soroban diagnostic event: {}",
+            CLOG_ERROR(Tx, "Soroban diagnostic event: {}",
                        xdr::xdr_to_string(evt));
         }
 

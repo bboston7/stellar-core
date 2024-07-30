@@ -1250,6 +1250,7 @@ LoadGenerator::createUploadWasmTransaction(uint32_t ledgerNum,
     return std::make_pair(account, tx);
 }
 
+// TODO: This is the one that fails. Can revert changes to the other
 std::pair<LoadGenerator::TestAccountPtr, TransactionFramePtr>
 LoadGenerator::createContractTransaction(uint32_t ledgerNum, uint64_t accountId,
                                          GeneratedLoadConfig const& cfg)
