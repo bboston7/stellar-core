@@ -49,6 +49,7 @@ CSV_FIELD_NAMES = [ "group"
                   , "avg_in_edges"
                   , "avg_duration"
                   , "avg_conn_tier1"
+                  , "num_conn_tier1"
                   ]
 
 LONG_FIELD_NAMES = { "group" : "Group"
@@ -65,6 +66,8 @@ LONG_FIELD_NAMES = { "group" : "Group"
                    , "avg_duration" : "Average number of seconds connected"
                    , "avg_conn_tier1" : "Average number of connections to "
                                         "tier1"
+                   , "num_conn_tier1" : "Number of nodes connected to at "
+                                        "least 1 tier1 node"
                    }
 
 CSV_OUT_NAME = "out.csv"
@@ -159,6 +162,14 @@ def avg_connections_to_tier1(nodes):
 
     return total / len(nodes)
 
+def num_connected_to_tier1(nodes):
+    """Returns the number of nodes in the given list that are connected to at
+    least 1 tier 1 node"""
+    total = 0
+    for node in nodes:
+        if set(UNDIRECTED.neighbors(node)).intersection(TIER1.values()):
+            total += 1
+    return total
 
 def print_and_write_stats(stats, csv_writer):
     assert len(CSV_FIELD_NAMES) == len(stats)
@@ -178,6 +189,7 @@ def get_stats(nodes, group_name):
            , "avg_dist_tier1" : avg_dist_tier1
            , "max_dist_tier1" : max_dist_tier1
            , "avg_conn_tier1" : avg_connections_to_tier1(nodes)
+           , "num_conn_tier1" : num_connected_to_tier1(nodes)
            } | avg_edges(nodes) | avg_bandwidth(nodes)
 
 def tier1_connectivity():
