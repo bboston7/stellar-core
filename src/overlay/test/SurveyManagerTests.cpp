@@ -599,11 +599,17 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
                 keyStrList[B]);
         REQUIRE(topology[keyStrList[E]]["outboundPeers"].isNull());
 
+        // Request survey data from surveyor (A)
+        REQUIRE(surveyTopologyTimeSliced(surveyor, keyList[A], 0, 0));
+        crankForSurvey();
+        REQUIRE(topology.size() == 4);
+        // TODO: Check contents of survey result for 'A'
+
         // Request survey data from B with non-zero peer indices.
         REQUIRE(surveyTopologyTimeSliced(surveyor, keyList[B], 1, 1));
         crankForSurvey();
         topology = getSurveyResult(surveyor)["topology"];
-        REQUIRE(topology.size() == 3);
+        REQUIRE(topology.size() == 4);
         // Should have no inbound peers (requested index was too high)
         REQUIRE(topology[keyStrList[B]]["inboundPeers"].isNull());
         // Should have just 1 outbound peer
@@ -615,7 +621,7 @@ TEST_CASE("Time sliced static topology survey", "[overlay][survey][topology]")
         REQUIRE(!surveyTopologyTimeSliced(surveyor, keyList[B], 1, 1));
         crankForSurvey();
         topology = getSurveyResult(surveyor)["topology"];
-        REQUIRE(topology.size() == 3);
+        REQUIRE(topology.size() == 4);
         // Should have 1 inbound peer and 2 outbound peers, indicating that the
         // survey with 0 indices went through
         REQUIRE(topology[keyStrList[B]]["inboundPeers"].size() == 1);
