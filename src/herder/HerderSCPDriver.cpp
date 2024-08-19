@@ -25,6 +25,7 @@
 #include "xdr/Stellar-ledger.h"
 #include <Tracy.hpp>
 #include <algorithm>
+#include <cmath>
 #include <fmt/format.h>
 #include <medida/metrics_registry.h>
 #include <numeric>
@@ -1284,5 +1285,85 @@ HerderSCPDriver::TxSetValidityKeyHash::operator()(
     hashMix(res, std::get<2>(key));
     hashMix(res, std::get<3>(key));
     return res;
+}
+
+uint64
+HerderSCPDriver::getNodeWeight(NodeID const& nodeID, SCPQuorumSet const& qset,
+                               bool const isLocalNode) const
+{
+    Config const& cfg = mApp.getConfig();
+    if (protocolVersionIsBefore(mApp.getLedgerManager()
+                                    .getLastClosedLedgerHeader()
+                                    .header.ledgerVersion,
+                                APPLICATION_SPECIFIC_WEIGHT_PROTOCOL_VERSION) ||
+        !cfg.VALIDATOR_WEIGHT_CONFIG.has_value() ||
+        cfg.FORCE_APPLICATION_AGNOSTIC_WEIGHT_FUNCTION)
+    {
+        // Fall back on old weight algorithm if any of the following are true:
+        // 1. The network has not yet upgraded to
+        //    APPLICATION_SPECIFIC_WEIGHT_PROTOCOL_VERSION,
+        // 2. The node is using manual quorum set configuration, or
+        // 3. The node has the FORCE_APPLICATION_AGNOSTIC_WEIGHT_FUNCTION flag
+        //    set
+        return SCPDriver::getNodeWeight(nodeID, qset, isLocalNode);
+    }
+
+    ValidatorWeightConfig const& vwc =
+        mApp.getConfig().VALIDATOR_WEIGHT_CONFIG.value();
+
+    auto entryIt = vwc.mValidatorEntries.find(nodeID);
+    if (entryIt == vwc.mValidatorEntries.end())
+    {
+        // This shouldn't be possible as the validator entries should contain
+        // all validators in the config. For this to happen, `getNodeWeight`
+        // would have to be called with a non-validator `nodeID`. Throw if
+        // building tests, and otherwise fall back on the old algorithm.
+#ifdef BUILD_TESTS
+        throw std::runtime_error(
+            fmt::format(FMT_STRING("Validator entry not found for node {}"),
+                        toShortString(nodeID)));
+#endif
+        return SCPDriver::getNodeWeight(nodeID, qset, isLocalNode);
+    }
+
+    ValidatorEntry const& entry = entryIt->second;
+    if (entry.mQuality == ValidatorQuality::VALIDATOR_LOW_QUALITY)
+    {
+        // Special case: low quality validators have weight `0`
+        return 0;
+    }
+
+    auto homeDomainSizeIt = vwc.mHomeDomainSizes.find(entry.mHomeDomain);
+    if (homeDomainSizeIt == vwc.mHomeDomainSizes.end())
+    {
+        // This shouldn't be possible as the home domain sizes should contain
+        // all home domains in the config. For this to happen, `getNodeWeight`
+        // would have to be called with a non-validator, or the config parser
+        // would have to allow a validator without a home domain. Throw if
+        // building tests, and otherwise fall back on the old algorithm.
+#ifdef BUILD_TESTS
+        throw std::runtime_error(
+            fmt::format(FMT_STRING("Home domain size not found for domain {}"),
+                        entry.mHomeDomain));
+#endif
+        return SCPDriver::getNodeWeight(nodeID, qset, isLocalNode);
+    }
+
+    // First, divide the theoretical maximum organization weight by the total
+    // number of nodes in that organization
+    uint64 const numerator = UINT64_MAX / homeDomainSizeIt->second;
+
+    // Then, compute the number of quality levels between the highest quality
+    // org and this node's org
+    int const qualityDelta = static_cast<int>(vwc.mHighestQuality) -
+                             static_cast<int>(entry.mQuality);
+    releaseAssert(qualityDelta >= 0);
+
+    // Finally, divide the theoretical max weight for nodes in this org
+    // (`numerator`) by `10^{qualityDelta}` to get the final weight.
+    uint64 const denominator =
+        static_cast<uint64>(std::pow(10.0, qualityDelta));
+    releaseAssert(denominator > 0);
+    return numerator / denominator;
 }
 }

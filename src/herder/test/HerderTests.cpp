@@ -45,6 +45,7 @@
 #include "xdrpp/autocheck.h"
 #include "xdrpp/marshal.h"
 #include <algorithm>
+#include <cmath>
 #include <fmt/format.h>
 #include <memory>
 #include <numeric>
@@ -5705,4 +5706,417 @@ TEST_CASE("SCP message capture from previous ledger", "[herder]")
     // check ensures that C does not double count messages from ledger 2 when
     // closing ledger 3.
     REQUIRE(checkSCPHistoryEntries(C, 2, expectedTypes));
+}
+
+using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;
+
+// Generate a Topology with a single org containing 3 validators of HIGH quality
+static Topology
+simpleThreeNode()
+{
+    // Generate validators
+    std::vector<SecretKey> sks;
+    std::vector<ValidatorEntry> validators;
+    int constexpr numValidators = 3;
+    for (int i = 0; i < numValidators; ++i)
+    {
+        SecretKey const& key = sks.emplace_back(SecretKey::random());
+        ValidatorEntry& entry = validators.emplace_back();
+        entry.mName = fmt::format("validator-{}", i);
+        entry.mHomeDomain = "A";
+        entry.mQuality = ValidatorQuality::VALIDATOR_HIGH_QUALITY;
+        entry.mKey = key.getPublicKey();
+        entry.mHasHistory = false;
+    }
+    return {sks, validators};
+}
+
+// Generate a topology with 3 orgs of HIGH quality. Two orgs have 3 validators
+// and one org has 5 validators.
+static Topology
+unbalancedOrgs()
+{
+    // Generate validators
+    std::vector<SecretKey> sks;
+    std::vector<ValidatorEntry> validators;
+    int constexpr numValidators = 11;
+    for (int i = 0; i < numValidators; ++i)
+    {
+        // Orgs A and B have 3 validators each. Org C has 5 validators.
+        std::string org = "C";
+        if (i < 3)
+        {
+            org = "A";
+        }
+        else if (i < 6)
+        {
+            org = "B";
+        }
+
+        SecretKey const& key = sks.emplace_back(SecretKey::random());
+        ValidatorEntry& entry = validators.emplace_back();
+        entry.mName = fmt::format("validator-{}", i);
+        entry.mHomeDomain = org;
+        entry.mQuality = ValidatorQuality::VALIDATOR_HIGH_QUALITY;
+        entry.mKey = key.getPublicKey();
+        entry.mHasHistory = false;
+    }
+    return {sks, validators};
+}
+
+// Returns a random quality up to `maxQuality`
+static ValidatorQuality
+randomQuality(ValidatorQuality maxQuality)
+{
+    return static_cast<ValidatorQuality>(rand_uniform<int>(
+        static_cast<int>(ValidatorQuality::VALIDATOR_LOW_QUALITY),
+        static_cast<int>(maxQuality)));
+}
+
+// Returns the minimum size an org of quality `q` can have
+static int constexpr minOrgSize(ValidatorQuality q)
+{
+    switch (q)
+    {
+    case ValidatorQuality::VALIDATOR_LOW_QUALITY:
+    case ValidatorQuality::VALIDATOR_MED_QUALITY:
+        return 1;
+    case ValidatorQuality::VALIDATOR_HIGH_QUALITY:
+    case ValidatorQuality::VALIDATOR_CRITICAL_QUALITY:
+        return 3;
+    }
+}
+
+// Generate a random topology with up to `maxValidators` validators. Ensures at
+// least one org is HIGH quality.
+static Topology
+randomTopology(int maxValidators)
+{
+    int const numValidators = rand_uniform<int>(3, maxValidators);
+    int constexpr minCritOrgSize =
+        minOrgSize(ValidatorQuality::VALIDATOR_CRITICAL_QUALITY);
+
+    // Generate validators
+    int curOrg = 0;
+    int curOrgSize = 0;
+    ValidatorQuality curQuality = ValidatorQuality::VALIDATOR_HIGH_QUALITY;
+    std::vector<SecretKey> sks(numValidators);
+    std::vector<ValidatorEntry> validators(numValidators);
+    for (int i = 0; i < numValidators; ++i)
+    {
+        if (curOrgSize >= minOrgSize(curQuality) && rand_flip())
+        {
+            // Start new org
+            ++curOrg;
+            curOrgSize = 0;
+            curQuality =
+                randomQuality(numValidators - i >= minCritOrgSize
+                                  ? ValidatorQuality::VALIDATOR_CRITICAL_QUALITY
+                                  : ValidatorQuality::VALIDATOR_MED_QUALITY);
+        }
+
+        std::string const org = fmt::format("org-{}", curOrg);
+        SecretKey const& key = sks.at(i) = SecretKey::random();
+
+        ValidatorEntry& entry = validators.at(i);
+        entry.mName = fmt::format("validator-{}", i);
+        entry.mHomeDomain = org;
+        entry.mQuality = curQuality;
+        entry.mKey = key.getPublicKey();
+        entry.mHasHistory = false;
+
+        ++curOrgSize;
+    }
+
+    return {sks, validators};
+}
+
+// Expected weight of an org with quality `orgQuality` in a topology with a max
+// quality of `maxQuality`. This function normalizes the weight so that the
+// highest quality has a weight of `1`.
+static double
+expectedOrgNormalizedWeight(ValidatorQuality maxQuality,
+                            ValidatorQuality orgQuality)
+{
+    if (orgQuality == ValidatorQuality::VALIDATOR_LOW_QUALITY)
+    {
+        return 0.0;
+    }
+    int const delta =
+        static_cast<int>(maxQuality) - static_cast<int>(orgQuality);
+    return 1.0 / std::pow(10.0, static_cast<double>(delta));
+}
+
+// Expected weight of a validator in an org of size `orgSize` with quality
+// `orgQuality`.  `maxQuality` is the maximum quality present in the
+// configuration. This function normalizes the weight so that the highest
+// organization-level quality has a weight of `1`.
+static double
+expectedNormalizedWeight(ValidatorQuality maxQuality,
+                         ValidatorQuality orgQuality, int orgSize)
+{
+    return expectedOrgNormalizedWeight(maxQuality, orgQuality) / orgSize;
+}
+
+// Collect information about the qualities and sizes of organizations in
+// `validators` and store them in `maxQuality`, `orgQualities`, and `orgSizes`.
+static void
+collectOrgInfo(ValidatorQuality& maxQuality,
+               std::unordered_map<std::string, ValidatorQuality>& orgQualities,
+               std::unordered_map<std::string, int>& orgSizes,
+               std::vector<ValidatorEntry> const& validators)
+{
+    maxQuality = ValidatorQuality::VALIDATOR_LOW_QUALITY;
+    for (ValidatorEntry const& validator : validators)
+    {
+        maxQuality = std::max(maxQuality, validator.mQuality);
+        orgQualities[validator.mHomeDomain] = validator.mQuality;
+        ++orgSizes[validator.mHomeDomain];
+    }
+}
+
+// Given a list of validators, test that the weights of the validators herder
+// reports are correct
+static void
+testWeights(std::vector<ValidatorEntry> const& validators)
+{
+    Config cfg = getTestConfig(0);
+
+    cfg.generateQuorumSetForTesting(validators);
+
+    VirtualClock clock;
+    Application::pointer app = createTestApplication(clock, cfg);
+    for_versions_from(
+        static_cast<uint32>(APPLICATION_SPECIFIC_WEIGHT_PROTOCOL_VERSION), *app,
+        [&]() {
+            // Collect info about orgs
+            ValidatorQuality maxQuality;
+            std::unordered_map<std::string, ValidatorQuality> orgQualities;
+            std::unordered_map<std::string, int> orgSizes;
+            collectOrgInfo(maxQuality, orgQualities, orgSizes, validators);
+
+            // Check per-validator weights
+            HerderImpl& herder = dynamic_cast<HerderImpl&>(app->getHerder());
+            std::unordered_map<std::string, double> normalizedOrgWeights;
+            for (ValidatorEntry const& validator : validators)
+            {
+                uint64_t weight = herder.getHerderSCPDriver().getNodeWeight(
+                    validator.mKey, cfg.QUORUM_SET, false);
+                double normalizedWeight =
+                    static_cast<double>(weight) / UINT64_MAX;
+                normalizedOrgWeights[validator.mHomeDomain] += normalizedWeight;
+
+                std::string const& org = validator.mHomeDomain;
+                REQUIRE_THAT(normalizedWeight,
+                             Catch::Matchers::WithinAbs(
+                                 expectedNormalizedWeight(maxQuality,
+                                                          orgQualities.at(org),
+                                                          orgSizes.at(org)),
+                                 0.0001));
+            }
+
+            // Check per-org weights
+            for (auto const& [org, weight] : normalizedOrgWeights)
+            {
+                REQUIRE_THAT(weight, Catch::Matchers::WithinAbs(
+                                         expectedOrgNormalizedWeight(
+                                             maxQuality, orgQualities.at(org)),
+                                         0.0001));
+            }
+        });
+}
+
+// Test that HerderSCPDriver::getNodeWeight produces weights that result in a
+// fair distribution of nomination wins.
+TEST_CASE_VERSIONS("getNodeWeight", "[herder]")
+{
+    SECTION("3 tier 1 validators, 1 org")
+    {
+        testWeights(simpleThreeNode().second);
+    }
+
+    SECTION("11 tier 1 validators, 3 unbalanced orgs")
+    {
+        testWeights(unbalancedOrgs().second);
+    }
+
+    SECTION("Random topology")
+    {
+        // Test weights for 1000 random topologies of up to 200 validators
+        for (int i = 0; i < 1000; ++i)
+        {
+            testWeights(randomTopology(200).second);
+        }
+    }
+}
+
+// Spin up a simulation of validators and run for `numLedgers`. After running,
+// check that the win percentages of each node and org are within 5% of the
+// expected win percentages. On large runs with higher `numLedgers` counts, this
+// can be quite slow. It's a more thorough test of the fairness of the
+// nomination algorithm than the `getNodeWeight` test, but at the expense of not
+// being capable of testing as many configurations due to the time it takes to
+// run.
+static void
+testWinProbabilities(std::vector<SecretKey> const& sks,
+                     std::vector<ValidatorEntry> const& validators,
+                     int const numLedgers)
+{
+    REQUIRE(sks.size() == validators.size());
+
+    // Collect info about orgs
+    ValidatorQuality maxQuality;
+    std::unordered_map<std::string, ValidatorQuality> orgQualities;
+    std::unordered_map<std::string, int> orgSizes;
+    collectOrgInfo(maxQuality, orgQualities, orgSizes, validators);
+
+    // Config generator
+    Simulation::ConfigGen confGen = [&validators](int i) {
+        Config cfg = getTestConfig(i);
+        cfg.ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING = true;
+        cfg.generateQuorumSetForTesting(validators);
+        return cfg;
+    };
+
+    // Initialize simulation
+    auto networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    auto simulation = std::make_shared<Simulation>(Simulation::OVER_LOOPBACK,
+                                                   networkID, confGen);
+
+    // Add nodes
+    std::vector<Application::pointer> nodes;
+    for (SecretKey const& sk : sks)
+    {
+        nodes.push_back(simulation->addNode(sk, std::nullopt));
+    }
+
+    // Connect everything together
+    for (int i = 0; i < sks.size(); ++i)
+    {
+        for (int j = i + 1; j < sks.size(); ++j)
+        {
+            simulation->addPendingConnection(sks.at(i).getPublicKey(),
+                                             sks.at(j).getPublicKey());
+        }
+    }
+
+    Application& app = *nodes.front();
+    for_versions_from(
+        static_cast<uint32>(APPLICATION_SPECIFIC_WEIGHT_PROTOCOL_VERSION), app,
+        [&]() {
+            simulation->startAllNodes();
+
+            // Run for `numLedgers` ledgers, recording the number of times each
+            // node publishes the winning ledger
+            UnorderedMap<NodeID, int> publishCounts;
+            for (int i = 2; i < numLedgers + 2; ++i)
+            {
+                simulation->crankUntil(
+                    [&]() {
+                        return app.getLedgerManager()
+                                   .getLastClosedLedgerNum() == i;
+                    },
+                    2 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
+                StellarValue const& sv = app.getLedgerManager()
+                                             .getLastClosedLedgerHeader()
+                                             .header.scpValue;
+                ++publishCounts[sv.ext.lcValueSignature().nodeID];
+            }
+
+            // Compute total expected normalized weight across all nodes
+            double totalNormalizedWeight = 0.0;
+            for (ValidatorEntry const& validator : validators)
+            {
+                totalNormalizedWeight += expectedNormalizedWeight(
+                    maxQuality, orgQualities.at(validator.mHomeDomain),
+                    orgSizes.at(validator.mHomeDomain));
+            }
+
+            // Check validator win rates
+            std::map<std::string, int> orgPublishCounts;
+            for (ValidatorEntry const& validator : validators)
+            {
+                NodeID const& nodeID = validator.mKey;
+                int publishCount = publishCounts[nodeID];
+
+                // Compute and report node's win rate
+                double winRate = static_cast<double>(publishCount) / numLedgers;
+                CLOG_INFO(Herder, "Node {} win rate: {} (published {} ledgers)",
+                          app.getConfig().toShortString(nodeID), winRate,
+                          publishCount);
+
+                // Expected win rate is `weight / total weight`
+                double expectedWinRate =
+                    expectedNormalizedWeight(
+                        maxQuality, orgQualities.at(validator.mHomeDomain),
+                        orgSizes.at(validator.mHomeDomain)) /
+                    totalNormalizedWeight;
+
+                // Check that actual win rate is within .05 of expected win
+                // rate.
+                REQUIRE_THAT(winRate,
+                             Catch::Matchers::WithinAbs(expectedWinRate, 0.05));
+
+                // Record org publish counts for the next set of checks
+                orgPublishCounts[validator.mHomeDomain] += publishCount;
+            }
+
+            // Check org win rates
+            for (auto const& [org, count] : orgPublishCounts)
+            {
+                // Compute and report org's win rate
+                double winRate = static_cast<double>(count) / numLedgers;
+                CLOG_INFO(Herder, "Org {} win rate: {} (published {} ledgers)",
+                          org, winRate, count);
+
+                // Expected win rate is `weight / total weight`
+                double expectedWinRate = expectedOrgNormalizedWeight(
+                                             maxQuality, orgQualities.at(org)) /
+                                         totalNormalizedWeight;
+
+                // Check that actual win rate is within .05 of expected win
+                // rate.
+                REQUIRE_THAT(winRate,
+                             Catch::Matchers::WithinAbs(expectedWinRate, 0.05));
+            }
+        });
+}
+
+// Test that the nomination algorithm produces a fair distribution of ledger
+// publishers. This test is disabled by default because it can take a long time
+// to run (see comment on `testWinProbabilities`). Depending on the random
+// topology generated, this test may take upwards of 2 hours to complete.
+//
+// In addition to checking that nomination percentages are within 5% of the
+// expected win rates, this test also outputs the win rates of each node and org
+// to the log. You should manually check those results even when the test passes
+// to ensure that win rates are within an acceptable margin as 5% is a fairly
+// arbitrary cutoff chosen due to the modest number of ledgers this test
+// simulates (2000 for all but the simple 3 node test).
+TEST_CASE_VERSIONS("Fair nomination win rates", "[herder][!hide]")
+{
+    SECTION("3 tier 1 validators, 1 org")
+    {
+        auto [sks, validators] = simpleThreeNode();
+        testWinProbabilities(sks, validators, 10000);
+    }
+
+    SECTION("11 tier 1 validators, 3 unbalanced orgs")
+    {
+        auto [sks, validators] = unbalancedOrgs();
+
+        // Takes about 30 minutes
+        testWinProbabilities(sks, validators, 2000);
+    }
+
+    SECTION("Random topology")
+    {
+        // Depending on the number of validators this can take a long time
+        // (upwards of an hour and a half if `randomTopology` returns a 20 node
+        // network).  That being said, the results can be too noisy to be useful
+        // with a small number of ledgers. 2000 ledgers seems to be a good lower
+        // bound for useful results.
+        auto [sks, validators] = randomTopology(20);
+        testWinProbabilities(sks, validators, 2000);
+    }
 }

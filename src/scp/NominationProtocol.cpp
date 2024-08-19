@@ -306,17 +306,8 @@ NominationProtocol::getNodePriority(NodeID const& nodeID,
 {
     ZoneScoped;
     uint64 res;
-    uint64 w;
-
-    if (nodeID == mSlot.getLocalNode()->getNodeID())
-    {
-        // local node is in all quorum sets
-        w = UINT64_MAX;
-    }
-    else
-    {
-        w = LocalNode::getNodeWeight(nodeID, qset);
-    }
+    uint64 w = mSlot.getSCPDriver().getNodeWeight(
+        nodeID, qset, nodeID == mSlot.getLocalNode()->getNodeID());
 
     // if w > 0; w is inclusive here as
     // 0 <= hashNode <= UINT64_MAX

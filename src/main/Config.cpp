@@ -306,6 +306,8 @@ Config::Config() : NODE_SEED(SecretKey::random())
     EMIT_SOROBAN_TRANSACTION_META_EXT_V1 = false;
     EMIT_LEDGER_CLOSE_META_EXT_V1 = false;
 
+    FORCE_APPLICATION_AGNOSTIC_WEIGHT_FUNCTION = false;
+
 #ifdef BUILD_TESTS
     TEST_CASES_ENABLED = false;
 #endif
@@ -572,7 +574,7 @@ Config::toString(ValidatorQuality q) const
     return kQualities[static_cast<int>(q)];
 }
 
-Config::ValidatorQuality
+ValidatorQuality
 Config::parseQuality(std::string const& q) const
 {
     auto it = std::find(kQualities.begin(), kQualities.end(), q);
@@ -581,7 +583,7 @@ Config::parseQuality(std::string const& q) const
 
     if (it != kQualities.end())
     {
-        res = static_cast<Config::ValidatorQuality>(
+        res = static_cast<ValidatorQuality>(
             std::distance(kQualities.begin(), it));
     }
     else
@@ -592,7 +594,7 @@ Config::parseQuality(std::string const& q) const
     return res;
 }
 
-std::vector<Config::ValidatorEntry>
+std::vector<ValidatorEntry>
 Config::parseValidators(
     std::shared_ptr<cpptoml::base> validators,
     UnorderedMap<std::string, ValidatorQuality> const& domainQualityMap)
@@ -715,7 +717,7 @@ Config::parseValidators(
     return res;
 }
 
-UnorderedMap<std::string, Config::ValidatorQuality>
+UnorderedMap<std::string, ValidatorQuality>
 Config::parseDomainsQuality(std::shared_ptr<cpptoml::base> domainsQuality)
 {
     UnorderedMap<std::string, ValidatorQuality> res;
@@ -1677,6 +1679,10 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
             {
                 EMIT_LEDGER_CLOSE_META_EXT_V1 = readBool(item);
             }
+            else if (item.first == "FORCE_APPLICATION_AGNOSTIC_WEIGHT_FUNCTION")
+            {
+                FORCE_APPLICATION_AGNOSTIC_WEIGHT_FUNCTION = readBool(item);
+            }
             else
             {
                 std::string err("Unknown configuration entry: '");
@@ -1867,6 +1873,7 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
             LOG_INFO(DEFAULT_LOG, "Generated QUORUM_SET: {}", autoQSetStr);
             QUORUM_SET = autoQSet;
             verifyHistoryValidatorsBlocking(validators);
+            setValidatorWeightConfig(validators);
             // count the number of domains
             UnorderedSet<std::string> domains;
             for (auto const& v : validators)
@@ -2486,6 +2493,40 @@ Config::toString(SCPQuorumSet const& qset)
         qset, [&](PublicKey const& k) { return toShortString(k); });
     Json::StyledWriter fw;
     return fw.write(json);
+}
+
+void
+Config::setValidatorWeightConfig(std::vector<ValidatorEntry> const& validators)
+{
+    releaseAssert(!VALIDATOR_WEIGHT_CONFIG.has_value());
+
+    if (!NODE_IS_VALIDATOR)
+    {
+        // There is no reason to populate VALIDATOR_WEIGHT_CONFIG if the node is
+        // not a validator.
+        return;
+    }
+
+    ValidatorWeightConfig& vwc = VALIDATOR_WEIGHT_CONFIG.emplace();
+    for (auto const& v : validators)
+    {
+        if (!vwc.mValidatorEntries.try_emplace(v.mKey, v).second)
+        {
+            throw std::invalid_argument(
+                fmt::format(FMT_STRING("Duplicate validator entry for '{}'"),
+                            KeyUtils::toStrKey(v.mKey)));
+        }
+        ++vwc.mHomeDomainSizes[v.mHomeDomain];
+        vwc.mHighestQuality = std::max(vwc.mHighestQuality, v.mQuality);
+    }
+}
+
+void
+Config::generateQuorumSetForTesting(
+    std::vector<ValidatorEntry> const& validators)
+{
+    QUORUM_SET = generateQuorumSet(validators);
+    setValidatorWeightConfig(validators);
 }
 
 std::string const Config::STDIN_SPECIAL_NAME = "stdin";

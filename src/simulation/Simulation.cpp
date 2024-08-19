@@ -90,8 +90,8 @@ Simulation::setCurrentVirtualTime(VirtualClock::system_time_point t)
 }
 
 Application::pointer
-Simulation::addNode(SecretKey nodeKey, SCPQuorumSet qSet, Config const* cfg2,
-                    bool newDB, uint32_t startAtLedger,
+Simulation::addNode(SecretKey nodeKey, std::optional<SCPQuorumSet> qSet,
+                    Config const* cfg2, bool newDB, uint32_t startAtLedger,
                     std::string const& startAtHash)
 {
     auto cfg = cfg2 ? std::make_shared<Config>(*cfg2)
@@ -102,13 +102,16 @@ Simulation::addNode(SecretKey nodeKey, SCPQuorumSet qSet, Config const* cfg2,
     auto& parallel = cfg->EXPERIMENTAL_BACKGROUND_OVERLAY_PROCESSING;
     parallel = parallel && mVirtualClockMode == VirtualClock::REAL_TIME;
 
-    if (mQuorumSetAdjuster)
+    if (qSet.has_value())
     {
-        cfg->QUORUM_SET = mQuorumSetAdjuster(qSet);
-    }
-    else
-    {
-        cfg->QUORUM_SET = qSet;
+        if (mQuorumSetAdjuster)
+        {
+            cfg->QUORUM_SET = mQuorumSetAdjuster(qSet.value());
+        }
+        else
+        {
+            cfg->QUORUM_SET = qSet.value();
+        }
     }
 
     if (mMode == OVER_TCP)

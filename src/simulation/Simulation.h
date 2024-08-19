@@ -47,9 +47,11 @@ class Simulation
     void setCurrentVirtualTime(VirtualClock::time_point t);
     void setCurrentVirtualTime(VirtualClock::system_time_point t);
 
-    // Add new node to the simulation. This function does not start the node.
-    // Callers are expected to call `start` or `startAllNodes` manually.
-    Application::pointer addNode(SecretKey nodeKey, SCPQuorumSet qSet,
+    // Add new node to the simulation. `cfg.QUORUM_SET` is not modified if
+    // `qSet` is `nullopt`.  This function does not start the node.  Callers are
+    // expected to call `start` or `startAllNodes` manually.
+    Application::pointer addNode(SecretKey nodeKey,
+                                 std::optional<SCPQuorumSet> qSet,
                                  Config const* cfg = nullptr, bool newDB = true,
                                  uint32_t startAtLedger = 0,
                                  std::string const& startAtHash = "");
