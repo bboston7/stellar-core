@@ -2521,6 +2521,7 @@ Config::setValidatorWeightConfig(std::vector<ValidatorEntry> const& validators)
     }
 }
 
+#ifdef BUILD_TESTS
 void
 Config::generateQuorumSetForTesting(
     std::vector<ValidatorEntry> const& validators)
@@ -2528,6 +2529,7 @@ Config::generateQuorumSetForTesting(
     QUORUM_SET = generateQuorumSet(validators);
     setValidatorWeightConfig(validators);
 }
+#endif // BUILD_TESTS
 
 std::string const Config::STDIN_SPECIAL_NAME = "stdin";
 }
