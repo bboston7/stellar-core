@@ -5960,17 +5960,19 @@ class TestNominationProtocol : public NominationProtocol
     }
 
     std::set<NodeID> const&
-    updateRoundLeadersForTesting()
+    updateRoundLeadersForTesting(Value const& prevValue)
     {
+        mPreviousValue = prevValue;
         updateRoundLeaders();
         return getLeaders();
     }
 };
 
-static ValueWrapperPtr getRandomValue()
+static Value
+getRandomValue()
 {
-    return std::make_shared<ValueWrapper>(
-        xdr::xdr_to_opaque(sha256(fmt::format("value {}", gRandomEngine()))));
+    auto h = sha256(fmt::format("value {}", gRandomEngine()));
+    return xdr::xdr_to_opaque(h);
 }
 
 // Spin up a simulation of validators and run for `numLedgers`. After running,
@@ -5998,7 +6000,7 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
     Config cfg = getTestConfig();
     cfg.ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING = true;
     cfg.generateQuorumSetForTesting(validators);
-    cfg.NODE_SEED = sks.at(2);
+    cfg.NODE_SEED = sks.front();
 
     // Create an application
     VirtualClock clock;
@@ -6012,27 +6014,30 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
             UnorderedMap<NodeID, int> publishCounts;
             HerderImpl& herder = dynamic_cast<HerderImpl&>(app->getHerder());
             SCP& scp = herder.getSCP();
-            ValueWrapperPtr prevValue = getRandomValue();
             for (int i = 0; i < numLedgers; ++i)
             {
                 // TODO: Will `i==0` be a problem?
                 auto s = std::make_shared<Slot>(i, scp);
+                TestNominationProtocol np(*s);
 
-                ValueWrapperPtr curValue = getRandomValue();
+                //Value curValue = getRandomValue();
                 // TODO: Need to nominate from *every node* and re-nominate when
                 // nodes all pick themselves (indicating `neighbors` didn't
                 // return anything useful). Should only have to call nominate at
                 // most twice until someone (or someones) are unanimously
                 // picked.
-                s->nominate(curValue, prevValue->getValue(), false);
-                std::set<NodeID> const& leaders = s->getNominationLeaders();
+                // s->nominate(std::make_shared<ValueWrapper>(xValue), xValue,
+                //             false);
+                // std::set<NodeID> const& leaders = s->getNominationLeaders();
+                std::set<NodeID> const& leaders =
+                    np.updateRoundLeadersForTesting(getRandomValue());
                 REQUIRE(leaders.size() == 1);
                 for (NodeID const& leader : leaders)
                 {
                     ++publishCounts[leader];
                 }
 
-                prevValue = curValue;
+                //prevValue = curValue;
             }
 
             // Compute total expected normalized weight across all nodes
@@ -6117,7 +6122,7 @@ TEST_CASE_VERSIONS("Fair nomination win rates", "[herder][!hide]")
         auto [sks, validators] = unbalancedOrgs();
 
         // Takes about 30 minutes
-        testWinProbabilities(sks, validators, 2000);
+        testWinProbabilities(sks, validators, 10000);
     }
 
     SECTION("Random topology")
@@ -6127,7 +6132,10 @@ TEST_CASE_VERSIONS("Fair nomination win rates", "[herder][!hide]")
         // network).  That being said, the results can be too noisy to be useful
         // with a small number of ledgers. 2000 ledgers seems to be a good lower
         // bound for useful results.
-        auto [sks, validators] = randomTopology(20);
-        testWinProbabilities(sks, validators, 2000);
+        for (int i = 0; i < 10; ++i)
+        {
+            auto [sks, validators] = randomTopology(50);
+            testWinProbabilities(sks, validators, 10000);
+        }
     }
 }
