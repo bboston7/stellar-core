@@ -5765,7 +5765,7 @@ unbalancedOrgs()
     return {sks, validators};
 }
 
-// Generate a tier-1 like topology. This topology has 7 HIGH quality orgs, 6 of
+// Generate a tier1-like topology. This topology has 7 HIGH quality orgs, 6 of
 // which have 3 validators and 1 has 5 validators.
 static Topology
 teir1Like()
@@ -5969,7 +5969,7 @@ TEST_CASE_VERSIONS("getNodeWeight", "[herder]")
         testWeights(unbalancedOrgs().second);
     }
 
-    SECTION("Tier 1-like topology")
+    SECTION("Tier1-like topology")
     {
         testWeights(teir1Like().second);
     }
@@ -5984,6 +5984,13 @@ TEST_CASE_VERSIONS("getNodeWeight", "[herder]")
     }
 }
 
+static Value
+getRandomValue()
+{
+    auto h = sha256(fmt::format("value {}", gRandomEngine()));
+    return xdr::xdr_to_opaque(h);
+}
+
 // A test version of NominationProtocol that exposes `updateRoundLeaders`
 class TestNominationProtocol : public NominationProtocol
 {
@@ -5993,20 +6000,13 @@ class TestNominationProtocol : public NominationProtocol
     }
 
     std::set<NodeID> const&
-    updateRoundLeadersForTesting(Value const& prevValue)
+    updateRoundLeadersForTesting()
     {
-        mPreviousValue = prevValue;
+        mPreviousValue = getRandomValue();
         updateRoundLeaders();
         return getLeaders();
     }
 };
-
-static Value
-getRandomValue()
-{
-    auto h = sha256(fmt::format("value {}", gRandomEngine()));
-    return xdr::xdr_to_opaque(h);
-}
 
 // Test nomination over `numLedgers` slots. After running, check that the win
 // percentages of each node and org are within 5% of the expected win
@@ -6048,7 +6048,7 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
                 TestNominationProtocol np(*s);
 
                 std::set<NodeID> const& leaders =
-                    np.updateRoundLeadersForTesting(getRandomValue());
+                    np.updateRoundLeadersForTesting();
                 REQUIRE(leaders.size() == 1);
                 for (NodeID const& leader : leaders)
                 {
