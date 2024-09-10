@@ -156,6 +156,7 @@ NominationProtocol::emitNomination()
 
     for (auto const& v : mVotes)
     {
+        // TODO: WHY does this cause an exception??????
         nom.votes.emplace_back(v->getValue());
     }
     for (auto const& a : mAccepted)

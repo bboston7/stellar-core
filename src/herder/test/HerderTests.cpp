@@ -8,6 +8,7 @@
 #include "main/Application.h"
 #include "main/Config.h"
 #include "scp/SCP.h"
+#include "scp/Slot.h"
 #include "simulation/Simulation.h"
 #include "simulation/Topologies.h"
 #include "test/TestAccount.h"
@@ -5950,6 +5951,28 @@ TEST_CASE_VERSIONS("getNodeWeight", "[herder]")
     }
 }
 
+// TODO: Remove?
+class TestNominationProtocol : public NominationProtocol
+{
+  public:
+    TestNominationProtocol(Slot& slot) : NominationProtocol(slot)
+    {
+    }
+
+    std::set<NodeID> const&
+    updateRoundLeadersForTesting()
+    {
+        updateRoundLeaders();
+        return getLeaders();
+    }
+};
+
+static ValueWrapperPtr getRandomValue()
+{
+    return std::make_shared<ValueWrapper>(
+        xdr::xdr_to_opaque(sha256(fmt::format("value {}", gRandomEngine()))));
+}
+
 // Spin up a simulation of validators and run for `numLedgers`. After running,
 // check that the win percentages of each node and org are within 5% of the
 // expected win percentages. On large runs with higher `numLedgers` counts, this
@@ -5962,6 +5985,7 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
                      std::vector<ValidatorEntry> const& validators,
                      int const numLedgers)
 {
+    // TODO: Might not need sks
     REQUIRE(sks.size() == validators.size());
 
     // Collect info about orgs
@@ -5970,57 +5994,45 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
     std::unordered_map<std::string, int> orgSizes;
     collectOrgInfo(maxQuality, orgQualities, orgSizes, validators);
 
-    // Config generator
-    Simulation::ConfigGen confGen = [&validators](int i) {
-        Config cfg = getTestConfig(i);
-        cfg.ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING = true;
-        cfg.generateQuorumSetForTesting(validators);
-        return cfg;
-    };
+    // Generate a config
+    Config cfg = getTestConfig();
+    cfg.ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING = true;
+    cfg.generateQuorumSetForTesting(validators);
+    cfg.NODE_SEED = sks.at(2);
 
-    // Initialize simulation
-    auto networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
-    auto simulation = std::make_shared<Simulation>(Simulation::OVER_LOOPBACK,
-                                                   networkID, confGen);
+    // Create an application
+    VirtualClock clock;
+    Application::pointer app = createTestApplication(clock, cfg);
 
-    // Add nodes
-    std::vector<Application::pointer> nodes;
-    for (SecretKey const& sk : sks)
-    {
-        nodes.push_back(simulation->addNode(sk, std::nullopt));
-    }
-
-    // Connect everything together
-    for (int i = 0; i < sks.size(); ++i)
-    {
-        for (int j = i + 1; j < sks.size(); ++j)
-        {
-            simulation->addPendingConnection(sks.at(i).getPublicKey(),
-                                             sks.at(j).getPublicKey());
-        }
-    }
-
-    Application& app = *nodes.front();
     for_versions_from(
-        static_cast<uint32>(APPLICATION_SPECIFIC_WEIGHT_PROTOCOL_VERSION), app,
+        static_cast<uint32>(APPLICATION_SPECIFIC_WEIGHT_PROTOCOL_VERSION), *app,
         [&]() {
-            simulation->startAllNodes();
-
             // Run for `numLedgers` ledgers, recording the number of times each
             // node publishes the winning ledger
             UnorderedMap<NodeID, int> publishCounts;
-            for (int i = 2; i < numLedgers + 2; ++i)
+            HerderImpl& herder = dynamic_cast<HerderImpl&>(app->getHerder());
+            SCP& scp = herder.getSCP();
+            ValueWrapperPtr prevValue = getRandomValue();
+            for (int i = 0; i < numLedgers; ++i)
             {
-                simulation->crankUntil(
-                    [&]() {
-                        return app.getLedgerManager()
-                                   .getLastClosedLedgerNum() == i;
-                    },
-                    2 * Herder::EXP_LEDGER_TIMESPAN_SECONDS, false);
-                StellarValue const& sv = app.getLedgerManager()
-                                             .getLastClosedLedgerHeader()
-                                             .header.scpValue;
-                ++publishCounts[sv.ext.lcValueSignature().nodeID];
+                // TODO: Will `i==0` be a problem?
+                auto s = std::make_shared<Slot>(i, scp);
+
+                ValueWrapperPtr curValue = getRandomValue();
+                // TODO: Need to nominate from *every node* and re-nominate when
+                // nodes all pick themselves (indicating `neighbors` didn't
+                // return anything useful). Should only have to call nominate at
+                // most twice until someone (or someones) are unanimously
+                // picked.
+                s->nominate(curValue, prevValue->getValue(), false);
+                std::set<NodeID> const& leaders = s->getNominationLeaders();
+                REQUIRE(leaders.size() == 1);
+                for (NodeID const& leader : leaders)
+                {
+                    ++publishCounts[leader];
+                }
+
+                prevValue = curValue;
             }
 
             // Compute total expected normalized weight across all nodes
@@ -6042,8 +6054,7 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
                 // Compute and report node's win rate
                 double winRate = static_cast<double>(publishCount) / numLedgers;
                 CLOG_INFO(Herder, "Node {} win rate: {} (published {} ledgers)",
-                          app.getConfig().toShortString(nodeID), winRate,
-                          publishCount);
+                          cfg.toShortString(nodeID), winRate, publishCount);
 
                 // Expected win rate is `weight / total weight`
                 double expectedWinRate =
