@@ -156,8 +156,6 @@ NominationProtocol::emitNomination()
 
     for (auto const& v : mVotes)
     {
-        // TODO: WHY does this cause an exception??????
-        CLOG_ERROR(Herder, "v size: {}", v->getValue().size());
         nom.votes.emplace_back(v->getValue());
     }
     for (auto const& a : mAccepted)
@@ -539,8 +537,7 @@ NominationProtocol::nominate(ValueWrapperPtr value, Value const& previousValue,
         return false;
     }
 
-    // TODO: Revert log level
-    CLOG_ERROR(SCP, "NominationProtocol::nominate ({}) {}", mRoundNumber,
+    CLOG_DEBUG(SCP, "NominationProtocol::nominate ({}) {}", mRoundNumber,
                mSlot.getSCP().getValueString(value->getValue()));
 
     bool updated = false;

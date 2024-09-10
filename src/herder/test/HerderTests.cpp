@@ -5765,6 +5765,34 @@ unbalancedOrgs()
     return {sks, validators};
 }
 
+// Generate a tier-1 like topology. This topology has 7 HIGH quality orgs, 6 of
+// which have 3 validators and 1 has 5 validators.
+static Topology
+teir1Like()
+{
+    std::vector<SecretKey> sks;
+    std::vector<ValidatorEntry> validators;
+    int constexpr numOrgs = 7;
+
+    for (int i = 0; i < numOrgs; ++i)
+    {
+        std::string const org = fmt::format("org-{}", i);
+        int const numValidators = i == 0 ? 5 : 3;
+        for (int j = 0; j < numValidators; ++j)
+        {
+            SecretKey const& key = sks.emplace_back(SecretKey::random());
+            ValidatorEntry& entry = validators.emplace_back();
+            entry.mName = fmt::format("validator-{}-{}", i, j);
+            entry.mHomeDomain = org;
+            entry.mQuality = ValidatorQuality::VALIDATOR_HIGH_QUALITY;
+            entry.mKey = key.getPublicKey();
+            entry.mHasHistory = false;
+        }
+    }
+
+    return {sks, validators};
+}
+
 // Returns a random quality up to `maxQuality`
 static ValidatorQuality
 randomQuality(ValidatorQuality maxQuality)
@@ -5941,6 +5969,11 @@ TEST_CASE_VERSIONS("getNodeWeight", "[herder]")
         testWeights(unbalancedOrgs().second);
     }
 
+    SECTION("Tier 1-like topology")
+    {
+        testWeights(teir1Like().second);
+    }
+
     SECTION("Random topology")
     {
         // Test weights for 1000 random topologies of up to 200 validators
@@ -5975,6 +6008,7 @@ getRandomValue()
     return xdr::xdr_to_opaque(h);
 }
 
+// TODO: Update comments about runtime
 // Spin up a simulation of validators and run for `numLedgers`. After running,
 // check that the win percentages of each node and org are within 5% of the
 // expected win percentages. On large runs with higher `numLedgers` counts, this
@@ -6098,6 +6132,7 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
         });
 }
 
+// TODO: Update comments about runtime
 // Test that the nomination algorithm produces a fair distribution of ledger
 // publishers. This test is disabled by default because it can take a long time
 // to run (see comment on `testWinProbabilities`). Depending on the random
@@ -6109,7 +6144,7 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
 // to ensure that win rates are within an acceptable margin as 5% is a fairly
 // arbitrary cutoff chosen due to the modest number of ledgers this test
 // simulates (2000 for all but the simple 3 node test).
-TEST_CASE_VERSIONS("Fair nomination win rates", "[herder][!hide]")
+TEST_CASE_VERSIONS("Fair nomination win rates", "[herder]")
 {
     SECTION("3 tier 1 validators, 1 org")
     {
@@ -6122,6 +6157,12 @@ TEST_CASE_VERSIONS("Fair nomination win rates", "[herder][!hide]")
         auto [sks, validators] = unbalancedOrgs();
 
         // Takes about 30 minutes
+        testWinProbabilities(sks, validators, 10000);
+    }
+
+    SECTION("Tier 1-like topology")
+    {
+        auto [sks, validators] = teir1Like();
         testWinProbabilities(sks, validators, 10000);
     }
 
