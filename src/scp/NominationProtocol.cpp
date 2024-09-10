@@ -254,12 +254,7 @@ NominationProtocol::updateRoundLeaders()
             }
             return true;
         });
-        // TODO: Protocol-gate. This will probably increase timeouts overall if
-        // only some nodes perform this check because nodes will get out-of-sync
-        // on round numbers and could disagree on leaders as a result.
-        // TODO: Actually, I dont think protocol gating is necessary here. This
-        // scenario just isn't possible in the old algorithm due to the local
-        // node having nonzero priority in every round.
+
         if (topPriority == 0)
         {
             // No one had priority, so all nodes would choose themselves
@@ -267,6 +262,7 @@ NominationProtocol::updateRoundLeaders()
             // algorithm to fast timeout and try again.
             newRoundLeaders.clear();
         }
+
         // expand mRoundLeaders with the newly computed leaders
         auto oldSize = mRoundLeaders.size();
         mRoundLeaders.insert(newRoundLeaders.begin(), newRoundLeaders.end());

@@ -5984,7 +5984,7 @@ TEST_CASE_VERSIONS("getNodeWeight", "[herder]")
     }
 }
 
-// TODO: Remove?
+// A test version of NominationProtocol that exposes `updateRoundLeaders`
 class TestNominationProtocol : public NominationProtocol
 {
   public:
@@ -6008,20 +6008,14 @@ getRandomValue()
     return xdr::xdr_to_opaque(h);
 }
 
-// TODO: Update comments about runtime
-// Spin up a simulation of validators and run for `numLedgers`. After running,
-// check that the win percentages of each node and org are within 5% of the
-// expected win percentages. On large runs with higher `numLedgers` counts, this
-// can be quite slow. It's a more thorough test of the fairness of the
-// nomination algorithm than the `getNodeWeight` test, but at the expense of not
-// being capable of testing as many configurations due to the time it takes to
-// run.
+// Test nomination over `numLedgers` slots. After running, check that the win
+// percentages of each node and org are within 5% of the expected win
+// percentages.
 static void
 testWinProbabilities(std::vector<SecretKey> const& sks,
                      std::vector<ValidatorEntry> const& validators,
                      int const numLedgers)
 {
-    // TODO: Might not need sks
     REQUIRE(sks.size() == validators.size());
 
     // Collect info about orgs
@@ -6043,26 +6037,16 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
     for_versions_from(
         static_cast<uint32>(APPLICATION_SPECIFIC_WEIGHT_PROTOCOL_VERSION), *app,
         [&]() {
-            // Run for `numLedgers` ledgers, recording the number of times each
-            // node publishes the winning ledger
+            // Run for `numLedgers` slots, recording the number of times each
+            // node wins nomination
             UnorderedMap<NodeID, int> publishCounts;
             HerderImpl& herder = dynamic_cast<HerderImpl&>(app->getHerder());
             SCP& scp = herder.getSCP();
             for (int i = 0; i < numLedgers; ++i)
             {
-                // TODO: Will `i==0` be a problem?
                 auto s = std::make_shared<Slot>(i, scp);
                 TestNominationProtocol np(*s);
 
-                //Value curValue = getRandomValue();
-                // TODO: Need to nominate from *every node* and re-nominate when
-                // nodes all pick themselves (indicating `neighbors` didn't
-                // return anything useful). Should only have to call nominate at
-                // most twice until someone (or someones) are unanimously
-                // picked.
-                // s->nominate(std::make_shared<ValueWrapper>(xValue), xValue,
-                //             false);
-                // std::set<NodeID> const& leaders = s->getNominationLeaders();
                 std::set<NodeID> const& leaders =
                     np.updateRoundLeadersForTesting(getRandomValue());
                 REQUIRE(leaders.size() == 1);
@@ -6070,8 +6054,6 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
                 {
                     ++publishCounts[leader];
                 }
-
-                //prevValue = curValue;
             }
 
             // Compute total expected normalized weight across all nodes
@@ -6132,18 +6114,8 @@ testWinProbabilities(std::vector<SecretKey> const& sks,
         });
 }
 
-// TODO: Update comments about runtime
 // Test that the nomination algorithm produces a fair distribution of ledger
-// publishers. This test is disabled by default because it can take a long time
-// to run (see comment on `testWinProbabilities`). Depending on the random
-// topology generated, this test may take upwards of 2 hours to complete.
-//
-// In addition to checking that nomination percentages are within 5% of the
-// expected win rates, this test also outputs the win rates of each node and org
-// to the log. You should manually check those results even when the test passes
-// to ensure that win rates are within an acceptable margin as 5% is a fairly
-// arbitrary cutoff chosen due to the modest number of ledgers this test
-// simulates (2000 for all but the simple 3 node test).
+// publishers.
 TEST_CASE_VERSIONS("Fair nomination win rates", "[herder]")
 {
     SECTION("3 tier 1 validators, 1 org")
@@ -6155,8 +6127,6 @@ TEST_CASE_VERSIONS("Fair nomination win rates", "[herder]")
     SECTION("11 tier 1 validators, 3 unbalanced orgs")
     {
         auto [sks, validators] = unbalancedOrgs();
-
-        // Takes about 30 minutes
         testWinProbabilities(sks, validators, 10000);
     }
 
@@ -6168,11 +6138,6 @@ TEST_CASE_VERSIONS("Fair nomination win rates", "[herder]")
 
     SECTION("Random topology")
     {
-        // Depending on the number of validators this can take a long time
-        // (upwards of an hour and a half if `randomTopology` returns a 20 node
-        // network).  That being said, the results can be too noisy to be useful
-        // with a small number of ledgers. 2000 ledgers seems to be a good lower
-        // bound for useful results.
         for (int i = 0; i < 10; ++i)
         {
             auto [sks, validators] = randomTopology(50);
