@@ -70,9 +70,9 @@ The algorithm is as follows:
 * If an organization of quality level $q$ has $n$ nodes, then the weight of each node is $\frac{w_q}{n}$.
 * $w_\top$ is `UINT64_MAX`, where $\top$ is the highest quality value assigned to any organization.
   * $\top$ is likely `HIGH`, but may be `CRITICAL` if `CRITICAL` orgs are present
-* $w_\texttt{LOW}$ is $0$.
-  *This allows low quality validators to participate in SCP without being trusted enough to be a round leader.
-* For all other $q$ values, $w_q = \frac{w_p}{10 \times \left|O_p\right|}$ where $p$ is the next quality value above $q$.
+* $w_\texttt{LOW} = 0$.
+  * This allows low quality validators to participate in SCP without being trusted enough to be a round leader.
+* For all other $q$ values, $w_q = \frac{w_p}{10 \times \left| O_p \right|}$ where $p$ is the next quality value above $q$.
   * The additional constant in the denominator is to handle case in which there is a single node of quality $q$. This node would have a weight equal to an entire org of quality $p$ if the constant didn’t exist.
 
 
