@@ -72,7 +72,7 @@ The algorithm is as follows:
   * $\top$ is likely `HIGH`, but may be `CRITICAL` if `CRITICAL` orgs are present
 * $w_\texttt{LOW} = 0$.
   * This allows low quality validators to participate in SCP without being trusted enough to be a round leader.
-* For all other $q$ values, $w_q = \frac{w_p}{10 \times \left| \; O_p \; \right|}$ where $p$ is the next quality value above $q$.
+* For all other $q$ values, $w_q = \frac{w_p}{10 \times \left|\  O_p\ \right|}$ where $p$ is the next quality value above $q$.
   * The additional constant in the denominator is to handle case in which there is a single node of quality $q$. This node would have a weight equal to an entire org of quality $p$ if the constant didn’t exist.
 
 
