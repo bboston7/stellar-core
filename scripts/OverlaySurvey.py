@@ -553,12 +553,29 @@ def run_survey(args):
         write_graph_stats(graph, args.graphStats)
 
 
+# TODO: Docs
+def has_extended_peer_data(graph):
+    _, _, edge = list(graph.edges(data=True))[0]
+    return 'averageLatencyMs' in edge
+
+def to_extended_peer(peer):
+    id, data = peer
+    return {"id": str(id), "averageLatencyMs": data["averageLatencyMs"]}
+
 def flatten(args):
     output_graph = []
     graph = nx.read_graphml(args.graphmlInput).to_undirected()
+    generate_extended_data = has_extended_peer_data(graph)
     for node, attr in graph.nodes(data=True):
-        new_attr = {"publicKey": node, "peers": list(
-            map(str, graph.adj[node]))}
+        new_attr = {"publicKey": node}
+        if generate_extended_data:
+            # Graph contains additional peer data from v2 survey
+            new_attr["peersExtended"] = list(map(to_extended_peer,
+                                                 graph.adj[node].items()))
+        else:
+            # TODO: Test this still works
+            # Graph contains only v1/v0 peer data
+            new_attr["peers"] = list(map(str, graph.adj[node]))
         for key in attr:
             try:
                 new_attr[key] = json.loads(attr[key])
