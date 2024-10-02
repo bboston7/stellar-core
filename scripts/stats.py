@@ -47,6 +47,8 @@ CSV_FIELD_NAMES = [ "group"
                   , "max_dist_tier1"
                   , "avg_out_edges"
                   , "avg_in_edges"
+                  , "min_edges"
+                  , "max_edges"
                   , "avg_duration"
                   , "avg_conn_tier1"
                   , "num_conn_tier1"
@@ -63,6 +65,8 @@ LONG_FIELD_NAMES = { "group" : "Group"
                    , "max_dist_tier1" : "Maximum distance from tier 1"
                    , "avg_out_edges" : "Average out edges"
                    , "avg_in_edges" : "Average in edges"
+                   , "min_edges" : "Minimum number of edges"
+                   , "max_edges" : "Maximum number of edges"
                    , "avg_duration" : "Average number of seconds connected"
                    , "avg_conn_tier1" : "Average number of connections to "
                                         "tier1"
@@ -139,11 +143,19 @@ def distance_from(sources, dests):
 def avg_edges(nodes):
     out_edges = 0
     in_edges = 0
+    min_edges = float("inf")
+    max_edges = 0
     for node in nodes:
         out_edges += len(GRAPH.out_edges(node))
         in_edges += len(GRAPH.in_edges(node))
+        total_edges = len(GRAPH.out_edges(node)) + len(GRAPH.in_edges(node))
+        min_edges = min(min_edges, total_edges)
+        max_edges = max(max_edges, total_edges)
     return { "avg_out_edges" : out_edges / len(nodes)
-           , "avg_in_edges" : in_edges / len(nodes) }
+           , "avg_in_edges" : in_edges / len(nodes)
+           , "min_edges" : min_edges
+           , "max_edges" : max_edges
+           }
 
 def avg_connections_to_tier1(nodes):
     total = 0
@@ -219,6 +231,8 @@ if __name__ == "__main__":
     responding_non_tier1 = [node for node in response if
                             node not in TIER1.values()]
 
+    all_tier1 = [node for node in GRAPH.nodes if node in TIER1.values()]
+
     num_responded = total_responded()
     print(f"Nodes that responded: {len(response)}")
     print("Percentage of nodes that responded: "
@@ -229,6 +243,9 @@ if __name__ == "__main__":
         csv_writer.writeheader()
 
         print_and_write_stats( get_stats(GRAPH.nodes, "All nodes")
+                             , csv_writer )
+
+        print_and_write_stats( get_stats(all_tier1, "All tier 1 nodes")
                              , csv_writer )
 
         print_and_write_stats( get_stats(response, "Responding nodes")
