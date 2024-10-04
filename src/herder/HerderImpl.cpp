@@ -606,21 +606,61 @@ HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
         result.code =
             TransactionQueue::AddResultCode::ADD_STATUS_TRY_AGAIN_LATER;
     }
-    else if (!tx->isSoroban())
-    {
-        result = mTransactionQueue.tryAdd(tx, submittedFromSelf);
-    }
-    else if (mSorobanTransactionQueue)
-    {
-        result = mSorobanTransactionQueue->tryAdd(tx, submittedFromSelf);
-    }
     else
     {
-        // Received Soroban transaction before protocol 20; since this
-        // transaction isn't supported yet, return ERROR
-        result = TransactionQueue::AddResult(
-            TransactionQueue::AddResultCode::ADD_STATUS_ERROR, tx,
-            txNOT_SUPPORTED);
+        MutableTxResultPtr prevalidatedTxResult = nullptr;
+        // TODO: Check background overlay flag here
+        if (true)
+        {
+            // TODO: background this conditional and take the rest of this
+            // function as a callback to run on the main thread.
+            LedgerSnapshot ls(mApp);
+
+            // TODO: Dedup this conditional/assignment with the one in
+            // TransactionQueue
+            uint32_t ledgerVersion =
+                ls.getLedgerHeader().current().ledgerVersion;
+            auto closeTime = mApp.getLedgerManager()
+                                 .getLastClosedLedgerHeader()
+                                 .header.scpValue.closeTime;
+            if (protocolVersionStartsFrom(ledgerVersion, ProtocolVersion::V_19))
+            {
+                // This is done so minSeqLedgerGap is validated against the next
+                // ledgerSeq, which is what will be used at apply time
+                ls.getLedgerHeader().currentToModify().ledgerSeq =
+                    mApp.getLedgerManager().getLastClosedLedgerNum() + 1;
+            }
+
+            // TODO: Can probably dedup this part too
+            prevalidatedTxResult = tx->checkValid(
+                mApp, ls, 0, 0, getUpperBoundCloseTimeOffset(mApp, closeTime));
+            if (!prevalidatedTxResult->isSuccess())
+            {
+                return TransactionQueue::AddResult(
+                    TransactionQueue::AddResultCode::ADD_STATUS_ERROR,
+                    prevalidatedTxResult);
+            }
+        }
+        if (!tx->isSoroban())
+        {
+            result = mTransactionQueue.tryAdd(tx, submittedFromSelf,
+                                              prevalidatedTxResult);
+        }
+        else if (mSorobanTransactionQueue)
+        {
+            result = mSorobanTransactionQueue->tryAdd(tx, submittedFromSelf,
+                                                      prevalidatedTxResult);
+        }
+        else
+        {
+            // TODO: Check this branch before validating tx?
+
+            // Received Soroban transaction before protocol 20; since this
+            // transaction isn't supported yet, return ERROR
+            result = TransactionQueue::AddResult(
+                TransactionQueue::AddResultCode::ADD_STATUS_ERROR, tx,
+                txNOT_SUPPORTED);
+        }
     }
 
     if (result.code == TransactionQueue::AddResultCode::ADD_STATUS_PENDING)

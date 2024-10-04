@@ -326,7 +326,8 @@ validateSorobanMemo(TransactionFrameBasePtr tx)
 TransactionQueue::AddResult
 TransactionQueue::canAdd(
     TransactionFrameBasePtr tx, AccountStates::iterator& stateIter,
-    std::vector<std::pair<TransactionFrameBasePtr, bool>>& txsToEvict)
+    std::vector<std::pair<TransactionFrameBasePtr, bool>>& txsToEvict,
+    MutableTxResultPtr prevalidatedTxResult)
 {
     ZoneScoped;
     if (isBanned(tx->getFullHash()))
@@ -446,6 +447,7 @@ TransactionQueue::canAdd(
             TransactionQueue::AddResultCode::ADD_STATUS_TRY_AGAIN_LATER);
     }
 
+    // TODO: Dedup this bit with the one in HerderImpl
     auto closeTime = mApp.getLedgerManager()
                          .getLastClosedLedgerHeader()
                          .header.scpValue.closeTime;
@@ -457,13 +459,24 @@ TransactionQueue::canAdd(
             mApp.getLedgerManager().getLastClosedLedgerNum() + 1;
     }
 
-    auto txResult = tx->checkValid(
-        mApp, ls, 0, 0, getUpperBoundCloseTimeOffset(mApp, closeTime));
-    if (!txResult->isSuccess())
+    // TODO: Need to pull this outside of this function
+    MutableTxResultPtr txResult = nullptr;
+    if (prevalidatedTxResult)
     {
-        return AddResult(TransactionQueue::AddResultCode::ADD_STATUS_ERROR,
-                         txResult);
+        releaseAssert(prevalidatedTxResult->isSuccess());
+        txResult = prevalidatedTxResult;
     }
+    else
+    {
+        txResult = tx->checkValid(
+            mApp, ls, 0, 0, getUpperBoundCloseTimeOffset(mApp, closeTime));
+        if (!txResult->isSuccess())
+        {
+            return AddResult(TransactionQueue::AddResultCode::ADD_STATUS_ERROR,
+                             txResult);
+        }
+    }
+    releaseAssert(txResult != nullptr); // TODO: Remove?
 
     // Note: stateIter corresponds to getSourceID() which is not necessarily
     // the same as getFeeSourceID()
@@ -638,7 +651,8 @@ TransactionQueue::findAllAssetPairsInvolvedInPaymentLoops(
 }
 
 TransactionQueue::AddResult
-TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
+TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf,
+                         MutableTxResultPtr prevalidatedTxResult)
 {
     ZoneScoped;
 
@@ -648,6 +662,9 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
         tx->getEnvelope().feeBump().tx.innerTx.v1().tx.ext.v() == 1;
     auto c2 = tx->getEnvelope().type() == ENVELOPE_TYPE_TX &&
               tx->getEnvelope().v1().tx.ext.v() == 1;
+    // TODO: Is it a problem that backgrounding skips these basic structure
+    // checks before validation? Can those validation checks throw or something
+    // if the tx is malformed?
     // Check basic structure validity _before_ any fee-related computation
     // fast fail when Soroban tx is malformed
     if ((tx->isSoroban() != (c1 || c2)) || !tx->XDRProvidesValidFee())
@@ -659,7 +676,7 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
     AccountStates::iterator stateIter;
 
     std::vector<std::pair<TransactionFrameBasePtr, bool>> txsToEvict;
-    auto const res = canAdd(tx, stateIter, txsToEvict);
+    auto const res = canAdd(tx, stateIter, txsToEvict, prevalidatedTxResult);
     if (res.code != TransactionQueue::AddResultCode::ADD_STATUS_PENDING)
     {
         return res;

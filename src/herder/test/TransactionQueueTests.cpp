@@ -34,6 +34,8 @@
 using namespace stellar;
 using namespace stellar::txtest;
 
+// TODO: Add tests with pre-validated transactions
+
 namespace
 {
 TransactionTestFramePtr
@@ -102,7 +104,7 @@ class TransactionQueueTest
     add(TransactionFrameBasePtr const& tx,
         TransactionQueue::AddResultCode expected)
     {
-        auto res = mTransactionQueue.tryAdd(tx, false);
+        auto res = mTransactionQueue.tryAdd(tx, false, nullptr);
         REQUIRE(res.code == expected);
         return res;
     }
@@ -2131,7 +2133,8 @@ TEST_CASE("transaction queue starting sequence boundary",
         REQUIRE(acc1.loadSequenceNumber() == startingSeq - 1);
 
         ClassicTransactionQueue tq(*app, 4, 10, 4);
-        REQUIRE(tq.tryAdd(transaction(*app, acc1, 1, 1, 100), false).code ==
+        REQUIRE(tq.tryAdd(transaction(*app, acc1, 1, 1, 100), false, nullptr)
+                    .code ==
                 TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
 
         auto checkTxSet = [&](uint32_t ledgerSeq) {
