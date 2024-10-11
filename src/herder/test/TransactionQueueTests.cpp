@@ -1341,6 +1341,13 @@ TEST_CASE("Soroban TransactionQueue limits",
         REQUIRE(addResult.code ==
                 TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
         REQUIRE(addResult.txResult);
+        // TODO: This fails because validation fails first now, which changes
+        // the error code. This *test* will fix itself when I add the check for
+        // background processing, but some part of this issue remains: You get
+        // different error codes depending on whether background processing is
+        // enabled. Is that OK? The only way around it is to pull all of the
+        // other checks into the background too, but that might be a huge
+        // undertaking with all of the various components those checks touch.
         REQUIRE(addResult.txResult->getResultCode() == txMALFORMED);
     }
     SECTION("source account limit, soroban and classic tx queue")

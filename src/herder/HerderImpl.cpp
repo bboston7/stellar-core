@@ -632,6 +632,7 @@ HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
             }
 
             // TODO: Can probably dedup this part too
+            // TODO: This shouldn't take a full app, as they aren't thread safe.
             prevalidatedTxResult = tx->checkValid(
                 mApp, ls, 0, 0, getUpperBoundCloseTimeOffset(mApp, closeTime));
             if (!prevalidatedTxResult->isSuccess())
