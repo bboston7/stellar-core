@@ -150,6 +150,13 @@ Floodgate::broadcast(std::shared_ptr<StellarMessage const> msg,
                 // This is an async operation, and peer might get dropped by the
                 // time we actually try to send the message. This is fine, as
                 // sendMessage will just be a no-op in that case
+
+                // TODO: Is this the right code path for background overlay
+                // still? Might need to add additional annotations inside
+                // sendMessage
+                std::string name = fmt::format(
+                    FMT_STRING("broadcast-{}"),
+                    xdr::xdr_traits<MessageType>::enum_name(msg->type()));
                 mApp.postOnMainThread(
                     [msg, weak, log = !broadcasted]() {
                         auto strong = weak.lock();

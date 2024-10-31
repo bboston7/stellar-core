@@ -1546,8 +1546,10 @@ ApplicationImpl::postOnMainThread(std::function<void()>&& f, std::string&& name,
     LogSlowExecution isSlow{name, LogSlowExecution::Mode::MANUAL,
                             "executed after"};
     mVirtualClock.postAction(
-        [this, f = std::move(f), isSlow]() {
+        [this, f = std::move(f), isSlow, name]() {
             mPostOnMainThreadDelay.Update(isSlow.checkElapsedTime());
+            mMetrics->NewTimer({"app", "post-on-main-thread", name + "-delay"})
+                .Update(isSlow.checkElapsedTime());
             auto sleepFor =
                 this->getConfig().ARTIFICIALLY_SLEEP_MAIN_THREAD_FOR_TESTING;
             if (sleepFor > std::chrono::microseconds::zero())
