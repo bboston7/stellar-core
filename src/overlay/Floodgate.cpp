@@ -151,22 +151,23 @@ Floodgate::broadcast(std::shared_ptr<StellarMessage const> msg,
                 // time we actually try to send the message. This is fine, as
                 // sendMessage will just be a no-op in that case
 
-                // TODO: Is this the right code path for background overlay
-                // still? Might need to add additional annotations inside
-                // sendMessage
-                std::string name = fmt::format(
-                    FMT_STRING("broadcast-{}"),
-                    xdr::xdr_traits<MessageType>::enum_name(msg->type()));
                 mApp.postOnMainThread(
                     [msg, weak, log = !broadcasted]() {
                         auto strong = weak.lock();
                         if (strong)
                         {
+                            // TODO: I don't think this is quite right (see
+                            // above TODO). This just adds the message to a
+                            // different queue to be sent later, but in this
+                            // case it'll be marked as "broadcast". I need an
+                            // additional metric to track the actual sending of
+                            // the message over the wire.
                             strong->sendMessage(msg, log);
                         }
                     },
-                    fmt::format(FMT_STRING("broadcast to {}"),
-                                peer.second->toString()));
+                    fmt::format(
+                        FMT_STRING("enqueued-{}"),
+                        xdr::xdr_traits<MessageType>::enum_name(msg->type())));
             }
             broadcasted = true;
         }
