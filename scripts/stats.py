@@ -128,17 +128,23 @@ def distance_from(sources, dests):
     and dests"""
     total_dist = 0
     max_dist = 0
+    count = 0
     # Horribly inefficient. For each destination, compute the minimum distance
     # from it to any node in the sources list. Then, return the average of these
     # distances
     for dest in dests:
         min_dist = float("inf")
         for source in sources:
+            if source == dest:
+                # Don't count the distance from a node to itself
+                continue
             dist = nx.shortest_path_length(UNDIRECTED, source, dest)
             min_dist = min(min_dist, dist)
             max_dist = max(max_dist, dist)
-        total_dist += min_dist
-    return (total_dist / len(dests), max_dist)
+        if min_dist != float("inf"):
+            count += 1
+            total_dist += min_dist
+    return (total_dist / count, max_dist)
 
 def avg_edges(nodes):
     out_edges = 0
