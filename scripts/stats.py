@@ -214,6 +214,7 @@ def tier1_connectivity():
     total_distance = 0
     max_distance = 0
     total_pairs = 0
+    hop_counts = defaultdict(int)
     t1s = list(TIER1.values())
     for i in range(0, len(t1s)):
         for j in range(i+1, len(t1s)):
@@ -221,7 +222,9 @@ def tier1_connectivity():
             path_len = nx.shortest_path_length(UNDIRECTED, t1s[i], t1s[j])
             total_distance += path_len
             max_distance = max(max_distance, path_len)
+            hop_counts[path_len] += 1
 
+    print(f"Hop counts between tier 1 nodes: {hop_counts}")
     print(f"Average distance between tier 1 nodes: {total_distance / total_pairs}")
     print(f"Max distance between tier 1 nodes: {max_distance}")
 
