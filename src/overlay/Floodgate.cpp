@@ -150,18 +150,14 @@ Floodgate::broadcast(std::shared_ptr<StellarMessage const> msg,
                 // This is an async operation, and peer might get dropped by the
                 // time we actually try to send the message. This is fine, as
                 // sendMessage will just be a no-op in that case
-
                 mApp.postOnMainThread(
                     [msg, weak, log = !broadcasted]() {
                         auto strong = weak.lock();
                         if (strong)
                         {
-                            // TODO: I don't think this is quite right (see
-                            // above TODO). This just adds the message to a
-                            // different queue to be sent later, but in this
-                            // case it'll be marked as "broadcast". I need an
-                            // additional metric to track the actual sending of
-                            // the message over the wire.
+                            // NOTE: This adds the message to a different queue
+                            // to be sent later. It does not send the message
+                            // immediately.
                             strong->sendMessage(msg, log);
                         }
                     },
