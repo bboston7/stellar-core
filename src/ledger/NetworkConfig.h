@@ -342,6 +342,10 @@ class SorobanNetworkConfig
     // Parallel execution settings
     uint32_t ledgerMaxDependentTxClusters() const;
 
+    // TODO: This was added while I was working on my changes. I think I added a
+    // static function that does basically exactly this
+    // (LedgerManager::maxSorobanLedgerResources). I should use this instead if
+    // possible. Same goes with LedgerManager::maxClassicLedgerResources.
     Resource maxLedgerResources() const;
 
 #ifdef BUILD_TESTS
