@@ -466,6 +466,12 @@ class Config : public std::enable_shared_from_this<Config>
     // Enable parallel processing of overlay operations (experimental)
     bool BACKGROUND_OVERLAY_PROCESSING;
 
+    // TODO: Docs, both here and in the example cfg
+    // TODO: Rename based off of what the feature actually ends up doing
+    // TODO: Require BACKGROUND_OVERLAY_PROCESSING to be set to true if this is
+    // enabled?
+    bool BACKGROUND_TX_FLOODING;
+
     // When set to true, BucketListDB indexes are persisted on-disk so that the
     // BucketList does not need to be reindexed on startup. Defaults to true.
     // This should only be set to false for testing purposes

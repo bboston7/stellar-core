@@ -14,33 +14,33 @@ namespace stellar
 {
 
 AppConnector::AppConnector(Application& app)
-    : mApp(app), mConfig(app.getConfig())
+    : mApp(app), mConfig(std::make_shared<const Config>(app.getConfig()))
 {
 }
 
 Herder&
-AppConnector::getHerder()
+AppConnector::getHerder() const
 {
     releaseAssert(threadIsMain());
     return mApp.getHerder();
 }
 
 LedgerManager&
-AppConnector::getLedgerManager()
+AppConnector::getLedgerManager() const
 {
     releaseAssert(threadIsMain());
     return mApp.getLedgerManager();
 }
 
 OverlayManager&
-AppConnector::getOverlayManager()
+AppConnector::getOverlayManager() const
 {
     releaseAssert(threadIsMain());
     return mApp.getOverlayManager();
 }
 
 BanManager&
-AppConnector::getBanManager()
+AppConnector::getBanManager() const
 {
     releaseAssert(threadIsMain());
     return mApp.getBanManager();
@@ -51,6 +51,17 @@ AppConnector::getSorobanNetworkConfigReadOnly() const
 {
     releaseAssert(threadIsMain());
     return mApp.getLedgerManager().getSorobanNetworkConfigReadOnly();
+}
+
+std::optional<SorobanNetworkConfig>
+AppConnector::maybeGetSorobanNetworkConfig() const
+{
+    releaseAssert(threadIsMain());
+    if (mApp.getLedgerManager().hasSorobanNetworkConfig())
+    {
+        return mApp.getLedgerManager().getSorobanNetworkConfig();
+    }
+    return std::nullopt;
 }
 
 medida::MetricsRegistry&
@@ -101,6 +112,12 @@ AppConnector::postOnOverlayThread(std::function<void()>&& f,
 Config const&
 AppConnector::getConfig() const
 {
+    return *mConfig;
+}
+
+std::shared_ptr<Config const>
+AppConnector::getConfigPtr() const
+{
     return mConfig;
 }
 
@@ -114,6 +131,12 @@ VirtualClock::time_point
 AppConnector::now() const
 {
     return mApp.getClock().now();
+}
+
+VirtualClock::system_time_point
+AppConnector::system_now() const
+{
+    return mApp.getClock().system_now();
 }
 
 bool

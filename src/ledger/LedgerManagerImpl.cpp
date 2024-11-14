@@ -122,6 +122,44 @@ LedgerManager::ledgerAbbrev(LedgerHeaderHistoryEntry const& he)
     return ledgerAbbrev(he.header, he.hash);
 }
 
+Resource
+LedgerManager::maxSorobanLedgerResources(SorobanNetworkConfig const& conf)
+{
+    ZoneScoped std::vector<int64_t> limits = {
+        conf.ledgerMaxTxCount(),
+        conf.ledgerMaxInstructions(),
+        conf.ledgerMaxTransactionSizesBytes(),
+        conf.ledgerMaxReadBytes(),
+        conf.ledgerMaxWriteBytes(),
+        conf.ledgerMaxReadLedgerEntries(),
+        conf.ledgerMaxWriteLedgerEntries()};
+    return Resource(limits);
+}
+
+Resource
+LedgerManager::maxSorobanTransactionResources(SorobanNetworkConfig const& conf)
+{
+    ZoneScoped int64_t const opCount = 1;
+    std::vector<int64_t> limits = {opCount,
+                                   conf.txMaxInstructions(),
+                                   conf.txMaxSizeBytes(),
+                                   conf.txMaxReadBytes(),
+                                   conf.txMaxWriteBytes(),
+                                   conf.txMaxReadLedgerEntries(),
+                                   conf.txMaxWriteLedgerEntries()};
+    return Resource(limits);
+}
+
+uint32_t
+LedgerManager::getMaxTxSetSizeOps(LedgerHeader const& header)
+{
+    auto n = header.maxTxSetSize;
+    return protocolVersionStartsFrom(header.ledgerVersion,
+                                     ProtocolVersion::V_11)
+               ? n
+               : (n * MAX_OPS_PER_TX);
+}
+
 LedgerManagerImpl::LedgerManagerImpl(Application& app)
     : mApp(app)
     , mSorobanMetrics(app.getMetrics())
@@ -439,11 +477,7 @@ uint32_t
 LedgerManagerImpl::getLastMaxTxSetSizeOps() const
 {
     releaseAssert(threadIsMain());
-    auto n = mLastClosedLedger.header.maxTxSetSize;
-    return protocolVersionStartsFrom(mLastClosedLedger.header.ledgerVersion,
-                                     ProtocolVersion::V_11)
-               ? n
-               : (n * MAX_OPS_PER_TX);
+    return LedgerManager::getMaxTxSetSizeOps(mLastClosedLedger.header);
 }
 
 Resource
@@ -453,15 +487,8 @@ LedgerManagerImpl::maxLedgerResources(bool isSoroban)
 
     if (isSoroban)
     {
-        auto conf = getSorobanNetworkConfigReadOnly();
-        std::vector<int64_t> limits = {conf.ledgerMaxTxCount(),
-                                       conf.ledgerMaxInstructions(),
-                                       conf.ledgerMaxTransactionSizesBytes(),
-                                       conf.ledgerMaxReadBytes(),
-                                       conf.ledgerMaxWriteBytes(),
-                                       conf.ledgerMaxReadLedgerEntries(),
-                                       conf.ledgerMaxWriteLedgerEntries()};
-        return Resource(limits);
+        return LedgerManager::maxSorobanLedgerResources(
+            getSorobanNetworkConfigReadOnly());
     }
     else
     {
@@ -475,17 +502,8 @@ LedgerManagerImpl::maxSorobanTransactionResources()
 {
     ZoneScoped;
 
-    auto const& conf =
-        mApp.getLedgerManager().getSorobanNetworkConfigReadOnly();
-    int64_t const opCount = 1;
-    std::vector<int64_t> limits = {opCount,
-                                   conf.txMaxInstructions(),
-                                   conf.txMaxSizeBytes(),
-                                   conf.txMaxReadBytes(),
-                                   conf.txMaxWriteBytes(),
-                                   conf.txMaxReadLedgerEntries(),
-                                   conf.txMaxWriteLedgerEntries()};
-    return Resource(limits);
+    return LedgerManager::maxSorobanTransactionResources(
+        mApp.getLedgerManager().getSorobanNetworkConfigReadOnly());
 }
 
 int64_t

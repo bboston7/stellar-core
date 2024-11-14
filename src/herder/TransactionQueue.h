@@ -69,7 +69,8 @@ class TransactionQueue
         ADD_STATUS_ERROR,
         ADD_STATUS_TRY_AGAIN_LATER,
         ADD_STATUS_FILTERED,
-        ADD_STATUS_COUNT
+        ADD_STATUS_COUNT,
+        ADD_STATUS_UNKNOWN // TODO: rename?
     };
 
     struct AddResult
@@ -117,29 +118,49 @@ class TransactionQueue
         std::optional<TimestampedTx> mTransaction;
     };
 
+    // TODO: Rename?
+    using ValidationSnapshotPtr =
+        std::shared_ptr<ImmutableValidationSnapshot const>;
+
+    using LedgerSnapshotPtr = std::shared_ptr<LedgerSnapshot const>;
+
+    // TODO: Get rid of `Application` in constructor? Might be able to get away
+    // with an AppConnector here.
     explicit TransactionQueue(Application& app, uint32 pendingDepth,
                               uint32 banDepth, uint32 poolLedgerMultiplier,
                               bool isSoroban);
     virtual ~TransactionQueue();
 
+    // TODO: Need to be careful about interleaving herder. At the very least,
+    // should condense Herder's use of functions into "before application" and
+    // "after application" atomic functions. I also need to think about whether
+    // it's safe for txs to be added during application. My first guess is that
+    // it's fine, but we really need to be careful here. For example, perhaps a
+    // tx that comes in after pre-apply steps but before post-apply steps would
+    // be on the wrong side of a "shift" call?
+
     static std::vector<AssetPair>
     findAllAssetPairsInvolvedInPaymentLoops(TransactionFrameBasePtr tx);
 
     AddResult tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf);
-    void removeApplied(Transactions const& txs);
     // Ban transactions that are no longer valid or have insufficient fee;
     // transaction per account limit applies here, so `txs` should have no
     // duplicate source accounts
     void ban(Transactions const& txs);
 
-    /**
-     * Increase age of each AccountState that has at least one transaction in
-     * mTransactions. Also increments the age for each banned transaction, and
-     * unbans transactions for which age equals banDepth.
-     */
-    void shift();
-    void rebroadcast();
     void shutdown();
+
+    // TODO: Docs
+    // TODO: Rename both function and arg names.
+    // TODO: Might be able to remove `newValidationSnapshot` and use the
+    // internal `AppConnector` to construct it instead. But IDK if that's doable
+    // in the background (though I think this is only called from the
+    // foreground?)
+    void
+    update(Transactions const& applied, LedgerHeader const& lcl,
+           LedgerSnapshotPtr newLedgerSnapshot,
+           std::function<TxSetTransactions(TxSetTransactions const&)> const&
+               filterInvalidTxs);
 
     bool isBanned(Hash const& hash) const;
     TransactionFrameBaseConstPtr getTx(Hash const& hash) const;
@@ -147,6 +168,10 @@ class TransactionQueue
     bool sourceAccountPending(AccountID const& accountID) const;
 
     virtual size_t getMaxQueueSizeOps() const = 0;
+
+    // TODO: Add an `atomically` function that grabs lock and calls the passed
+    // in function. This may be useful for chaining operations together in
+    // HerderImpl.
 
 #ifdef BUILD_TESTS
     AccountState
@@ -170,7 +195,6 @@ class TransactionQueue
      */
     using BannedTransactions = std::deque<UnorderedSet<Hash>>;
 
-    Application& mApp;
     uint32 const mPendingDepth;
 
     AccountStates mAccountStates;
@@ -201,6 +225,9 @@ class TransactionQueue
 
     bool mShutdown{false};
     bool mWaiting{false};
+    // TODO: Is this thing safe to use in a multi-threaded context? vv It takes
+    // an application in its constructor and appears to store a VirtualClock
+    // reference. Is that OK?
     VirtualTimer mBroadcastTimer;
 
     virtual std::pair<Resource, std::optional<Resource>>
@@ -237,8 +264,36 @@ class TransactionQueue
 
     size_t mBroadcastSeed;
 
+    ValidationSnapshotPtr mValidationSnapshot;
+
+    // TODO: Is it safe to store this thing here? Garand's comment on the
+    // proposal indicates these update themselves? What if that update occurs
+    // while the background thread is accessing this? Is there a dangerous race
+    // condition here? Is this not relevant anymore after Marta's PR? Maybe they
+    // don't auto-update anymore and are more like "true" snapshots?
+    LedgerSnapshotPtr mLedgerSnapshot;
+
+    // TODO: Lock all public functions
+    mutable std::recursive_mutex mTxQueueMutex;
+
+  private:
+    AppConnector& mAppConn;
+
+    void removeApplied(Transactions const& txs);
+
+    /**
+     * Increase age of each AccountState that has at least one transaction in
+     * mTransactions. Also increments the age for each banned transaction, and
+     * unbans transactions for which age equals banDepth.
+     */
+    void shift();
+
+    void rebroadcast();
+
 #ifdef BUILD_TESTS
   public:
+    friend class TransactionQueueTest;
+
     size_t getQueueSizeOps() const;
     std::optional<int64_t> getInQueueSeqNum(AccountID const& account) const;
     std::function<void(TransactionFrameBasePtr&)> mTxBroadcastedEvent;
@@ -253,7 +308,8 @@ class SorobanTransactionQueue : public TransactionQueue
     int
     getFloodPeriod() const override
     {
-        return mApp.getConfig().FLOOD_SOROBAN_TX_PERIOD_MS;
+        std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
+        return mValidationSnapshot->getConfig().FLOOD_SOROBAN_TX_PERIOD_MS;
     }
 
     size_t getMaxQueueSizeOps() const override;
@@ -261,6 +317,7 @@ class SorobanTransactionQueue : public TransactionQueue
     void
     clearBroadcastCarryover()
     {
+        std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
         mBroadcastOpCarryover.clear();
         mBroadcastOpCarryover.resize(1, Resource::makeEmptySoroban());
     }
@@ -288,7 +345,8 @@ class ClassicTransactionQueue : public TransactionQueue
     int
     getFloodPeriod() const override
     {
-        return mApp.getConfig().FLOOD_TX_PERIOD_MS;
+        std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
+        return mValidationSnapshot->getConfig().FLOOD_TX_PERIOD_MS;
     }
 
     size_t getMaxQueueSizeOps() const override;

@@ -76,10 +76,13 @@ TransactionQueue::AddResult::AddResult(AddResultCode addCode,
 TransactionQueue::TransactionQueue(Application& app, uint32 pendingDepth,
                                    uint32 banDepth, uint32 poolLedgerMultiplier,
                                    bool isSoroban)
-    : mApp(app)
-    , mPendingDepth(pendingDepth)
+    : mPendingDepth(pendingDepth)
     , mBannedTransactions(banDepth)
     , mBroadcastTimer(app)
+    , mValidationSnapshot(
+          std::make_shared<ImmutableValidationSnapshot const>(app))
+    , mLedgerSnapshot(std::make_shared<LedgerSnapshot const>(app))
+    , mAppConn(app.getAppConnector())
 {
     mTxQueueLimiter =
         std::make_unique<TxQueueLimiter>(poolLedgerMultiplier, app, isSoroban);
@@ -123,7 +126,7 @@ ClassicTransactionQueue::allowTxBroadcast(TimestampedTx const& tx)
     bool allowTx{true};
 
     int32_t const signedAllowance =
-        mApp.getConfig().FLOOD_ARB_TX_BASE_ALLOWANCE;
+        mValidationSnapshot->getConfig().FLOOD_ARB_TX_BASE_ALLOWANCE;
     if (signedAllowance >= 0)
     {
         uint32_t const allowance = static_cast<uint32_t>(signedAllowance);
@@ -165,7 +168,8 @@ ClassicTransactionQueue::allowTxBroadcast(TimestampedTx const& tx)
             if (!allowTx)
             {
                 std::geometric_distribution<uint32_t> dist(
-                    mApp.getConfig().FLOOD_ARB_TX_DAMPING_FACTOR);
+                    mValidationSnapshot->getConfig()
+                        .FLOOD_ARB_TX_DAMPING_FACTOR);
                 uint32_t k = maxBroadcast - allowance;
                 allowTx = dist(gRandomEngine) >= k;
             }
@@ -266,6 +270,7 @@ isDuplicateTx(TransactionFrameBasePtr oldTx, TransactionFrameBasePtr newTx)
 bool
 TransactionQueue::sourceAccountPending(AccountID const& accountID) const
 {
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     return mAccountStates.find(accountID) != mAccountStates.end();
 }
 
@@ -348,6 +353,9 @@ TransactionQueue::canAdd(
 
     stateIter = mAccountStates.find(tx->getSourceID());
     TransactionFrameBasePtr currentTx;
+    LedgerSnapshot const& ls = *mLedgerSnapshot;
+    LedgerHeader const& lh = ls.getLedgerHeader().current();
+    uint32_t ledgerVersion = lh.ledgerVersion;
     if (stateIter != mAccountStates.end())
     {
         auto const& transaction = stateIter->second.mTransaction;
@@ -380,13 +388,7 @@ TransactionQueue::canAdd(
             {
                 auto txResult = tx->createSuccessResult();
                 if (!tx->checkSorobanResourceAndSetError(
-                        mApp.getAppConnector(),
-                        mApp.getLedgerManager()
-                            .getSorobanNetworkConfigReadOnly(),
-                        mApp.getLedgerManager()
-                            .getLastClosedLedgerHeader()
-                            .header.ledgerVersion,
-                        txResult))
+                        *mValidationSnapshot, ledgerVersion, txResult))
                 {
                     return AddResult(AddResultCode::ADD_STATUS_ERROR, txResult);
                 }
@@ -426,8 +428,6 @@ TransactionQueue::canAdd(
         }
     }
 
-    LedgerSnapshot ls(mApp);
-    uint32_t ledgerVersion = ls.getLedgerHeader().current().ledgerVersion;
     // Subtle: transactions are rejected based on the source account limit
     // prior to this point. This is safe because we can't evict transactions
     // from the same source account, so a newer transaction won't replace an
@@ -448,20 +448,22 @@ TransactionQueue::canAdd(
             TransactionQueue::AddResultCode::ADD_STATUS_TRY_AGAIN_LATER);
     }
 
-    auto closeTime = mApp.getLedgerManager()
-                         .getLastClosedLedgerHeader()
-                         .header.scpValue.closeTime;
+    auto closeTime = lh.scpValue.closeTime;
+    // TODO: Do we even need this check anymore? vv
     if (protocolVersionStartsFrom(ledgerVersion, ProtocolVersion::V_19))
     {
         // This is done so minSeqLedgerGap is validated against the next
         // ledgerSeq, which is what will be used at apply time
-        ls.getLedgerHeader().currentToModify().ledgerSeq =
-            mApp.getLedgerManager().getLastClosedLedgerNum() + 1;
+        ++ls.getLedgerHeader().currentToModify().ledgerSeq;
+        // TODO: ^^ I think this is the right thing to do. Was previously the
+        // commented out line below.
+        // ls.getLedgerHeader().currentToModify().ledgerSeq =
+        //     mApp.getLedgerManager().getLastClosedLedgerNum() + 1;
     }
 
     auto txResult =
-        tx->checkValid(mApp.getAppConnector(), ls, 0, 0,
-                       getUpperBoundCloseTimeOffset(mApp, closeTime));
+        tx->checkValid(*mValidationSnapshot, ls, 0, 0,
+                       getUpperBoundCloseTimeOffset(mAppConn, closeTime));
     if (!txResult->isSuccess())
     {
         return AddResult(TransactionQueue::AddResultCode::ADD_STATUS_ERROR,
@@ -493,7 +495,7 @@ TransactionQueue::canAdd(
         releaseAssertOrThrow(sorobanTxData);
 
         sorobanTxData->pushValidationTimeDiagnosticError(
-            mApp.getConfig(), SCE_CONTEXT, SCEC_INVALID_INPUT,
+            mValidationSnapshot->getConfig(), SCE_CONTEXT, SCEC_INVALID_INPUT,
             "non-source auth Soroban tx uses memo or muxed source account");
 
         return AddResult(TransactionQueue::AddResultCode::ADD_STATUS_ERROR,
@@ -644,6 +646,7 @@ TransactionQueue::AddResult
 TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
 {
     ZoneScoped;
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
 
     auto c1 =
         tx->getEnvelope().type() == ENVELOPE_TYPE_TX_FEE_BUMP &&
@@ -682,12 +685,12 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
         // Drop current transaction associated with this account, replace
         // with `tx`
         prepareDropTransaction(stateIter->second);
-        *oldTx = {tx, false, mApp.getClock().now(), submittedFromSelf};
+        *oldTx = {tx, false, mAppConn.now(), submittedFromSelf};
     }
     else
     {
         // New transaction for this account, insert it and update age
-        stateIter->second.mTransaction = {tx, false, mApp.getClock().now(),
+        stateIter->second.mTransaction = {tx, false, mAppConn.now(),
                                           submittedFromSelf};
         mQueueMetrics->mSizeByAge[stateIter->second.mAge]->inc();
     }
@@ -704,7 +707,8 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
     mTxQueueLimiter->addTransaction(tx);
     mKnownTxHashes[tx->getFullHash()] = tx;
 
-    broadcast(false);
+    mAppConn.postOnMainThread([this]() { broadcast(false); },
+                              "tx queue broadcast");
 
     return res;
 }
@@ -742,7 +746,7 @@ TransactionQueue::removeApplied(Transactions const& appliedTxs)
 {
     ZoneScoped;
 
-    auto now = mApp.getClock().now();
+    auto now = mAppConn.now();
     for (auto const& appliedTx : appliedTxs)
     {
         // If the source account is not in mAccountStates, then it has no
@@ -803,6 +807,7 @@ void
 TransactionQueue::ban(Transactions const& banTxs)
 {
     ZoneScoped;
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     auto& bannedFront = mBannedTransactions.front();
 
     // Group the transactions by source account and ban all the transactions
@@ -848,6 +853,7 @@ TransactionQueue::AccountState
 TransactionQueue::getAccountTransactionQueueInfo(
     AccountID const& accountID) const
 {
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     auto i = mAccountStates.find(accountID);
     if (i == std::end(mAccountStates))
     {
@@ -859,6 +865,7 @@ TransactionQueue::getAccountTransactionQueueInfo(
 size_t
 TransactionQueue::countBanned(int index) const
 {
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     return mBannedTransactions[index].size();
 }
 #endif
@@ -933,6 +940,7 @@ TransactionQueue::shift()
 bool
 TransactionQueue::isBanned(Hash const& hash) const
 {
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     return std::any_of(
         std::begin(mBannedTransactions), std::end(mBannedTransactions),
         [&](UnorderedSet<Hash> const& transactions) {
@@ -944,6 +952,7 @@ TxFrameList
 TransactionQueue::getTransactions(LedgerHeader const& lcl) const
 {
     ZoneScoped;
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     TxFrameList txs;
 
     uint32_t const nextLedgerSeq = lcl.ledgerSeq + 1;
@@ -964,6 +973,7 @@ TransactionFrameBaseConstPtr
 TransactionQueue::getTx(Hash const& hash) const
 {
     ZoneScoped;
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     auto it = mKnownTxHashes.find(hash);
     if (it != mKnownTxHashes.end())
     {
@@ -978,10 +988,11 @@ TransactionQueue::getTx(Hash const& hash) const
 std::pair<Resource, std::optional<Resource>>
 ClassicTransactionQueue::getMaxResourcesToFloodThisPeriod() const
 {
-    auto& cfg = mApp.getConfig();
+    auto& cfg = mValidationSnapshot->getConfig();
     double opRatePerLedger = cfg.FLOOD_OP_RATE_PER_LEDGER;
 
-    auto maxOps = mApp.getLedgerManager().getLastMaxTxSetSizeOps();
+    auto maxOps = LedgerManager::getMaxTxSetSizeOps(
+        mLedgerSnapshot->getLedgerHeader().current());
     double opsToFloodLedgerDbl = opRatePerLedger * maxOps;
     releaseAssertOrThrow(opsToFloodLedgerDbl >= 0.0);
     releaseAssertOrThrow(isRepresentableAsInt64(opsToFloodLedgerDbl));
@@ -1022,6 +1033,9 @@ ClassicTransactionQueue::getMaxResourcesToFloodThisPeriod() const
 TransactionQueue::BroadcastStatus
 TransactionQueue::broadcastTx(TimestampedTx& tx)
 {
+    // Must be main thread because we are accessing the overlay manager
+    releaseAssert(threadIsMain());
+
     if (tx.mBroadcasted)
     {
         return BroadcastStatus::BROADCAST_STATUS_ALREADY;
@@ -1050,7 +1064,7 @@ TransactionQueue::broadcastTx(TimestampedTx& tx)
         // useful work from other sources.
         return BroadcastStatus::BROADCAST_STATUS_SKIPPED;
     }
-    return mApp.getOverlayManager().broadcastMessage(
+    return mAppConn.getOverlayManager().broadcastMessage(
                tx.mTx->toStellarMessage(),
                std::make_optional<Hash>(tx.mTx->getFullHash()))
                ? BroadcastStatus::BROADCAST_STATUS_SUCCESS
@@ -1084,10 +1098,11 @@ SorobanTransactionQueue::SorobanTransactionQueue(Application& app,
 std::pair<Resource, std::optional<Resource>>
 SorobanTransactionQueue::getMaxResourcesToFloodThisPeriod() const
 {
-    auto const& cfg = mApp.getConfig();
+    auto const& cfg = mValidationSnapshot->getConfig();
     double ratePerLedger = cfg.FLOOD_SOROBAN_RATE_PER_LEDGER;
 
-    auto sorRes = mApp.getLedgerManager().maxLedgerResources(true);
+    auto sorRes = LedgerManager::maxSorobanLedgerResources(
+        mValidationSnapshot->getSorobanNetworkConfig());
 
     auto totalFloodPerLedger = multiplyByDouble(sorRes, ratePerLedger);
 
@@ -1102,6 +1117,9 @@ SorobanTransactionQueue::getMaxResourcesToFloodThisPeriod() const
 bool
 SorobanTransactionQueue::broadcastSome()
 {
+    // Must be main thread for call to `broadcastTx`
+    releaseAssert(threadIsMain());
+
     // broadcast transactions in surge pricing order:
     // loop over transactions by picking from the account queue with the
     // highest base fee not broadcasted so far.
@@ -1154,8 +1172,8 @@ SorobanTransactionQueue::broadcastSome()
         std::make_shared<SorobanGenericLaneConfig>(resToFlood), mBroadcastSeed);
     queue.visitTopTxs(txsToBroadcast, visitor, mBroadcastOpCarryover);
 
-    Resource maxPerTx =
-        mApp.getLedgerManager().maxSorobanTransactionResources();
+    Resource maxPerTx = LedgerManager::maxSorobanTransactionResources(
+        mValidationSnapshot->getSorobanNetworkConfig());
     for (auto& resLeft : mBroadcastOpCarryover)
     {
         // Limit carry-over to 1 maximum resource transaction
@@ -1167,24 +1185,21 @@ SorobanTransactionQueue::broadcastSome()
 size_t
 SorobanTransactionQueue::getMaxQueueSizeOps() const
 {
-    if (protocolVersionStartsFrom(mApp.getLedgerManager()
-                                      .getLastClosedLedgerHeader()
-                                      .header.ledgerVersion,
-                                  SOROBAN_PROTOCOL_VERSION))
-    {
-        auto res = mTxQueueLimiter->maxScaledLedgerResources(true);
-        releaseAssert(res.size() == NUM_SOROBAN_TX_RESOURCES);
-        return res.getVal(Resource::Type::OPERATIONS);
-    }
-    else
-    {
-        return 0;
-    }
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
+    // TODO: I removed a conditional checking that the protocol version is
+    // post-soroban here. I think that check is unnecessary, but if something
+    // errors out here now, that's why.
+    auto res = mTxQueueLimiter->maxScaledLedgerResources(true);
+    releaseAssert(res.size() == NUM_SOROBAN_TX_RESOURCES);
+    return res.getVal(Resource::Type::OPERATIONS);
 }
 
 bool
 ClassicTransactionQueue::broadcastSome()
 {
+    // Must be main thread for call to `broadcastTx`
+    releaseAssert(threadIsMain());
+
     // broadcast transactions in surge pricing order:
     // loop over transactions by picking from the account queue with the
     // highest base fee not broadcasted so far.
@@ -1260,6 +1275,13 @@ ClassicTransactionQueue::broadcastSome()
 void
 TransactionQueue::broadcast(bool fromCallback)
 {
+    // Must be called from the main thread due to the use of `mBroadcastTimer`
+    releaseAssert(threadIsMain());
+
+    // NOTE: Although this is not a public function, it can be called from
+    // `mBroadcastTimer` and so it needs to be synchronized.
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
+
     if (mShutdown || (!fromCallback && mWaiting))
     {
         return;
@@ -1282,6 +1304,8 @@ TransactionQueue::broadcast(bool fromCallback)
         mWaiting = true;
         mBroadcastTimer.expires_from_now(
             std::chrono::milliseconds(getFloodPeriod()));
+        // TODO: I'm pretty sure this callback will only be called from the main
+        // thread?
         mBroadcastTimer.async_wait([&]() { broadcast(true); },
                                    &VirtualTimer::onFailureNoop);
     }
@@ -1290,6 +1314,9 @@ TransactionQueue::broadcast(bool fromCallback)
 void
 TransactionQueue::rebroadcast()
 {
+    // For `broadcast` call
+    releaseAssert(threadIsMain());
+
     // force to rebroadcast everything
     for (auto& m : mAccountStates)
     {
@@ -1305,8 +1332,38 @@ TransactionQueue::rebroadcast()
 void
 TransactionQueue::shutdown()
 {
+    releaseAssert(threadIsMain());
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     mShutdown = true;
     mBroadcastTimer.cancel();
+}
+
+void
+TransactionQueue::update(
+    Transactions const& applied, LedgerHeader const& lcl,
+    LedgerSnapshotPtr const newLedgerSnapshot,
+    std::function<TxSetTransactions(TxSetTransactions const&)> const&
+        filterInvalidTxs)
+{
+    ZoneScoped;
+    releaseAssert(threadIsMain()); // TODO: Necessary? Maybe for the
+                                   // ImmutableValidationSnapshot constructor?
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
+    mValidationSnapshot =
+        std::make_shared<ImmutableValidationSnapshot>(mAppConn);
+    mLedgerSnapshot = newLedgerSnapshot;
+
+    // TODO: Mark private any functions that are only used here. May need to
+    // mark TransactionQueueTest a friend class of TransactionQueue to get tests
+    // building.
+    removeApplied(applied);
+    shift();
+
+    auto txs = getTransactions(lcl);
+    auto invalidTxs = filterInvalidTxs(txs);
+    ban(invalidTxs);
+
+    rebroadcast();
 }
 
 static bool
@@ -1350,12 +1407,14 @@ TransactionQueue::isFiltered(TransactionFrameBasePtr tx) const
 size_t
 TransactionQueue::getQueueSizeOps() const
 {
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     return mTxQueueLimiter->size();
 }
 
 std::optional<int64_t>
 TransactionQueue::getInQueueSeqNum(AccountID const& account) const
 {
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     auto stateIter = mAccountStates.find(account);
     if (stateIter == mAccountStates.end())
     {
@@ -1372,6 +1431,7 @@ TransactionQueue::getInQueueSeqNum(AccountID const& account) const
 size_t
 ClassicTransactionQueue::getMaxQueueSizeOps() const
 {
+    std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     auto res = mTxQueueLimiter->maxScaledLedgerResources(false);
     releaseAssert(res.size() == NUM_CLASSIC_TX_RESOURCES);
     return res.getVal(Resource::Type::OPERATIONS);

@@ -70,7 +70,10 @@ invalidTransaction(Application& app, TestAccount& account, int sequenceDelta)
         app, account, account.getLastSequenceNumber() + sequenceDelta,
         {payment(account.getPublicKey(), -1)});
 }
+}
 
+namespace stellar
+{
 class TransactionQueueTest
 {
   public:

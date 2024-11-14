@@ -157,6 +157,7 @@ Config::Config() : NODE_SEED(SecretKey::random())
     CATCHUP_COMPLETE = false;
     CATCHUP_RECENT = 0;
     BACKGROUND_OVERLAY_PROCESSING = true;
+    BACKGROUND_TX_FLOODING = false;
     BUCKETLIST_DB_INDEX_PAGE_SIZE_EXPONENT = 14; // 2^14 == 16 kb
     BUCKETLIST_DB_INDEX_CUTOFF = 20;             // 20 mb
     BUCKETLIST_DB_PERSIST_INDEX = true;
@@ -1065,6 +1066,8 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                  }},
                 {"BACKGROUND_OVERLAY_PROCESSING",
                  [&]() { BACKGROUND_OVERLAY_PROCESSING = readBool(item); }},
+                {"EXPERIMENTAL_BACKGROUND_TX_FLOODING",
+                 [&]() { BACKGROUND_TX_FLOODING = readBool(item); }},
                 // https://github.com/stellar/stellar-core/issues/4581
                 {"BACKGROUND_EVICTION_SCAN",
                  [&]() {

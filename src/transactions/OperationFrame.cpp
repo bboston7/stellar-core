@@ -143,9 +143,12 @@ OperationFrame::apply(AppConnector& app, SignatureChecker& signatureChecker,
     ZoneScoped;
     CLOG_TRACE(Tx, "{}", xdrToCerealString(mOperation, "Operation"));
 
+    // TODO: I don't think this really needs an "assertMain" here because avw
+    // includes one in its constructor.
+    AppValidationWrapper avw(app);
     LedgerSnapshot ltxState(ltx);
     bool applyRes =
-        checkValid(app, signatureChecker, ltxState, true, res, sorobanData);
+        checkValid(avw, signatureChecker, ltxState, true, res, sorobanData);
     if (applyRes)
     {
         applyRes = doApply(app, ltx, sorobanBasePrngSeed, res, sorobanData);
@@ -217,7 +220,7 @@ OperationFrame::getSourceID() const
 // make sure sig is correct
 // verifies that the operation is well formed (operation specific)
 bool
-OperationFrame::checkValid(AppConnector& app,
+OperationFrame::checkValid(ValidationConnector const& vc,
                            SignatureChecker& signatureChecker,
                            LedgerSnapshot const& ls, bool forApply,
                            OperationResult& res,
@@ -225,8 +228,7 @@ OperationFrame::checkValid(AppConnector& app,
 {
     ZoneScoped;
     bool validationResult = false;
-    auto validate = [this, &res, forApply, &signatureChecker, &app,
-                     &sorobanData,
+    auto validate = [this, &res, forApply, &signatureChecker, &vc, &sorobanData,
                      &validationResult](LedgerSnapshot const& ls) {
         if (!isOpSupported(ls.getLedgerHeader().current()))
         {
@@ -262,11 +264,10 @@ OperationFrame::checkValid(AppConnector& app,
             isSoroban())
         {
             releaseAssertOrThrow(sorobanData);
-            auto const& sorobanConfig =
-                app.getLedgerManager().getSorobanNetworkConfigForApply();
+            auto const& sorobanConfig = vc.getSorobanNetworkConfig();
 
             validationResult =
-                doCheckValidForSoroban(sorobanConfig, app.getConfig(),
+                doCheckValidForSoroban(sorobanConfig, vc.getConfig(),
                                        ledgerVersion, res, *sorobanData);
         }
         else
