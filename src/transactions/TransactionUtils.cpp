@@ -1980,12 +1980,11 @@ hasMuxedAccount(TransactionEnvelope const& e)
 }
 
 bool
-isTransactionXDRValidForCurrentProtocol(AppConnector& app,
+isTransactionXDRValidForCurrentProtocol(ValidationConnector const& vc,
                                         TransactionEnvelope const& envelope)
 {
-    uint32_t maxProtocol = app.getConfig().CURRENT_LEDGER_PROTOCOL_VERSION;
-    uint32_t currProtocol =
-        app.getLedgerManager().getLastClosedLedgerHeader().header.ledgerVersion;
+    uint32_t maxProtocol = vc.getConfig().CURRENT_LEDGER_PROTOCOL_VERSION;
+    uint32_t currProtocol = vc.getCurrentProtocolVersion();
     // If we could parse the XDR when ledger is using the maximum supported
     // protocol version, then XDR has to be valid.
     // This check also is pointless before protocol 21 as Soroban environment

@@ -21,6 +21,7 @@
 #include "overlay/SurveyDataManager.h"
 #include "overlay/TCPPeer.h"
 #include "overlay/TxDemandsManager.h"
+#include "transactions/TransactionUtils.h"
 #include "util/GlobalChecks.h"
 #include "util/Logging.h"
 #include "util/Math.h"
@@ -355,6 +356,9 @@ OverlayManagerImpl::start()
 
     // Start demand logic
     mTxDemandsManager.start();
+
+    // Initialize transaction pool
+    mTxPool = std::make_unique<TransactionPool>(mApp);
 }
 
 uint32_t
@@ -1197,39 +1201,58 @@ OverlayManagerImpl::recvTransaction(StellarMessage const& msg,
 
         mTxDemandsManager.recordTxPullLatency(transaction->getFullHash(), peer);
 
+        // Add to pool
+        // TODO: Only do this if enabled
+        auto const closeTime = mApp.getLedgerManager()
+                             .getLastClosedLedgerHeader()
+                             .header.scpValue.closeTime;
+        auto const upperBoundCloseTimeOffset =
+            getUpperBoundCloseTimeOffset(mApp, closeTime);
+        mApp.postOnBackgroundThread(
+            [this, transaction, upperBoundCloseTimeOffset]() {
+                mTxPool->addTransaction(transaction, upperBoundCloseTimeOffset);
+                // TODO: Should this call `forgetFloodedMsg` on failure to validate?
+            },
+            "Add transaction to pool");
+
+        // TODO: Figure out what of this we still need to do vv
+        // TODO: I resolved a weird merge conflict here, but I'm not sure it's
+        // correct. Pay extra attention to the diff here.
         // add it to our current set
         // and make sure it is valid
-        auto addResult = mApp.getHerder().recvTransaction(transaction, false);
-        bool pulledRelevantTx = false;
-        if (!(addResult.code ==
-                  TransactionQueue::AddResultCode::ADD_STATUS_PENDING ||
-              addResult.code ==
-                  TransactionQueue::AddResultCode::ADD_STATUS_DUPLICATE))
-        {
-            forgetFloodedMsg(index);
-            CLOG_DEBUG(Overlay,
-                       "Peer::recvTransaction Discarded transaction {} from {}",
-                       hexAbbrev(transaction->getFullHash()), peer->toString());
-        }
-        else
-        {
-            bool dup = addResult.code ==
-                       TransactionQueue::AddResultCode::ADD_STATUS_DUPLICATE;
-            if (!dup)
-            {
-                pulledRelevantTx = true;
-            }
-            CLOG_DEBUG(
-                Overlay,
-                "Peer::recvTransaction Received {} transaction {} from {}",
-                (dup ? "duplicate" : "unique"),
-                hexAbbrev(transaction->getFullHash()), peer->toString());
-        }
+        // auto addResult = mApp.getHerder().recvTransaction(transaction, false);
+        // bool pulledRelevantTx = false;
+        // if (!(addResult.code ==
+        //           TransactionQueue::AddResultCode::ADD_STATUS_PENDING ||
+        //       addResult.code ==
+        //           TransactionQueue::AddResultCode::ADD_STATUS_DUPLICATE))
+        // {
+        //     forgetFloodedMsg(index);
+        //     CLOG_DEBUG(Overlay,
+        //                "Peer::recvTransaction Discarded transaction {} from {}",
+        //                hexAbbrev(transaction->getFullHash()), peer->toString());
+        // }
+        // else
+        // {
+        //     bool dup = addResult.code ==
+        //                TransactionQueue::AddResultCode::ADD_STATUS_DUPLICATE;
+        //     if (!dup)
+        //     {
+        //         pulledRelevantTx = true;
+        //     }
+        //     CLOG_DEBUG(
+        //         Overlay,
+        //         "Peer::recvTransaction Received {} transaction {} from {}",
+        //         (dup ? "duplicate" : "unique"),
+        //         hexAbbrev(transaction->getFullHash()), peer->toString());
+        // }
 
-        auto const& om = getOverlayMetrics();
-        auto& meter =
-            pulledRelevantTx ? om.mPulledRelevantTxs : om.mPulledIrrelevantTxs;
-        meter.Mark();
+        // TODO: This was part of the weird merge conflict. If this is an
+        // addition in the diff, remove it. vv
+        // auto const& om = getOverlayMetrics();
+        // auto& meter =
+        //     pulledRelevantTx ? om.mPulledRelevantTxs : om.mPulledIrrelevantTxs;
+        // meter.Mark();
     }
 }
 
@@ -1295,6 +1318,13 @@ SurveyManager&
 OverlayManagerImpl::getSurveyManager()
 {
     return *mSurveyManager;
+}
+
+TransactionPool&
+OverlayManagerImpl::getTransactionPool()
+{
+    releaseAssert(mTxPool);
+    return *mTxPool;
 }
 
 void

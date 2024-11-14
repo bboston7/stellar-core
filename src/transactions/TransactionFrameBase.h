@@ -35,6 +35,50 @@ using TransactionFrameBasePtr = std::shared_ptr<TransactionFrameBase const>;
 using TransactionFrameBaseConstPtr =
     std::shared_ptr<TransactionFrameBase const>;
 
+// TODO: Move all of this?
+// TODO: Explain why this exists. Allows common validation flows between "apply"
+// and "validate" to work whether given an immutable snapshot (for use in
+// "validate") or a wrapper around the AppConnector (for use in "apply").
+class ValidationConnector
+{
+  public:
+    virtual ~ValidationConnector() = default;
+    virtual Config const& getConfig() const = 0;
+    virtual SorobanNetworkConfig const& getSorobanNetworkConfig() const = 0;
+    virtual uint32_t getCurrentProtocolVersion() const = 0;
+};
+
+class AppValidationWrapper : public ValidationConnector
+{
+  public:
+    explicit AppValidationWrapper(AppConnector const& app);
+    ~AppValidationWrapper() override = default;
+
+    Config const& getConfig() const override;
+    SorobanNetworkConfig const& getSorobanNetworkConfig() const override;
+    uint32_t getCurrentProtocolVersion() const override;
+
+  private:
+    AppConnector const& mApp;
+};
+
+// TODO: Move?
+class ImmutableValidationSnapshot : public ValidationConnector
+{
+  public:
+    explicit ImmutableValidationSnapshot(AppConnector const& app);
+    ~ImmutableValidationSnapshot() override = default;
+
+    Config const& getConfig() const override;
+    SorobanNetworkConfig const& getSorobanNetworkConfig() const override;
+    uint32_t getCurrentProtocolVersion() const override;
+
+  private:
+    std::shared_ptr<const Config> const mConfig;
+    std::optional<SorobanNetworkConfig> const mSorobanNetworkConfig;
+    uint32_t const mCurrentProtocolVersion;
+};
+
 class TransactionFrameBase
 {
   public:
@@ -46,11 +90,12 @@ class TransactionFrameBase
                        TransactionMetaFrame& meta, MutableTxResultPtr txResult,
                        Hash const& sorobanBasePrngSeed = Hash{}) const = 0;
     virtual MutableTxResultPtr
-    checkValid(AppConnector& app, LedgerSnapshot const& ls,
+    checkValid(ValidationConnector const& vc, LedgerSnapshot const& ls,
                SequenceNumber current, uint64_t lowerBoundCloseTimeOffset,
                uint64_t upperBoundCloseTimeOffset) const = 0;
     virtual bool
-    checkSorobanResourceAndSetError(AppConnector& app, uint32_t ledgerVersion,
+    checkSorobanResourceAndSetError(ValidationConnector const& vc,
+                                    uint32_t ledgerVersion,
                                     MutableTxResultPtr txResult) const = 0;
 
     virtual MutableTxResultPtr createSuccessResult() const = 0;

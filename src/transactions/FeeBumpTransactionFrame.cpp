@@ -153,12 +153,13 @@ FeeBumpTransactionFrame::checkSignature(SignatureChecker& signatureChecker,
 }
 
 MutableTxResultPtr
-FeeBumpTransactionFrame::checkValid(AppConnector& app, LedgerSnapshot const& ls,
+FeeBumpTransactionFrame::checkValid(ValidationConnector const& vc,
+                                    LedgerSnapshot const& ls,
                                     SequenceNumber current,
                                     uint64_t lowerBoundCloseTimeOffset,
                                     uint64_t upperBoundCloseTimeOffset) const
 {
-    if (!isTransactionXDRValidForCurrentProtocol(app, mEnvelope) ||
+    if (!isTransactionXDRValidForCurrentProtocol(vc, mEnvelope) ||
         !XDRProvidesValidFee())
     {
         auto txResult = createSuccessResult();
@@ -186,7 +187,7 @@ FeeBumpTransactionFrame::checkValid(AppConnector& app, LedgerSnapshot const& ls,
     }
 
     auto innerTxResult = mInnerTx->checkValidWithOptionallyChargedFee(
-        app, ls, current, false, lowerBoundCloseTimeOffset,
+        vc, ls, current, false, lowerBoundCloseTimeOffset,
         upperBoundCloseTimeOffset);
     auto finalTxResult = createSuccessResultWithNewInnerTx(
         std::move(txResult), std::move(innerTxResult), mInnerTx);
@@ -196,10 +197,10 @@ FeeBumpTransactionFrame::checkValid(AppConnector& app, LedgerSnapshot const& ls,
 
 bool
 FeeBumpTransactionFrame::checkSorobanResourceAndSetError(
-    AppConnector& app, uint32_t ledgerVersion,
+    ValidationConnector const& vc, uint32_t ledgerVersion,
     MutableTxResultPtr txResult) const
 {
-    return mInnerTx->checkSorobanResourceAndSetError(app, ledgerVersion,
+    return mInnerTx->checkSorobanResourceAndSetError(vc, ledgerVersion,
                                                      txResult);
 }
 

@@ -326,7 +326,8 @@ validateSorobanMemo(TransactionFrameBasePtr tx)
 TransactionQueue::AddResult
 TransactionQueue::canAdd(
     TransactionFrameBasePtr tx, AccountStates::iterator& stateIter,
-    std::vector<std::pair<TransactionFrameBasePtr, bool>>& txsToEvict)
+    std::vector<std::pair<TransactionFrameBasePtr, bool>>& txsToEvict,
+    bool partiallyValidated)
 {
     ZoneScoped;
     if (isBanned(tx->getFullHash()))
@@ -345,6 +346,10 @@ TransactionQueue::canAdd(
         return AddResult(TransactionQueue::AddResultCode::ADD_STATUS_ERROR, tx,
                          txMALFORMED);
     }
+
+    // TODO: This is just testing that immutable validation snapshots work. This
+    // should probably be an AppValidationWrapper in practice
+    AppValidationWrapper avw(mApp.getAppConnector());
 
     stateIter = mAccountStates.find(tx->getSourceID());
     TransactionFrameBasePtr currentTx;
@@ -380,7 +385,7 @@ TransactionQueue::canAdd(
             {
                 auto txResult = tx->createSuccessResult();
                 if (!tx->checkSorobanResourceAndSetError(
-                        mApp.getAppConnector(),
+                        avw,
                         mApp.getLedgerManager()
                             .getLastClosedLedgerHeader()
                             .header.ledgerVersion,
@@ -430,6 +435,14 @@ TransactionQueue::canAdd(
     // prior to this point. This is safe because we can't evict transactions
     // from the same source account, so a newer transaction won't replace an
     // old one.
+
+    // TODO: I only gave a surface level look at canAddTx. Need to look harder
+    // to tell whether it depends on state that would necessitate use of the
+    // main thread to get.
+    // TODO: I think this is really just checking whether there is room in the
+    // correct lane for this transaction. If there is no room, evicts a lower
+    // fee tx (if one exists) that will free up the resource that's at capacity.
+    // Otherwise, returns (false, 0) or (false, <fee to beat>).
     auto canAddRes =
         mTxQueueLimiter->canAddTx(tx, currentTx, txsToEvict, ledgerVersion);
     if (!canAddRes.first)
@@ -457,9 +470,28 @@ TransactionQueue::canAdd(
             mApp.getLedgerManager().getLastClosedLedgerNum() + 1;
     }
 
+    // TODO: There's just too much reliance on the main thread here (and
+    // throughout). I think what I want to do is partial tx validation in the
+    // background with eager flooding of those partially validated transactions.
+    // Then, the tx queue will periodically pull from the overlay and feed back
+    // about which txes to stop flooding. During this pull, the tx queue can
+    // skip any validation that overlay already performed. TX queue would never
+    // do its own flooding in this case, but maybe could trigger rebroadcasting
+    // from the tx pool. Look closer at marta's comments; they hint at this
+    // strategy.
+    // Maybe the tx pool has some function that loops over all txes, invokes a
+    // callback, and that callback says what to do with the tx (ban, drop,
+    // broadcast, etc.). The tx queue would call this callback.
     auto txResult =
-        tx->checkValid(mApp.getAppConnector(), ls, 0, 0,
-                       getUpperBoundCloseTimeOffset(mApp, closeTime));
+        partiallyValidated
+            ? tx->createSuccessResult() // TODO: I don't think this is the right
+                                        // long term solution. For one, it has
+                                        // none of the fields filled in. Also,
+                                        // the "tx over the wire" flow doesn't
+                                        // even use these! Maybe this function
+                                        // should return an optional instead...
+            : tx->checkValid(avw, ls, 0, 0,
+                             getUpperBoundCloseTimeOffset(mApp, closeTime));
     if (!txResult->isSuccess())
     {
         return AddResult(TransactionQueue::AddResultCode::ADD_STATUS_ERROR,
@@ -639,7 +671,8 @@ TransactionQueue::findAllAssetPairsInvolvedInPaymentLoops(
 }
 
 TransactionQueue::AddResult
-TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
+TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf,
+                         bool partiallyValidated)
 {
     ZoneScoped;
 
@@ -651,6 +684,7 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
               tx->getEnvelope().v1().tx.ext.v() == 1;
     // Check basic structure validity _before_ any fee-related computation
     // fast fail when Soroban tx is malformed
+    // TODO: Should do some structure tests in bg too (or before punting to bg)
     if ((tx->isSoroban() != (c1 || c2)) || !tx->XDRProvidesValidFee())
     {
         return AddResult(TransactionQueue::AddResultCode::ADD_STATUS_ERROR, tx,
@@ -660,7 +694,7 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
     AccountStates::iterator stateIter;
 
     std::vector<std::pair<TransactionFrameBasePtr, bool>> txsToEvict;
-    auto const res = canAdd(tx, stateIter, txsToEvict);
+    auto const res = canAdd(tx, stateIter, txsToEvict, partiallyValidated);
     if (res.code != TransactionQueue::AddResultCode::ADD_STATUS_PENDING)
     {
         return res;
@@ -680,13 +714,16 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
         // Drop current transaction associated with this account, replace
         // with `tx`
         prepareDropTransaction(stateIter->second);
-        *oldTx = {tx, false, mApp.getClock().now(), submittedFromSelf};
+        // TODO: Don't reuse partiallyValidated for broadcast state
+        *oldTx = {tx, partiallyValidated, mApp.getClock().now(),
+                  submittedFromSelf};
     }
     else
     {
         // New transaction for this account, insert it and update age
-        stateIter->second.mTransaction = {tx, false, mApp.getClock().now(),
-                                          submittedFromSelf};
+        // TODO: Don't reuse partiallyValidated for broadcast state
+        stateIter->second.mTransaction = {
+            tx, partiallyValidated, mApp.getClock().now(), submittedFromSelf};
         mQueueMetrics->mSizeByAge[stateIter->second.mAge]->inc();
     }
 
@@ -702,7 +739,11 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
     mTxQueueLimiter->addTransaction(tx);
     mKnownTxHashes[tx->getFullHash()] = tx;
 
-    broadcast(false);
+    if (!partiallyValidated)
+    {
+        // TODO: Don't reuse partiallyValidated for broadcast state
+        broadcast(false);
+    }
 
     return res;
 }
@@ -1130,6 +1171,8 @@ SorobanTransactionQueue::broadcastSome()
         auto& cur = *accState.mTransaction;
         // by construction, cur points to non broadcasted transactions
         releaseAssert(!cur.mBroadcasted);
+
+        // TODO: Are these actually broadcasting transactions? Or adverts?
         auto bStatus = broadcastTx(cur);
         // Skipped does not apply to Soroban
         releaseAssert(bStatus != BroadcastStatus::BROADCAST_STATUS_SKIPPED);

@@ -23,6 +23,7 @@
 #include "main/ErrorMessages.h"
 #include "main/PersistentState.h"
 #include "overlay/OverlayManager.h"
+#include "overlay/TransactionPool.h"
 #include "scp/LocalNode.h"
 #include "scp/Slot.h"
 #include "transactions/MutableTransactionResult.h"
@@ -252,6 +253,10 @@ HerderImpl::newSlotExternalized(bool synchronous, StellarValue const& value)
     // In order to update the transaction queue we need to get the
     // applied transactions.
     updateTransactionQueue(mPendingEnvelopes.getTxSet(value.txSetHash));
+
+    // Update tx pool snapshots
+    // TODO: Is this the right place for this?
+    mApp.getOverlayManager().getTransactionPool().updateSnapshots(mApp);
 
     // perform cleanups
     // Evict slots that are outside of our ledger validity bracket
@@ -581,7 +586,8 @@ HerderImpl::emitEnvelope(SCPEnvelope const& envelope)
 }
 
 TransactionQueue::AddResult
-HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
+HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf,
+                            bool partiallyValidated)
 {
     ZoneScoped;
     TransactionQueue::AddResult result(
@@ -608,11 +614,13 @@ HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
     }
     else if (!tx->isSoroban())
     {
-        result = mTransactionQueue.tryAdd(tx, submittedFromSelf);
+        result =
+            mTransactionQueue.tryAdd(tx, submittedFromSelf, partiallyValidated);
     }
     else if (mSorobanTransactionQueue)
     {
-        result = mSorobanTransactionQueue->tryAdd(tx, submittedFromSelf);
+        result = mSorobanTransactionQueue->tryAdd(tx, submittedFromSelf,
+                                                  partiallyValidated);
     }
     else
     {
@@ -1345,6 +1353,13 @@ HerderImpl::triggerNextLedger(uint32_t ledgerSeqToTrigger,
         CLOG_DEBUG(Herder, "triggerNextLedger: skipping (out of sync) : {}",
                    mApp.getStateHuman());
         return;
+    }
+
+    // Push pool transactions into queues
+    std::unique_ptr<TransactionPool::TxMap> poolTxs = mApp.getOverlayManager().getTransactionPool().clearPool();
+    for (auto& tx : *poolTxs)
+    {
+        recvTransaction(tx.second, false, true);
     }
 
     // our first choice for this round's set is all the tx we have collected
@@ -2299,6 +2314,8 @@ HerderImpl::updateTransactionQueue(TxSetXDRFrameConstPtr externalizedTxSet)
             getUpperBoundCloseTimeOffset(mApp, lhhe.header.scpValue.closeTime));
         queue.ban(invalidTxs);
 
+        // TODO: Maybe don't rebroadcast from queue? Or trigger rebroadcast only
+        // from tx pool?  Or somehow do it in the background?
         queue.rebroadcast();
     };
     if (txsPerPhase.size() > static_cast<size_t>(TxSetPhase::CLASSIC))
@@ -2447,6 +2464,15 @@ HerderImpl::isBannedTx(Hash const& hash) const
 TransactionFrameBaseConstPtr
 HerderImpl::getTx(Hash const& hash) const
 {
+    // TODO: This also needs to check the tx pool. Or maybe whatever calls this
+    // should check the tx pool from the background first before calling getTx?
+    // Unclear. For the initial prototype, let's just check the tx pool from the
+    // main thread here (using locking).
+    auto fromPool = mApp.getOverlayManager().getTransactionPool().getTx(hash);
+    if (fromPool)
+    {
+        return fromPool;
+    }
     auto classic = mTransactionQueue.getTx(hash);
     if (!classic && mSorobanTransactionQueue)
     {

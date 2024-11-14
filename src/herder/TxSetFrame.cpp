@@ -233,6 +233,9 @@ phaseTxsAreValid(TxSetTransactions const& phase, Application& app,
                  uint64_t upperBoundCloseTimeOffset)
 {
     ZoneScoped;
+    // TODO: I think this is true? If it's not, the function shouldn't be taking
+    // an `Application`!
+    releaseAssert(threadIsMain());
     // This is done so minSeqLedgerGap is validated against the next
     // ledgerSeq, which is what will be used at apply time
 
@@ -241,10 +244,10 @@ phaseTxsAreValid(TxSetTransactions const& phase, Application& app,
     LedgerSnapshot ls(app);
     ls.getLedgerHeader().currentToModify().ledgerSeq =
         app.getLedgerManager().getLastClosedLedgerNum() + 1;
+    AppValidationWrapper const avw(app.getAppConnector());
     for (auto const& tx : phase)
     {
-        auto txResult = tx->checkValid(app.getAppConnector(), ls, 0,
-                                       lowerBoundCloseTimeOffset,
+        auto txResult = tx->checkValid(avw, ls, 0, lowerBoundCloseTimeOffset,
                                        upperBoundCloseTimeOffset);
         if (!txResult->isSuccess())
         {

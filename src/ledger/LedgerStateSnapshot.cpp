@@ -220,7 +220,7 @@ LedgerSnapshot::LedgerSnapshot(AbstractLedgerTxn& ltx)
 {
 }
 
-LedgerSnapshot::LedgerSnapshot(Application& app)
+LedgerSnapshot::LedgerSnapshot(Application const& app)
 {
     if (app.getConfig().DEPRECATED_SQL_LEDGER_STATE
 #ifdef BUILD_TESTS

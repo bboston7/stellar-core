@@ -875,7 +875,7 @@ TransactionFrame::isTooEarlyForAccount(LedgerHeaderWrapper const& header,
 
 bool
 TransactionFrame::commonValidPreSeqNum(
-    AppConnector& app, LedgerSnapshot const& ls, bool chargeFee,
+    ValidationConnector const& vc, LedgerSnapshot const& ls, bool chargeFee,
     uint64_t lowerBoundCloseTimeOffset, uint64_t upperBoundCloseTimeOffset,
     std::optional<FeePair> sorobanResourceFee,
     MutableTxResultPtr txResult) const
@@ -945,7 +945,7 @@ TransactionFrame::commonValidPreSeqNum(
             return false;
         }
 
-        if (!checkSorobanResourceAndSetError(app, ledgerVersion, txResult))
+        if (!checkSorobanResourceAndSetError(vc, ledgerVersion, txResult))
         {
             return false;
         }
@@ -955,7 +955,7 @@ TransactionFrame::commonValidPreSeqNum(
         if (sorobanData.resourceFee > getFullFee())
         {
             sorobanTxData.pushValidationTimeDiagnosticError(
-                app.getConfig(), SCE_STORAGE, SCEC_EXCEEDED_LIMIT,
+                vc.getConfig(), SCE_STORAGE, SCEC_EXCEEDED_LIMIT,
                 "transaction `sorobanData.resourceFee` is higher than the "
                 "full transaction fee",
                 {makeU64SCVal(sorobanData.resourceFee),
@@ -969,7 +969,7 @@ TransactionFrame::commonValidPreSeqNum(
             INT64_MAX - sorobanResourceFee->non_refundable_fee)
         {
             sorobanTxData.pushValidationTimeDiagnosticError(
-                app.getConfig(), SCE_STORAGE, SCEC_INVALID_INPUT,
+                vc.getConfig(), SCE_STORAGE, SCEC_INVALID_INPUT,
                 "transaction resource fees cannot be added",
                 {makeU64SCVal(sorobanResourceFee->refundable_fee),
                  makeU64SCVal(sorobanResourceFee->non_refundable_fee)});
@@ -982,7 +982,7 @@ TransactionFrame::commonValidPreSeqNum(
         if (sorobanData.resourceFee < resourceFees)
         {
             sorobanTxData.pushValidationTimeDiagnosticError(
-                app.getConfig(), SCE_STORAGE, SCEC_EXCEEDED_LIMIT,
+                vc.getConfig(), SCE_STORAGE, SCEC_EXCEEDED_LIMIT,
                 "transaction `sorobanData.resourceFee` is lower than the "
                 "actual Soroban resource fee",
                 {makeU64SCVal(sorobanData.resourceFee),
@@ -1001,7 +1001,7 @@ TransactionFrame::commonValidPreSeqNum(
                 if (!set.emplace(lk).second)
                 {
                     sorobanTxData.pushValidationTimeDiagnosticError(
-                        app.getConfig(), SCE_STORAGE, SCEC_INVALID_INPUT,
+                        vc.getConfig(), SCE_STORAGE, SCEC_INVALID_INPUT,
                         "Found duplicate key in the Soroban footprint; every "
                         "key across read-only and read-write footprints has to "
                         "be unique.",
@@ -1180,7 +1180,7 @@ TransactionFrame::isBadSeq(LedgerHeaderWrapper const& header,
 }
 
 TransactionFrame::ValidationType
-TransactionFrame::commonValid(AppConnector& app,
+TransactionFrame::commonValid(ValidationConnector const& vc,
                               SignatureChecker& signatureChecker,
                               LedgerSnapshot const& ls, SequenceNumber current,
                               bool applying, bool chargeFee,
@@ -1194,7 +1194,7 @@ TransactionFrame::commonValid(AppConnector& app,
     ValidationType res = ValidationType::kInvalid;
 
     auto validate = [this, &signatureChecker, applying,
-                     lowerBoundCloseTimeOffset, upperBoundCloseTimeOffset, &app,
+                     lowerBoundCloseTimeOffset, upperBoundCloseTimeOffset, &vc,
                      chargeFee, sorobanResourceFee, txResult, &current,
                      &res](LedgerSnapshot const& ls) {
         if (applying &&
@@ -1204,7 +1204,7 @@ TransactionFrame::commonValid(AppConnector& app,
                 "Applying transaction with non-current closeTime");
         }
 
-        if (!commonValidPreSeqNum(app, ls, chargeFee, lowerBoundCloseTimeOffset,
+        if (!commonValidPreSeqNum(vc, ls, chargeFee, lowerBoundCloseTimeOffset,
                                   upperBoundCloseTimeOffset, sorobanResourceFee,
                                   txResult))
         {
@@ -1411,8 +1411,8 @@ TransactionFrame::removeAccountSigner(AbstractLedgerTxn& ltxOuter,
 
 MutableTxResultPtr
 TransactionFrame::checkValidWithOptionallyChargedFee(
-    AppConnector& app, LedgerSnapshot const& ls, SequenceNumber current,
-    bool chargeFee, uint64_t lowerBoundCloseTimeOffset,
+    ValidationConnector const& vc, LedgerSnapshot const& ls,
+    SequenceNumber current, bool chargeFee, uint64_t lowerBoundCloseTimeOffset,
     uint64_t upperBoundCloseTimeOffset) const
 {
     ZoneScoped;
@@ -1445,9 +1445,9 @@ TransactionFrame::checkValidWithOptionallyChargedFee(
     {
         sorobanResourceFee = computePreApplySorobanResourceFee(
             ls.getLedgerHeader().current().ledgerVersion,
-            app.getLedgerManager().getSorobanNetworkConfig(), app.getConfig());
+            vc.getSorobanNetworkConfig(), vc.getConfig());
     }
-    bool res = commonValid(app, signatureChecker, ls, current, false, chargeFee,
+    bool res = commonValid(vc, signatureChecker, ls, current, false, chargeFee,
                            lowerBoundCloseTimeOffset, upperBoundCloseTimeOffset,
                            sorobanResourceFee,
                            txResult) == ValidationType::kMaybeValid;
@@ -1458,7 +1458,7 @@ TransactionFrame::checkValidWithOptionallyChargedFee(
             auto const& op = mOperations[i];
             auto& opResult = txResult->getOpResultAt(i);
 
-            if (!op->checkValid(app, signatureChecker, ls, false, opResult,
+            if (!op->checkValid(vc, signatureChecker, ls, false, opResult,
                                 txResult->getSorobanData()))
             {
                 // it's OK to just fast fail here and not try to call
@@ -1479,8 +1479,8 @@ TransactionFrame::checkValidWithOptionallyChargedFee(
 }
 
 MutableTxResultPtr
-TransactionFrame::checkValid(AppConnector& app, LedgerSnapshot const& ls,
-                             SequenceNumber current,
+TransactionFrame::checkValid(ValidationConnector const& vc,
+                             LedgerSnapshot const& ls, SequenceNumber current,
                              uint64_t lowerBoundCloseTimeOffset,
                              uint64_t upperBoundCloseTimeOffset) const
 {
@@ -1488,26 +1488,24 @@ TransactionFrame::checkValid(AppConnector& app, LedgerSnapshot const& ls,
     // `checkValidWithOptionallyChargedFee` in order to not validate the
     // envelope XDR twice for the fee bump transactions (they use
     // `checkValidWithOptionallyChargedFee` for the inner tx).
-    if (!isTransactionXDRValidForCurrentProtocol(app, mEnvelope))
+    if (!isTransactionXDRValidForCurrentProtocol(vc, mEnvelope))
     {
         auto txResult = createSuccessResult();
         txResult->setResultCode(txMALFORMED);
         return txResult;
     }
-    return checkValidWithOptionallyChargedFee(app, ls, current, true,
+    return checkValidWithOptionallyChargedFee(vc, ls, current, true,
                                               lowerBoundCloseTimeOffset,
                                               upperBoundCloseTimeOffset);
 }
 
 bool
 TransactionFrame::checkSorobanResourceAndSetError(
-    AppConnector& app, uint32_t ledgerVersion,
+    ValidationConnector const& vc, uint32_t ledgerVersion,
     MutableTxResultPtr txResult) const
 {
-    auto const& sorobanConfig =
-        app.getLedgerManager().getSorobanNetworkConfig();
-    if (!validateSorobanResources(sorobanConfig, app.getConfig(), ledgerVersion,
-                                  *txResult->getSorobanData()))
+    if (!validateSorobanResources(vc.getSorobanNetworkConfig(), vc.getConfig(),
+                                  ledgerVersion, *txResult->getSorobanData()))
     {
         txResult->setInnermostResultCode(txSOROBAN_INVALID);
         return false;
@@ -1843,7 +1841,8 @@ TransactionFrame::apply(AppConnector& app, AbstractLedgerTxn& ltx,
         }
         LedgerTxn ltxTx(ltx);
         LedgerSnapshot ltxStmt(ltxTx);
-        auto cv = commonValid(app, *signatureChecker, ltxStmt, 0, true,
+        AppValidationWrapper avw(app);
+        auto cv = commonValid(avw, *signatureChecker, ltxStmt, 0, true,
                               chargeFee, 0, 0, sorobanResourceFee, txResult);
         if (cv >= ValidationType::kInvalidUpdateSeqNum)
         {

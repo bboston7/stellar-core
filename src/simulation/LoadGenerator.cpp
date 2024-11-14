@@ -1461,7 +1461,10 @@ LoadGenerator::execute(TransactionFrameBasePtr txf, LoadGenMode mode,
     auto msg = txf->toStellarMessage();
     txm.mTxnBytes.Mark(xdr::xdr_argpack_size(*msg));
 
-    auto addResult = mApp.getHerder().recvTransaction(txf, true);
+    // TODO: Maybe this should set "partially validated" flag to true? It's not
+    // like we don't trust ourselves here, and it might really speed up loadgen
+    // to not do all that signature verification on load generating nodes.
+    auto addResult = mApp.getHerder().recvTransaction(txf, true, false);
     if (addResult.code != TransactionQueue::AddResultCode::ADD_STATUS_PENDING)
     {
 

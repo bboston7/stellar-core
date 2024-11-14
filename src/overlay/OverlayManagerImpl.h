@@ -14,6 +14,7 @@
 #include "overlay/OverlayManager.h"
 #include "overlay/OverlayMetrics.h"
 #include "overlay/SurveyManager.h"
+#include "overlay/TransactionPool.h"
 #include "overlay/TxDemandsManager.h"
 #include "util/Timer.h"
 
@@ -161,6 +162,8 @@ class OverlayManagerImpl : public OverlayManager
 
     SurveyManager& getSurveyManager() override;
 
+    TransactionPool& getTransactionPool() override;
+
     void start() override;
     void shutdown() override;
 
@@ -183,6 +186,8 @@ class OverlayManagerImpl : public OverlayManager
     int mResolvingPeersRetryCount;
     RandomEvictionCache<Hash, std::weak_ptr<CapacityTrackedMessage>>
         mScheduledMessages;
+
+    std::unique_ptr<TransactionPool> mTxPool = nullptr;
 
     void triggerPeerResolution();
     std::pair<std::vector<PeerBareAddress>, bool>

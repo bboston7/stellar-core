@@ -34,6 +34,8 @@
 using namespace stellar;
 using namespace stellar::txtest;
 
+// TODO: Test partially validated txs
+
 namespace
 {
 TransactionTestFramePtr
@@ -102,7 +104,7 @@ class TransactionQueueTest
     add(TransactionFrameBasePtr const& tx,
         TransactionQueue::AddResultCode expected)
     {
-        auto res = mTransactionQueue.tryAdd(tx, false);
+        auto res = mTransactionQueue.tryAdd(tx, false, false);
         REQUIRE(res.code == expected);
         return res;
     }
@@ -1010,7 +1012,7 @@ TEST_CASE("TransactionQueue with PreconditionsV2", "[herder][transactionqueue]")
         auto& herder = static_cast<HerderImpl&>(app->getHerder());
         auto& tq = herder.getTransactionQueue();
 
-        REQUIRE(herder.recvTransaction(tx, false).code ==
+        REQUIRE(herder.recvTransaction(tx, false, false).code ==
                 TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
 
         REQUIRE(tq.getTransactions({}).size() == 1);
@@ -1138,7 +1140,7 @@ TEST_CASE("Soroban TransactionQueue pre-protocol-20",
                                  DEFAULT_TEST_RESOURCE_FEE, resources);
 
     // Soroban tx is not supported
-    REQUIRE(app->getHerder().recvTransaction(tx, false).code ==
+    REQUIRE(app->getHerder().recvTransaction(tx, false, false).code ==
             TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
     REQUIRE(app->getHerder().getTx(tx->getFullHash()) == nullptr);
 }
@@ -1185,7 +1187,7 @@ TEST_CASE("Soroban tx and memos", "[soroban][transactionqueue]")
             app->getNetworkID(), a1, {uploadOp}, {}, resources,
             uploadResourceFee + 100, uploadResourceFee, "memo");
 
-        REQUIRE(app->getHerder().recvTransaction(txWithMemo, false).code ==
+        REQUIRE(app->getHerder().recvTransaction(txWithMemo, false, false).code ==
                 TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
     }
 
@@ -1202,7 +1204,7 @@ TEST_CASE("Soroban tx and memos", "[soroban][transactionqueue]")
             app->getNetworkID(), a1, {uploadOp}, {}, resources,
             uploadResourceFee + 100, uploadResourceFee, "memo");
 
-        REQUIRE(app->getHerder().recvTransaction(txWithMemo, false).code ==
+        REQUIRE(app->getHerder().recvTransaction(txWithMemo, false, false).code ==
                 TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
     }
 
@@ -1216,7 +1218,7 @@ TEST_CASE("Soroban tx and memos", "[soroban][transactionqueue]")
             1 /*muxedData*/);
 
         REQUIRE(
-            app->getHerder().recvTransaction(txWithMuxedTxSource, false).code ==
+            app->getHerder().recvTransaction(txWithMuxedTxSource, false, false).code ==
             TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
     }
 
@@ -1233,7 +1235,7 @@ TEST_CASE("Soroban tx and memos", "[soroban][transactionqueue]")
             uploadResourceFee + 100, uploadResourceFee);
 
         REQUIRE(
-            app->getHerder().recvTransaction(txWithMuxedOpSource, false).code ==
+            app->getHerder().recvTransaction(txWithMuxedOpSource, false, false).code ==
             TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
     }
 }
@@ -1275,7 +1277,7 @@ TEST_CASE("Soroban TransactionQueue limits",
     auto tx = createUploadWasmTx(*app, root, initialInclusionFee, resourceFee,
                                  resAdjusted);
 
-    REQUIRE(app->getHerder().recvTransaction(tx, false).code ==
+    REQUIRE(app->getHerder().recvTransaction(tx, false, false).code ==
             TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
     REQUIRE(app->getHerder().getTx(tx->getFullHash()) != nullptr);
 
@@ -1335,7 +1337,7 @@ TEST_CASE("Soroban TransactionQueue limits",
             REQUIRE_THROWS_AS(badTx->getInclusionFee(), std::runtime_error);
         }
         // Gracefully handle malformed transaction
-        auto addResult = app->getHerder().recvTransaction(badTx, false);
+        auto addResult = app->getHerder().recvTransaction(badTx, false, false);
         REQUIRE(addResult.code ==
                 TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
         REQUIRE(addResult.txResult);
@@ -1350,12 +1352,12 @@ TEST_CASE("Soroban TransactionQueue limits",
         auto checkLimitEnforced = [&](auto const& pendingTx,
                                       auto const& rejectedTx,
                                       TransactionQueue& txQueue) {
-            REQUIRE(app->getHerder().recvTransaction(pendingTx, false).code ==
+            REQUIRE(app->getHerder().recvTransaction(pendingTx, false, false).code ==
                     TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
 
             // Can't submit tx due to source account limit
             REQUIRE(
-                app->getHerder().recvTransaction(rejectedTx, false).code ==
+                app->getHerder().recvTransaction(rejectedTx, false, false).code ==
                 TransactionQueue::AddResultCode::ADD_STATUS_TRY_AGAIN_LATER);
 
             // ban existing tx
@@ -1365,7 +1367,7 @@ TEST_CASE("Soroban TransactionQueue limits",
             REQUIRE(app->getHerder().isBannedTx(pendingTx->getFullHash()));
 
             // Now can submit classic txs
-            REQUIRE(app->getHerder().recvTransaction(rejectedTx, false).code ==
+            REQUIRE(app->getHerder().recvTransaction(rejectedTx, false, false).code ==
                     TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
         };
         SECTION("classic is rejected when soroban is pending")
@@ -1421,7 +1423,7 @@ TEST_CASE("Soroban TransactionQueue limits",
             auto txNew = createUploadWasmTx(*app, account1, initialInclusionFee,
                                             resourceFee, resources);
 
-            REQUIRE(app->getHerder().recvTransaction(txNew, false).code ==
+            REQUIRE(app->getHerder().recvTransaction(txNew, false, false).code ==
                     TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
 
             SECTION("insufficient fee")
@@ -1445,7 +1447,7 @@ TEST_CASE("Soroban TransactionQueue limits",
                 }
 
                 // Same per-op fee, no eviction
-                auto addResult = app->getHerder().recvTransaction(tx2, false);
+                auto addResult = app->getHerder().recvTransaction(tx2, false, false);
                 REQUIRE(addResult.code ==
                         TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
                 REQUIRE(!app->getHerder().isBannedTx(tx->getFullHash()));
@@ -1463,7 +1465,7 @@ TEST_CASE("Soroban TransactionQueue limits",
                     createUploadWasmTx(*app, account2, initialInclusionFee,
                                        minBalance2, resources);
 
-                auto addResult = app->getHerder().recvTransaction(tx2, false);
+                auto addResult = app->getHerder().recvTransaction(tx2, false, false);
                 REQUIRE(addResult.code ==
                         TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
                 REQUIRE(!app->getHerder().isBannedTx(tx->getFullHash()));
@@ -1492,7 +1494,7 @@ TEST_CASE("Soroban TransactionQueue limits",
                                            resourceFee, resources);
                 }
 
-                auto addResult = app->getHerder().recvTransaction(tx2, false);
+                auto addResult = app->getHerder().recvTransaction(tx2, false, false);
                 REQUIRE(addResult.code ==
                         TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
                 REQUIRE(!app->getHerder().isBannedTx(tx->getFullHash()));
@@ -1506,7 +1508,7 @@ TEST_CASE("Soroban TransactionQueue limits",
                     *app, account2, initialInclusionFee * 2, resourceFee,
                     resources, std::nullopt, /* addInvalidOps */ 1);
 
-                auto addResult = app->getHerder().recvTransaction(tx2, false);
+                auto addResult = app->getHerder().recvTransaction(tx2, false, false);
                 REQUIRE(addResult.code ==
                         TransactionQueue::AddResultCode::ADD_STATUS_ERROR);
                 REQUIRE(!app->getHerder().isBannedTx(tx->getFullHash()));
@@ -1541,10 +1543,10 @@ TEST_CASE("Soroban TransactionQueue limits",
                               2 * (initialInclusionFee + 1));
             }
 
-            auto res = app->getHerder().recvTransaction(tx2, false);
+            auto res = app->getHerder().recvTransaction(tx2, false, false);
             REQUIRE(res.code ==
                     TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
-            auto res2 = app->getHerder().recvTransaction(tx3, false);
+            auto res2 = app->getHerder().recvTransaction(tx3, false, false);
             REQUIRE(res2.code ==
                     TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
 
@@ -2131,8 +2133,9 @@ TEST_CASE("transaction queue starting sequence boundary",
         REQUIRE(acc1.loadSequenceNumber() == startingSeq - 1);
 
         ClassicTransactionQueue tq(*app, 4, 10, 4);
-        REQUIRE(tq.tryAdd(transaction(*app, acc1, 1, 1, 100), false).code ==
-                TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
+        REQUIRE(
+            tq.tryAdd(transaction(*app, acc1, 1, 1, 100), false, false).code ==
+            TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
 
         auto checkTxSet = [&](uint32_t ledgerSeq) {
             auto lcl = app->getLedgerManager().getLastClosedLedgerHeader();
@@ -2720,9 +2723,9 @@ TEST_CASE("remove applied", "[herder][transactionqueue]")
     auto tx3 = acc2.tx({payment(root, 1)});
     auto tx4 = acc3.tx({payment(root, 1)});
 
-    herder.recvTransaction(tx1a, false);
-    herder.recvTransaction(tx2, false);
-    herder.recvTransaction(tx3, false);
+    herder.recvTransaction(tx1a, false, false);
+    herder.recvTransaction(tx2, false, false);
+    herder.recvTransaction(tx3, false, false);
 
     {
         auto const& lcl = lm.getLastClosedLedgerHeader();
@@ -2742,7 +2745,7 @@ TEST_CASE("remove applied", "[herder][transactionqueue]")
     }
 
     REQUIRE(tq.getTransactions({}).size() == 1);
-    REQUIRE(herder.recvTransaction(tx4, false).code ==
+    REQUIRE(herder.recvTransaction(tx4, false, false).code ==
             TransactionQueue::AddResultCode::ADD_STATUS_PENDING);
     REQUIRE(tq.getTransactions({}).size() == 2);
 }

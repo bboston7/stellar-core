@@ -51,6 +51,7 @@ class PeerBareAddress;
 class PeerManager;
 class SurveyManager;
 struct StellarMessage;
+class TransactionPool;
 
 class OverlayManager
 {
@@ -192,6 +193,9 @@ class OverlayManager
     virtual PeerManager& getPeerManager() = 0;
 
     virtual SurveyManager& getSurveyManager() = 0;
+
+    // TODO: Docs
+    virtual TransactionPool& getTransactionPool() = 0;
 
     // start up all background tasks for overlay
     virtual void start() = 0;

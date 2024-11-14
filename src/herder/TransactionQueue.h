@@ -125,7 +125,8 @@ class TransactionQueue
     static std::vector<AssetPair>
     findAllAssetPairsInvolvedInPaymentLoops(TransactionFrameBasePtr tx);
 
-    AddResult tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf);
+    // TODO: Docs
+    AddResult tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf, bool partiallyValidated);
     void removeApplied(Transactions const& txs);
     // Ban transactions that are no longer valid or have insufficient fee;
     // transaction per account limit applies here, so `txs` should have no
@@ -219,9 +220,11 @@ class TransactionQueue
     };
     BroadcastStatus broadcastTx(TimestampedTx& tx);
 
+    // TODO: Docs
     TransactionQueue::AddResult
     canAdd(TransactionFrameBasePtr tx, AccountStates::iterator& stateIter,
-           std::vector<std::pair<TransactionFrameBasePtr, bool>>& txsToEvict);
+           std::vector<std::pair<TransactionFrameBasePtr, bool>>& txsToEvict,
+           bool partiallyValidated);
 
     void releaseFeeMaybeEraseAccountState(TransactionFrameBasePtr tx);
 

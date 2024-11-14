@@ -23,18 +23,28 @@ class AppConnector
     Application& mApp;
     // Copy config for threads to use, and avoid warnings from thread sanitizer
     // about accessing mApp
-    Config const mConfig;
+    std::shared_ptr<const Config> const mConfig;
 
   public:
     AppConnector(Application& app);
 
     // Methods that can only be called from main thread
-    Herder& getHerder();
-    LedgerManager& getLedgerManager();
-    OverlayManager& getOverlayManager();
-    BanManager& getBanManager();
+    Herder& getHerder() const;
+    LedgerManager& getLedgerManager() const;
+    OverlayManager& getOverlayManager() const;
+    BanManager& getBanManager() const;
     bool shouldYield() const;
     SorobanNetworkConfig const& getSorobanNetworkConfig() const;
+    // TODO: Docs. Mention that the difference between this and `getSorobanNetowrkConfig` is that:
+    // 1. This makes a copy, which is safe to use in other threads (TODO: Really
+    // double check this. I don't see any references or pointers in
+    // SorobanNetworkConfig, but there is a `mutable` field, which needs to be
+    // investigated).
+    // 2. This returns nullopt when the network config is not set, while
+    // `getSorobanNetworkConfig` will throw an assertion error in that case.
+    // TODO: Should this be a universal reference (&&)? I pass it to a std::move
+    // "call" in the ImmutableValidationSnapshot constructor.
+    std::optional<SorobanNetworkConfig> maybeGetSorobanNetworkConfig() const;
     medida::MetricsRegistry& getMetrics() const;
     SorobanMetrics& getSorobanMetrics() const;
     void checkOnOperationApply(Operation const& operation,
@@ -50,6 +60,7 @@ class AppConnector
                              std::string const& message);
     VirtualClock::time_point now() const;
     Config const& getConfig() const;
+    std::shared_ptr<Config const> getConfigPtr() const;
     bool overlayShuttingDown() const;
     OverlayMetrics& getOverlayMetrics();
     // This method is always exclusively called from one thread

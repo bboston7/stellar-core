@@ -1247,7 +1247,7 @@ ApplicationImpl::applyCfgCommands()
 }
 
 Config const&
-ApplicationImpl::getConfig()
+ApplicationImpl::getConfig() const
 {
     return mConfig;
 }
@@ -1386,7 +1386,7 @@ ApplicationImpl::getLedgerManager()
 }
 
 BucketManager&
-ApplicationImpl::getBucketManager()
+ApplicationImpl::getBucketManager() const
 {
     return *mBucketManager;
 }
@@ -1598,7 +1598,7 @@ ApplicationImpl::createDatabase()
 }
 
 AbstractLedgerTxnParent&
-ApplicationImpl::getLedgerTxnRoot()
+ApplicationImpl::getLedgerTxnRoot() const
 {
     releaseAssert(threadIsMain());
 
@@ -1613,7 +1613,7 @@ ApplicationImpl::getLedgerTxnRoot()
 }
 
 AppConnector&
-ApplicationImpl::getAppConnector()
+ApplicationImpl::getAppConnector() const
 {
     return *mAppConnector;
 }

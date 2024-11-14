@@ -67,11 +67,12 @@ class TransactionTestFrame : public TransactionFrameBase
                                   uint64_t lowerBoundCloseTimeOffset,
                                   uint64_t upperBoundCloseTimeOffset) const;
     MutableTxResultPtr
-    checkValid(AppConnector& app, LedgerSnapshot const& ls,
+    checkValid(ValidationConnector const& vc, LedgerSnapshot const& ls,
                SequenceNumber current, uint64_t lowerBoundCloseTimeOffset,
                uint64_t upperBoundCloseTimeOffset) const override;
     bool
-    checkSorobanResourceAndSetError(AppConnector& app, uint32_t ledgerVersion,
+    checkSorobanResourceAndSetError(ValidationConnector const& vc,
+                                    uint32_t ledgerVersion,
                                     MutableTxResultPtr txResult) const override;
 
     MutableTxResultPtr createSuccessResult() const override;

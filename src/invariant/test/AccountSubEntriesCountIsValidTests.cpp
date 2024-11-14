@@ -295,6 +295,9 @@ TEST_CASE("Create account with no subentries",
     Config cfg = getTestConfig(0, Config::TESTDB_IN_MEMORY);
     cfg.INVARIANT_CHECKS = {"AccountSubEntriesCountIsValid"};
     VirtualClock clock;
+    // TODO: An exception fires here in trying to generate a ledger snapshot. I
+    // *think* it has something to do with the SQL backend and wouldn't be a
+    // problem if using bucketlist db?
     Application::pointer app = createTestApplication(clock, cfg);
 
     for (uint32_t i = 0; i < 100; ++i)
