@@ -109,6 +109,7 @@ SorobanTxData::pushApplyTimeDiagnosticError(Config const& cfg, SCErrorType ty,
                                             std::string&& message,
                                             xdr::xvector<SCVal>&& args)
 {
+    CLOG_ERROR(Tx, "Soroban apply diagnostic error: {}", message);
     if (!cfg.ENABLE_SOROBAN_DIAGNOSTIC_EVENTS)
     {
         return;
@@ -124,6 +125,7 @@ SorobanTxData::pushValidationTimeDiagnosticError(Config const& cfg,
                                                  std::string&& message,
                                                  xdr::xvector<SCVal>&& args)
 {
+    CLOG_ERROR(Tx, "Soroban validation diagnostic error: {}", message);
     if (!cfg.ENABLE_DIAGNOSTICS_FOR_TX_SUBMISSION)
     {
         return;
