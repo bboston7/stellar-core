@@ -2318,7 +2318,7 @@ HerderImpl::updateTransactionQueue(TxSetXDRFrameConstPtr externalizedTxSet)
 
     auto lhhe = mLedgerManager.getLastClosedLedgerHeader();
 
-    auto filterInvalidTxs = [&](TxSetTransactions const& txs) {
+    auto filterInvalidTxs = [&](TxFrameList const& txs) {
         return TxSetUtils::getInvalidTxList(
             txs, mApp, 0,
             getUpperBoundCloseTimeOffset(mApp.getAppConnector(),

@@ -159,7 +159,7 @@ class TransactionQueue
     void
     update(Transactions const& applied, LedgerHeader const& lcl,
            LedgerSnapshotPtr newLedgerSnapshot,
-           std::function<TxSetTransactions(TxSetTransactions const&)> const&
+           std::function<TxFrameList(TxFrameList const&)> const&
                filterInvalidTxs);
 
     bool isBanned(Hash const& hash) const;

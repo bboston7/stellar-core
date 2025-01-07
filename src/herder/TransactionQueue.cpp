@@ -1342,7 +1342,7 @@ void
 TransactionQueue::update(
     Transactions const& applied, LedgerHeader const& lcl,
     LedgerSnapshotPtr const newLedgerSnapshot,
-    std::function<TxSetTransactions(TxSetTransactions const&)> const&
+    std::function<TxFrameList(TxFrameList const&)> const&
         filterInvalidTxs)
 {
     ZoneScoped;
