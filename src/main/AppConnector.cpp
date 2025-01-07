@@ -54,12 +54,12 @@ AppConnector::getSorobanNetworkConfigReadOnly() const
 }
 
 std::optional<SorobanNetworkConfig>
-AppConnector::maybeGetSorobanNetworkConfig() const
+AppConnector::maybeGetSorobanNetworkConfigReadOnly() const
 {
     releaseAssert(threadIsMain());
     if (mApp.getLedgerManager().hasSorobanNetworkConfig())
     {
-        return mApp.getLedgerManager().getSorobanNetworkConfig();
+        return mApp.getLedgerManager().getSorobanNetworkConfigReadOnly();
     }
     return std::nullopt;
 }

@@ -13,7 +13,6 @@ namespace stellar
 
 AppValidationWrapper::AppValidationWrapper(AppConnector const& app) : mApp(app)
 {
-    releaseAssert(threadIsMain());
 }
 
 Config const&
@@ -22,19 +21,17 @@ AppValidationWrapper::getConfig() const
     return mApp.getConfig();
 }
 
-// TODO: WIll need to update this. Probably need "for apply" and "readonly"
-// variants.
 SorobanNetworkConfig const&
 AppValidationWrapper::getSorobanNetworkConfig() const
 {
-    releaseAssert(threadIsMain());
-    return mApp.getSorobanNetworkConfig();
+    // TODO: I think this is right. AppValidationWrapper is only used during
+    // apply time, so we want the apply-time network config.
+    return mApp.getLedgerManager().getSorobanNetworkConfigForApply();
 }
 
 uint32_t
 AppValidationWrapper::getCurrentProtocolVersion() const
 {
-    releaseAssert(threadIsMain());
     return mApp.getLedgerManager()
         .getLastClosedLedgerHeader()
         .header.ledgerVersion;
@@ -44,7 +41,7 @@ AppValidationWrapper::getCurrentProtocolVersion() const
 ImmutableValidationSnapshot::ImmutableValidationSnapshot(
     AppConnector const& app)
     : mConfig(app.getConfigPtr())
-    , mSorobanNetworkConfig(app.maybeGetSorobanNetworkConfig())
+    , mSorobanNetworkConfig(app.maybeGetSorobanNetworkConfigReadOnly())
     , mCurrentProtocolVersion(app.getLedgerManager()
                                   .getLastClosedLedgerHeader()
                                   .header.ledgerVersion)

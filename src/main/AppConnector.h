@@ -45,7 +45,7 @@ class AppConnector
     // TODO: Should this be a universal reference (&&)? I pass it to a std::move
     // "call" in the ImmutableValidationSnapshot constructor.
     // TODO: Is this even necessary anymore after getting rid of the tx pool?
-    std::optional<SorobanNetworkConfig> maybeGetSorobanNetworkConfig() const;
+    std::optional<SorobanNetworkConfig> maybeGetSorobanNetworkConfigReadOnly() const;
     medida::MetricsRegistry& getMetrics() const;
     SorobanMetrics& getSorobanMetrics() const;
     void checkOnOperationApply(Operation const& operation,
