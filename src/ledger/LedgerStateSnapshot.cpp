@@ -221,7 +221,7 @@ LedgerSnapshot::LedgerSnapshot(AbstractLedgerTxn& ltx)
 {
 }
 
-LedgerSnapshot::LedgerSnapshot(Application const& app)
+LedgerSnapshot::LedgerSnapshot(Application& app)
 {
     releaseAssert(threadIsMain());
 #ifdef BUILD_TESTS
