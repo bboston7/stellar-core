@@ -1704,7 +1704,9 @@ TEST_CASE("TransactionQueue limits", "[herder][transactionqueue]")
     auto account6 = root.create("a6", minBalance2);
     auto account7 = root.create("a7", minBalance2);
 
-    TxQueueLimiter limiter(1, *app, false);
+    auto vs = std::make_shared<ImmutableValidationSnapshot const>(app->getAppConnector());
+    auto ls = std::make_shared<LedgerSnapshot const>(*app);
+    TxQueueLimiter limiter(1, false, vs, ls);
 
     struct SetupElement
     {
@@ -1885,7 +1887,9 @@ TEST_CASE("TransactionQueue limiter with DEX separation",
     auto account6 = root.create("a6", minBalance2);
 
     // 3 * 3 = 9 operations limit, 3 * 1 = 3 DEX operations limit.
-    TxQueueLimiter limiter(3, *app, false);
+    auto vs = std::make_shared<ImmutableValidationSnapshot const>(app->getAppConnector());
+    auto ls = std::make_shared<LedgerSnapshot const>(*app);
+    TxQueueLimiter limiter(3, false, vs, ls);
 
     std::vector<TransactionFrameBasePtr> txs;
 

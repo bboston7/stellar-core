@@ -80,6 +80,10 @@ class ImmutableValidationSnapshot : public ValidationConnector
     uint32_t const mCurrentProtocolVersion;
 };
 
+// TODO: Rename to indicate constness / Immutableness?
+using ValidationSnapshotPtr =
+    std::shared_ptr<ImmutableValidationSnapshot const>;
+
 class TransactionFrameBase
 {
   public:

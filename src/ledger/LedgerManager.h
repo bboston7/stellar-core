@@ -87,6 +87,9 @@ class LedgerManager
     static LedgerHeader genesisLedger();
 
     // TODO: Docs
+    static Resource maxClassicLedgerResources(LedgerHeader const& conf);
+
+    // TODO: Docs
     static Resource maxSorobanLedgerResources(SorobanNetworkConfig const& conf);
 
     // TODO: Docs

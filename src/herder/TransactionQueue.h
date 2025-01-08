@@ -118,12 +118,6 @@ class TransactionQueue
         std::optional<TimestampedTx> mTransaction;
     };
 
-    // TODO: Rename?
-    using ValidationSnapshotPtr =
-        std::shared_ptr<ImmutableValidationSnapshot const>;
-
-    using LedgerSnapshotPtr = std::shared_ptr<LedgerSnapshot const>;
-
     // TODO: Get rid of `Application` in constructor? Might be able to get away
     // with an AppConnector here.
     explicit TransactionQueue(Application& app, uint32 pendingDepth,
@@ -257,13 +251,6 @@ class TransactionQueue
 
     bool isFiltered(TransactionFrameBasePtr tx) const;
 
-    std::unique_ptr<TxQueueLimiter> mTxQueueLimiter;
-    UnorderedMap<AssetPair, uint32_t, AssetPairHash> mArbitrageFloodDamping;
-
-    UnorderedMap<Hash, TransactionFrameBasePtr> mKnownTxHashes;
-
-    size_t mBroadcastSeed;
-
     ValidationSnapshotPtr mValidationSnapshot;
 
     // TODO: Is it safe to store this thing here? Garand's comment on the
@@ -272,6 +259,14 @@ class TransactionQueue
     // condition here? Is this not relevant anymore after Marta's PR? Maybe they
     // don't auto-update anymore and are more like "true" snapshots?
     LedgerSnapshotPtr mLedgerSnapshot;
+
+
+    TxQueueLimiter mTxQueueLimiter;
+    UnorderedMap<AssetPair, uint32_t, AssetPairHash> mArbitrageFloodDamping;
+
+    UnorderedMap<Hash, TransactionFrameBasePtr> mKnownTxHashes;
+
+    size_t mBroadcastSeed;
 
     // TODO: Lock all public functions
     mutable std::recursive_mutex mTxQueueMutex;

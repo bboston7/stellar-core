@@ -123,6 +123,12 @@ LedgerManager::ledgerAbbrev(LedgerHeaderHistoryEntry const& he)
 }
 
 Resource
+LedgerManager::maxClassicLedgerResources(LedgerHeader const& header)
+{
+    return Resource(LedgerManager::getMaxTxSetSizeOps(header));
+}
+
+Resource
 LedgerManager::maxSorobanLedgerResources(SorobanNetworkConfig const& conf)
 {
     ZoneScoped std::vector<int64_t> limits = {
@@ -484,6 +490,7 @@ Resource
 LedgerManagerImpl::maxLedgerResources(bool isSoroban)
 {
     ZoneScoped;
+    releaseAssert(threadIsMain());
 
     if (isSoroban)
     {
@@ -492,8 +499,8 @@ LedgerManagerImpl::maxLedgerResources(bool isSoroban)
     }
     else
     {
-        uint32_t maxOpsLedger = getLastMaxTxSetSizeOps();
-        return Resource(maxOpsLedger);
+        return LedgerManager::maxClassicLedgerResources(
+            mLastClosedLedger.header);
     }
 }
 

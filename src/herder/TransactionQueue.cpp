@@ -82,11 +82,10 @@ TransactionQueue::TransactionQueue(Application& app, uint32 pendingDepth,
     , mValidationSnapshot(
           std::make_shared<ImmutableValidationSnapshot const>(app))
     , mLedgerSnapshot(std::make_shared<LedgerSnapshot const>(app))
+    , mTxQueueLimiter(poolLedgerMultiplier, isSoroban, mValidationSnapshot,
+                      mLedgerSnapshot)
     , mAppConn(app.getAppConnector())
 {
-    mTxQueueLimiter =
-        std::make_unique<TxQueueLimiter>(poolLedgerMultiplier, app, isSoroban);
-
     auto const& filteredTypes =
         app.getConfig().EXCLUDE_TRANSACTIONS_CONTAINING_OPERATION_TYPE;
     mFilteredTypes.insert(filteredTypes.begin(), filteredTypes.end());
@@ -433,7 +432,7 @@ TransactionQueue::canAdd(
     // from the same source account, so a newer transaction won't replace an
     // old one.
     auto canAddRes =
-        mTxQueueLimiter->canAddTx(tx, currentTx, txsToEvict, ledgerVersion);
+        mTxQueueLimiter.canAddTx(tx, currentTx, txsToEvict, ledgerVersion);
     if (!canAddRes.first)
     {
         ban({tx});
@@ -524,7 +523,7 @@ void
 TransactionQueue::prepareDropTransaction(AccountState& as)
 {
     releaseAssert(as.mTransaction);
-    mTxQueueLimiter->removeTransaction(as.mTransaction->mTx);
+    mTxQueueLimiter.removeTransaction(as.mTransaction->mTx);
     mKnownTxHashes.erase(as.mTransaction->mTx->getFullHash());
     CLOG_DEBUG(Tx, "Dropping {} transaction",
                hexAbbrev(as.mTransaction->mTx->getFullHash()));
@@ -701,10 +700,10 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
 
     // make space so that we can add this transaction
     // this will succeed as `canAdd` ensures that this is the case
-    mTxQueueLimiter->evictTransactions(
+    mTxQueueLimiter.evictTransactions(
         txsToEvict, *tx,
         [&](TransactionFrameBasePtr const& txToEvict) { ban({txToEvict}); });
-    mTxQueueLimiter->addTransaction(tx);
+    mTxQueueLimiter.addTransaction(tx);
     mKnownTxHashes[tx->getFullHash()] = tx;
 
     mAppConn.postOnMainThread([this]() { broadcast(false); },
@@ -931,7 +930,7 @@ TransactionQueue::shift()
     {
         mQueueMetrics->mSizeByAge[i]->set_count(sizes[i]);
     }
-    mTxQueueLimiter->resetEvictionState();
+    mTxQueueLimiter.resetEvictionState();
     // pick a new randomizing seed for tie breaking
     mBroadcastSeed =
         rand_uniform<uint64>(0, std::numeric_limits<uint64>::max());
@@ -1189,7 +1188,7 @@ SorobanTransactionQueue::getMaxQueueSizeOps() const
     // TODO: I removed a conditional checking that the protocol version is
     // post-soroban here. I think that check is unnecessary, but if something
     // errors out here now, that's why.
-    auto res = mTxQueueLimiter->maxScaledLedgerResources(true);
+    auto res = mTxQueueLimiter.maxScaledLedgerResources(true);
     releaseAssert(res.size() == NUM_SOROBAN_TX_RESOURCES);
     return res.getVal(Resource::Type::OPERATIONS);
 }
@@ -1342,8 +1341,7 @@ void
 TransactionQueue::update(
     Transactions const& applied, LedgerHeader const& lcl,
     LedgerSnapshotPtr const newLedgerSnapshot,
-    std::function<TxFrameList(TxFrameList const&)> const&
-        filterInvalidTxs)
+    std::function<TxFrameList(TxFrameList const&)> const& filterInvalidTxs)
 {
     ZoneScoped;
     releaseAssert(threadIsMain()); // TODO: Necessary? Maybe for the
@@ -1352,10 +1350,11 @@ TransactionQueue::update(
     mValidationSnapshot =
         std::make_shared<ImmutableValidationSnapshot>(mAppConn);
     mLedgerSnapshot = newLedgerSnapshot;
+    mTxQueueLimiter.update(mValidationSnapshot, mLedgerSnapshot);
 
     // TODO: Mark private any functions that are only used here. May need to
-    // mark TransactionQueueTest a friend class of TransactionQueue to get tests
-    // building.
+    // mark TransactionQueueTest a friend class of TransactionQueue to get
+    // tests building.
     removeApplied(applied);
     shift();
 
@@ -1408,7 +1407,7 @@ size_t
 TransactionQueue::getQueueSizeOps() const
 {
     std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
-    return mTxQueueLimiter->size();
+    return mTxQueueLimiter.size();
 }
 
 std::optional<int64_t>
@@ -1432,7 +1431,7 @@ size_t
 ClassicTransactionQueue::getMaxQueueSizeOps() const
 {
     std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
-    auto res = mTxQueueLimiter->maxScaledLedgerResources(false);
+    auto res = mTxQueueLimiter.maxScaledLedgerResources(false);
     releaseAssert(res.size() == NUM_CLASSIC_TX_RESOURCES);
     return res.getVal(Resource::Type::OPERATIONS);
 }
