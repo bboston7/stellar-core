@@ -298,6 +298,9 @@ class HerderImpl : public Herder
     Application& mApp;
     LedgerManager& mLedgerManager;
 
+    // TODO: Docs
+    SearchableSnapshotConstPtr mTxQueueBucketSnapshot;
+
     struct SCPMetrics
     {
         medida::Meter& mLostSync;

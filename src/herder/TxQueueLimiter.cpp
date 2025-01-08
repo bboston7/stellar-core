@@ -30,11 +30,12 @@ computeBetterFee(std::pair<int64, uint32_t> const& evictedBid,
 }
 
 TxQueueLimiter::TxQueueLimiter(uint32 multiplier, bool isSoroban,
-                               ValidationSnapshotPtr vs, LedgerSnapshotPtr ls)
+                               ValidationSnapshotPtr vs,
+                               SearchableSnapshotConstPtr bls)
     : mPoolLedgerMultiplier(multiplier)
     , mIsSoroban(isSoroban)
     , mValidationSnapshot(vs)
-    , mLedgerSnapshot(ls)
+    , mBucketSnapshot(bls)
 {
     auto maxDexOps = vs->getConfig().MAX_DEX_TX_OPERATIONS_IN_TX_SET;
     if (maxDexOps && !mIsSoroban)
@@ -64,7 +65,7 @@ TxQueueLimiter::maxScaledLedgerResources(bool isSoroban) const
                            ? LedgerManager::maxSorobanLedgerResources(
                                  mValidationSnapshot->getSorobanNetworkConfig())
                            : LedgerManager::maxClassicLedgerResources(
-                                 mLedgerSnapshot->getLedgerHeader().current());
+                                 mBucketSnapshot->getLedgerHeader());
     return multiplyByDouble(r, mPoolLedgerMultiplier);
 }
 
@@ -88,7 +89,7 @@ TxQueueLimiter::canAddTx(
     std::vector<std::pair<TransactionFrameBasePtr, bool>>& txsToEvict)
 {
     return canAddTx(newTx, oldTx, txsToEvict,
-                    mLedgerSnapshot->getLedgerHeader().current().ledgerVersion);
+                    mBucketSnapshot->getLedgerHeader().ledgerVersion);
 }
 #endif
 
@@ -238,10 +239,11 @@ TxQueueLimiter::reset(uint32_t ledgerVersion)
     resetEvictionState();
 }
 
-void TxQueueLimiter::update(ValidationSnapshotPtr vs, LedgerSnapshotPtr ls)
+void
+TxQueueLimiter::update(ValidationSnapshotPtr vs, SearchableSnapshotConstPtr bls)
 {
     mValidationSnapshot = vs;
-    mLedgerSnapshot = ls;
+    mBucketSnapshot = bls;
 }
 
 void

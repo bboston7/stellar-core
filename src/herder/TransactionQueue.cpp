@@ -73,17 +73,18 @@ TransactionQueue::AddResult::AddResult(AddResultCode addCode,
     txResult->setResultCode(txErrorCode);
 }
 
-TransactionQueue::TransactionQueue(Application& app, uint32 pendingDepth,
-                                   uint32 banDepth, uint32 poolLedgerMultiplier,
-                                   bool isSoroban)
+TransactionQueue::TransactionQueue(Application& app,
+                                   SearchableSnapshotConstPtr bucketSnapshot,
+                                   uint32 pendingDepth, uint32 banDepth,
+                                   uint32 poolLedgerMultiplier, bool isSoroban)
     : mPendingDepth(pendingDepth)
     , mBannedTransactions(banDepth)
     , mBroadcastTimer(app)
     , mValidationSnapshot(
           std::make_shared<ImmutableValidationSnapshot const>(app))
-    , mLedgerSnapshot(std::make_shared<LedgerSnapshot const>(app))
+    , mBucketSnapshot(bucketSnapshot)
     , mTxQueueLimiter(poolLedgerMultiplier, isSoroban, mValidationSnapshot,
-                      mLedgerSnapshot)
+                      bucketSnapshot)
     , mAppConn(app.getAppConnector())
 {
     auto const& filteredTypes =
@@ -93,11 +94,11 @@ TransactionQueue::TransactionQueue(Application& app, uint32 pendingDepth,
         rand_uniform<uint64>(0, std::numeric_limits<uint64>::max());
 }
 
-ClassicTransactionQueue::ClassicTransactionQueue(Application& app,
-                                                 uint32 pendingDepth,
-                                                 uint32 banDepth,
-                                                 uint32 poolLedgerMultiplier)
-    : TransactionQueue(app, pendingDepth, banDepth, poolLedgerMultiplier, false)
+ClassicTransactionQueue::ClassicTransactionQueue(
+    Application& app, SearchableSnapshotConstPtr bucketSnapshot,
+    uint32 pendingDepth, uint32 banDepth, uint32 poolLedgerMultiplier)
+    : TransactionQueue(app, bucketSnapshot, pendingDepth, banDepth,
+                       poolLedgerMultiplier, false)
     // Arb tx damping is only relevant to classic txs
     , mArbTxSeenCounter(
           app.getMetrics().NewCounter({"herder", "arb-tx", "seen"}))
@@ -352,7 +353,7 @@ TransactionQueue::canAdd(
 
     stateIter = mAccountStates.find(tx->getSourceID());
     TransactionFrameBasePtr currentTx;
-    LedgerSnapshot const& ls = *mLedgerSnapshot;
+    LedgerSnapshot const ls(mBucketSnapshot);
     LedgerHeader const& lh = ls.getLedgerHeader().current();
     uint32_t ledgerVersion = lh.ledgerVersion;
     if (stateIter != mAccountStates.end())
@@ -990,8 +991,8 @@ ClassicTransactionQueue::getMaxResourcesToFloodThisPeriod() const
     auto& cfg = mValidationSnapshot->getConfig();
     double opRatePerLedger = cfg.FLOOD_OP_RATE_PER_LEDGER;
 
-    auto maxOps = LedgerManager::getMaxTxSetSizeOps(
-        mLedgerSnapshot->getLedgerHeader().current());
+    auto maxOps =
+        LedgerManager::getMaxTxSetSizeOps(mBucketSnapshot->getLedgerHeader());
     double opsToFloodLedgerDbl = opRatePerLedger * maxOps;
     releaseAssertOrThrow(opsToFloodLedgerDbl >= 0.0);
     releaseAssertOrThrow(isRepresentableAsInt64(opsToFloodLedgerDbl));
@@ -1070,11 +1071,11 @@ TransactionQueue::broadcastTx(TimestampedTx& tx)
                : BroadcastStatus::BROADCAST_STATUS_ALREADY;
 }
 
-SorobanTransactionQueue::SorobanTransactionQueue(Application& app,
-                                                 uint32 pendingDepth,
-                                                 uint32 banDepth,
-                                                 uint32 poolLedgerMultiplier)
-    : TransactionQueue(app, pendingDepth, banDepth, poolLedgerMultiplier, true)
+SorobanTransactionQueue::SorobanTransactionQueue(
+    Application& app, SearchableSnapshotConstPtr bucketSnapshot,
+    uint32 pendingDepth, uint32 banDepth, uint32 poolLedgerMultiplier)
+    : TransactionQueue(app, bucketSnapshot, pendingDepth, banDepth,
+                       poolLedgerMultiplier, true)
 {
 
     std::vector<medida::Counter*> sizeByAge;
@@ -1340,7 +1341,7 @@ TransactionQueue::shutdown()
 void
 TransactionQueue::update(
     Transactions const& applied, LedgerHeader const& lcl,
-    LedgerSnapshotPtr const newLedgerSnapshot,
+    SearchableSnapshotConstPtr const newBucketSnapshot,
     std::function<TxFrameList(TxFrameList const&)> const& filterInvalidTxs)
 {
     ZoneScoped;
@@ -1349,8 +1350,8 @@ TransactionQueue::update(
     std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     mValidationSnapshot =
         std::make_shared<ImmutableValidationSnapshot>(mAppConn);
-    mLedgerSnapshot = newLedgerSnapshot;
-    mTxQueueLimiter.update(mValidationSnapshot, mLedgerSnapshot);
+    mBucketSnapshot = newBucketSnapshot;
+    mTxQueueLimiter.update(mValidationSnapshot, mBucketSnapshot);
 
     // TODO: Mark private any functions that are only used here. May need to
     // mark TransactionQueueTest a friend class of TransactionQueue to get

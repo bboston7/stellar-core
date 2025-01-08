@@ -627,9 +627,7 @@ HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
         if (mApp.getConfig().BACKGROUND_TX_FLOODING && !submittedFromSelf)
         {
             mApp.postOnOverlayThread(
-                [this, tx]() {
-                    mSorobanTransactionQueue->tryAdd(tx, false);
-                },
+                [this, tx]() { mSorobanTransactionQueue->tryAdd(tx, false); },
                 "try add tx");
             result.code = TransactionQueue::AddResultCode::ADD_STATUS_UNKNOWN;
         }
@@ -2153,9 +2151,11 @@ HerderImpl::maybeSetupSorobanQueue(uint32_t protocolVersion)
     {
         if (!mSorobanTransactionQueue)
         {
+            releaseAssert(mTxQueueBucketSnapshot);
             mSorobanTransactionQueue =
                 std::make_unique<SorobanTransactionQueue>(
-                    mApp, TRANSACTION_QUEUE_TIMEOUT_LEDGERS,
+                    mApp, mTxQueueBucketSnapshot,
+                    TRANSACTION_QUEUE_TIMEOUT_LEDGERS,
                     TRANSACTION_QUEUE_BAN_LEDGERS,
                     SOROBAN_TRANSACTION_QUEUE_SIZE_MULTIPLIER);
         }
@@ -2170,10 +2170,13 @@ HerderImpl::maybeSetupSorobanQueue(uint32_t protocolVersion)
 void
 HerderImpl::start()
 {
+    mTxQueueBucketSnapshot = mApp.getBucketManager()
+                                 .getBucketSnapshotManager()
+                                 .copySearchableLiveBucketListSnapshot();
     releaseAssert(!mTransactionQueue);
     mTransactionQueue = std::make_unique<ClassicTransactionQueue>(
-        mApp, TRANSACTION_QUEUE_TIMEOUT_LEDGERS, TRANSACTION_QUEUE_BAN_LEDGERS,
-        TRANSACTION_QUEUE_SIZE_MULTIPLIER);
+        mApp, mTxQueueBucketSnapshot, TRANSACTION_QUEUE_TIMEOUT_LEDGERS,
+        TRANSACTION_QUEUE_BAN_LEDGERS, TRANSACTION_QUEUE_SIZE_MULTIPLIER);
 
     mMaxTxSize = mApp.getHerder().getMaxClassicTxSize();
     {
@@ -2324,12 +2327,15 @@ HerderImpl::updateTransactionQueue(TxSetXDRFrameConstPtr externalizedTxSet)
             getUpperBoundCloseTimeOffset(mApp.getAppConnector(),
                                          lhhe.header.scpValue.closeTime));
     };
-    auto ls = std::make_shared<LedgerSnapshot>(mApp);
+    // Update bucket list snapshot, if needed. Note that this modifies the
+    // pointer itself on update, so we need to pass the pointer itself to the tx
+    // queues.
+    mApp.getBucketManager().getBucketSnapshotManager().maybeCopySearchableBucketListSnapshot(mTxQueueBucketSnapshot);
     if (txsPerPhase.size() > static_cast<size_t>(TxSetPhase::CLASSIC))
     {
         mTransactionQueue->update(
             txsPerPhase[static_cast<size_t>(TxSetPhase::CLASSIC)], lhhe.header,
-            ls, filterInvalidTxs);
+            mTxQueueBucketSnapshot, filterInvalidTxs);
     }
 
     // Even if we're in protocol 20, still check for number of phases, in case
@@ -2340,7 +2346,7 @@ HerderImpl::updateTransactionQueue(TxSetXDRFrameConstPtr externalizedTxSet)
     {
         mSorobanTransactionQueue->update(
             txsPerPhase[static_cast<size_t>(TxSetPhase::SOROBAN)], lhhe.header,
-            ls, filterInvalidTxs);
+            mTxQueueBucketSnapshot, filterInvalidTxs);
     }
 }
 

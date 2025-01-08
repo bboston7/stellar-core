@@ -37,11 +37,11 @@ class TxQueueLimiter
     ValidationSnapshotPtr mValidationSnapshot;
     // TODO: This will probably go away. Same comment about safety of storing
     // this.
-    LedgerSnapshotPtr mLedgerSnapshot;
+    SearchableSnapshotConstPtr mBucketSnapshot;
 
   public:
     TxQueueLimiter(uint32 multiplier, bool isSoroban, ValidationSnapshotPtr vs,
-                   LedgerSnapshotPtr ls);
+                   SearchableSnapshotConstPtr bls);
     ~TxQueueLimiter();
 
     void addTransaction(TransactionFrameBasePtr const& tx);
@@ -86,6 +86,6 @@ class TxQueueLimiter
     void reset(uint32_t ledgerVersion);
 
     // TODO: Docs / rename?
-    void update(ValidationSnapshotPtr vs, LedgerSnapshotPtr ls);
+    void update(ValidationSnapshotPtr vs, SearchableSnapshotConstPtr bls);
 };
 }

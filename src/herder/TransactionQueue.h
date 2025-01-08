@@ -120,9 +120,10 @@ class TransactionQueue
 
     // TODO: Get rid of `Application` in constructor? Might be able to get away
     // with an AppConnector here.
-    explicit TransactionQueue(Application& app, uint32 pendingDepth,
-                              uint32 banDepth, uint32 poolLedgerMultiplier,
-                              bool isSoroban);
+    explicit TransactionQueue(Application& app,
+                              SearchableSnapshotConstPtr bucketSnapshot,
+                              uint32 pendingDepth, uint32 banDepth,
+                              uint32 poolLedgerMultiplier, bool isSoroban);
     virtual ~TransactionQueue();
 
     // TODO: Need to be careful about interleaving herder. At the very least,
@@ -150,11 +151,10 @@ class TransactionQueue
     // internal `AppConnector` to construct it instead. But IDK if that's doable
     // in the background (though I think this is only called from the
     // foreground?)
-    void
-    update(Transactions const& applied, LedgerHeader const& lcl,
-           LedgerSnapshotPtr newLedgerSnapshot,
-           std::function<TxFrameList(TxFrameList const&)> const&
-               filterInvalidTxs);
+    void update(
+        Transactions const& applied, LedgerHeader const& lcl,
+        SearchableSnapshotConstPtr newBucketSnapshot,
+        std::function<TxFrameList(TxFrameList const&)> const& filterInvalidTxs);
 
     bool isBanned(Hash const& hash) const;
     TransactionFrameBaseConstPtr getTx(Hash const& hash) const;
@@ -253,13 +253,7 @@ class TransactionQueue
 
     ValidationSnapshotPtr mValidationSnapshot;
 
-    // TODO: Is it safe to store this thing here? Garand's comment on the
-    // proposal indicates these update themselves? What if that update occurs
-    // while the background thread is accessing this? Is there a dangerous race
-    // condition here? Is this not relevant anymore after Marta's PR? Maybe they
-    // don't auto-update anymore and are more like "true" snapshots?
-    LedgerSnapshotPtr mLedgerSnapshot;
-
+    SearchableSnapshotConstPtr mBucketSnapshot;
 
     TxQueueLimiter mTxQueueLimiter;
     UnorderedMap<AssetPair, uint32_t, AssetPairHash> mArbitrageFloodDamping;
@@ -298,8 +292,10 @@ class TransactionQueue
 class SorobanTransactionQueue : public TransactionQueue
 {
   public:
-    SorobanTransactionQueue(Application& app, uint32 pendingDepth,
-                            uint32 banDepth, uint32 poolLedgerMultiplier);
+    SorobanTransactionQueue(Application& app,
+                            SearchableSnapshotConstPtr bucketSnapshot,
+                            uint32 pendingDepth, uint32 banDepth,
+                            uint32 poolLedgerMultiplier);
     int
     getFloodPeriod() const override
     {
@@ -334,8 +330,10 @@ class SorobanTransactionQueue : public TransactionQueue
 class ClassicTransactionQueue : public TransactionQueue
 {
   public:
-    ClassicTransactionQueue(Application& app, uint32 pendingDepth,
-                            uint32 banDepth, uint32 poolLedgerMultiplier);
+    ClassicTransactionQueue(Application& app,
+                            SearchableSnapshotConstPtr bucketSnapshot,
+                            uint32 pendingDepth, uint32 banDepth,
+                            uint32 poolLedgerMultiplier);
 
     int
     getFloodPeriod() const override
