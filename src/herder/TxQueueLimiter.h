@@ -35,11 +35,11 @@ class TxQueueLimiter
     bool const mIsSoroban;
 
     // State snapshots used to compute limits
-    ValidationSnapshotPtr mValidationSnapshot;
+    ImmutableValidationSnapshotPtr mValidationSnapshot;
     SearchableSnapshotConstPtr mBucketSnapshot;
 
   public:
-    TxQueueLimiter(uint32 multiplier, bool isSoroban, ValidationSnapshotPtr vs,
+    TxQueueLimiter(uint32 multiplier, bool isSoroban, ImmutableValidationSnapshotPtr vs,
                    SearchableSnapshotConstPtr bls);
     ~TxQueueLimiter();
 
@@ -85,7 +85,7 @@ class TxQueueLimiter
     void reset(uint32_t ledgerVersion);
 
     // Update snapshots. Should be called after ledger close
-    void updateSnapshots(ValidationSnapshotPtr vs,
+    void updateSnapshots(ImmutableValidationSnapshotPtr vs,
                          SearchableSnapshotConstPtr bls);
 };
 }

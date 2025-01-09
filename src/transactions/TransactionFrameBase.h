@@ -83,7 +83,7 @@ class ImmutableValidationSnapshot : public ValidationConnector
 };
 
 // TODO: Rename to indicate constness / Immutableness?
-using ValidationSnapshotPtr =
+using ImmutableValidationSnapshotPtr =
     std::shared_ptr<ImmutableValidationSnapshot const>;
 
 class TransactionFrameBase

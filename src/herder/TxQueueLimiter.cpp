@@ -30,7 +30,7 @@ computeBetterFee(std::pair<int64, uint32_t> const& evictedBid,
 }
 
 TxQueueLimiter::TxQueueLimiter(uint32 multiplier, bool isSoroban,
-                               ValidationSnapshotPtr vs,
+                               ImmutableValidationSnapshotPtr vs,
                                SearchableSnapshotConstPtr bls)
     : mPoolLedgerMultiplier(multiplier)
     , mIsSoroban(isSoroban)
@@ -240,7 +240,7 @@ TxQueueLimiter::reset(uint32_t ledgerVersion)
 }
 
 void
-TxQueueLimiter::updateSnapshots(ValidationSnapshotPtr vs, SearchableSnapshotConstPtr bls)
+TxQueueLimiter::updateSnapshots(ImmutableValidationSnapshotPtr vs, SearchableSnapshotConstPtr bls)
 {
     mValidationSnapshot = vs;
     mBucketSnapshot = bls;

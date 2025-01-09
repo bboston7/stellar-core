@@ -235,7 +235,7 @@ class TransactionQueue
     bool isFiltered(TransactionFrameBasePtr tx) const;
 
     // Snapshots to use for transaction validation
-    ValidationSnapshotPtr mValidationSnapshot;
+    ImmutableValidationSnapshotPtr mValidationSnapshot;
     SearchableSnapshotConstPtr mBucketSnapshot;
 
     TxQueueLimiter mTxQueueLimiter;

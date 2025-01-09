@@ -38,7 +38,6 @@ AppValidationWrapper::getCurrentProtocolVersion() const
         .header.ledgerVersion;
 }
 
-// TODO: Move?
 ImmutableValidationSnapshot::ImmutableValidationSnapshot(
     AppConnector const& app)
     : mConfig(app.getConfigPtr())
@@ -47,8 +46,6 @@ ImmutableValidationSnapshot::ImmutableValidationSnapshot(
                                   .getLastClosedLedgerHeader()
                                   .header.ledgerVersion)
 {
-    // TODO: Can probably remove this assert if this truly only takes an
-    // AppConnector.
     releaseAssert(threadIsMain());
 }
 
@@ -61,7 +58,8 @@ ImmutableValidationSnapshot::getConfig() const
 SorobanNetworkConfig const&
 ImmutableValidationSnapshot::getSorobanNetworkConfig() const
 {
-    // TODO: This can throw. Should that be noted somewhere?
+    // TODO: This can throw. Check and throw a more usefull exception instead.
+    // Also document this.
     return mSorobanNetworkConfig.value();
 }
 
