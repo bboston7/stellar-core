@@ -1841,10 +1841,7 @@ TransactionFrame::apply(AppConnector& app, AbstractLedgerTxn& ltx,
         }
         LedgerTxn ltxTx(ltx);
         LedgerSnapshot ltxStmt(ltxTx);
-        // TODO: As part of a merge conflict resolution, I removed
-        // `sorobanConfig` in this call and used avw instead. Is that right?
-        // Does that lead to the right soroban config being used?
-        AppValidationWrapper avw(app);
+        AppValidationWrapper avw(app, true);
         auto cv = commonValid(avw, *signatureChecker, ltxStmt, 0, true,
                               chargeFee, 0, 0, sorobanResourceFee, txResult);
         if (cv >= ValidationType::kInvalidUpdateSeqNum)

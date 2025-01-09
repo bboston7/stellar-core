@@ -143,7 +143,7 @@ OperationFrame::apply(AppConnector& app, SignatureChecker& signatureChecker,
     ZoneScoped;
     CLOG_TRACE(Tx, "{}", xdrToCerealString(mOperation, "Operation"));
 
-    AppValidationWrapper avw(app);
+    AppValidationWrapper avw(app, true);
     LedgerSnapshot ltxState(ltx);
     bool applyRes =
         checkValid(avw, signatureChecker, ltxState, true, res, sorobanData);

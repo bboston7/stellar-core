@@ -920,7 +920,7 @@ class FuzzTransactionFrame : public TransactionFrame
 
         // attempt application of transaction without processing the fee or
         // committing the LedgerTxn
-        AppValidationWrapper avw(app.getAppConnector());
+        AppValidationWrapper avw(app.getAppConnector(), false);
         SignatureChecker signatureChecker{
             ltx.loadHeader().current().ledgerVersion, getContentsHash(),
             mEnvelope.v1().signatures};

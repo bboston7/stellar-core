@@ -11,7 +11,9 @@
 namespace stellar
 {
 
-AppValidationWrapper::AppValidationWrapper(AppConnector const& app) : mApp(app)
+AppValidationWrapper::AppValidationWrapper(AppConnector const& app,
+                                           bool forApply)
+    : mApp(app), mForApply(forApply)
 {
 }
 
@@ -24,9 +26,8 @@ AppValidationWrapper::getConfig() const
 SorobanNetworkConfig const&
 AppValidationWrapper::getSorobanNetworkConfig() const
 {
-    // TODO: I think this is right. AppValidationWrapper is only used during
-    // apply time, so we want the apply-time network config.
-    return mApp.getLedgerManager().getSorobanNetworkConfigForApply();
+    return mForApply ? mApp.getLedgerManager().getSorobanNetworkConfigForApply()
+                     : mApp.getSorobanNetworkConfigReadOnly();
 }
 
 uint32_t

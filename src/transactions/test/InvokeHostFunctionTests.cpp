@@ -421,7 +421,7 @@ TEST_CASE("basic contract invocation", "[tx][soroban]")
                                                      addContractKeys);
         auto tx = invocation.createTx(&rootAccount);
 
-        AppValidationWrapper avw(test.getApp().getAppConnector());
+        AppValidationWrapper avw(test.getApp().getAppConnector(), false);
         auto result = tx->checkValid(avw, rootLtx, 0, 0, 0);
 
         REQUIRE(tx->getFullFee() ==
@@ -742,7 +742,7 @@ TEST_CASE("Soroban footprint validation", "[tx][soroban]")
 {
     SorobanTest test;
     auto const& cfg = test.getNetworkCfg();
-    AppValidationWrapper const avw(test.getApp().getAppConnector());
+    AppValidationWrapper const avw(test.getApp().getAppConnector(), false);
 
     auto& addContract =
         test.deployWasmContract(rust_bridge::get_test_wasm_add_i32());
@@ -1454,7 +1454,7 @@ TEST_CASE("transaction validation diagnostics", "[tx][soroban]")
             .createTx();
     MutableTxResultPtr result;
     {
-        AppValidationWrapper const avw(test.getApp().getAppConnector());
+        AppValidationWrapper const avw(test.getApp().getAppConnector(), false);
         LedgerTxn ltx(test.getApp().getLedgerTxnRoot());
         result = tx->checkValid(avw, ltx, 0, 0, 0);
     }

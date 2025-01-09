@@ -38,6 +38,8 @@ using TransactionFrameBaseConstPtr =
 // TODO: Explain why this exists. Allows common validation flows between "apply"
 // and "validate" to work whether given an immutable snapshot (for use in
 // "validate") or a wrapper around the AppConnector (for use in "apply").
+// AppValidationWrapper is also usable outside of "apply" by setting "forApply"
+// to false. This is useful for some of our testing infrastructure.
 class ValidationConnector
 {
   public:
@@ -45,13 +47,13 @@ class ValidationConnector
     virtual Config const& getConfig() const = 0;
     virtual SorobanNetworkConfig const& getSorobanNetworkConfig() const = 0;
     virtual uint32_t getCurrentProtocolVersion() const = 0;
-    // TODO: Will need a getLastClosedLedgerHeader()
 };
 
+// TODO: Docs
 class AppValidationWrapper : public ValidationConnector
 {
   public:
-    explicit AppValidationWrapper(AppConnector const& app);
+    explicit AppValidationWrapper(AppConnector const& app, bool forApply);
     ~AppValidationWrapper() override = default;
 
     Config const& getConfig() const override;
@@ -60,9 +62,10 @@ class AppValidationWrapper : public ValidationConnector
 
   private:
     AppConnector const& mApp;
+    bool const mForApply;
 };
 
-// TODO: Move?
+// TODO: Docs
 class ImmutableValidationSnapshot : public ValidationConnector
 {
   public:

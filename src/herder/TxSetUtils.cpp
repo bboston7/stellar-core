@@ -176,7 +176,7 @@ TxSetUtils::getInvalidTxList(TxFrameList const& txs, Application& app,
 
     TxFrameList invalidTxs;
 
-    AppValidationWrapper avw(app.getAppConnector());
+    AppValidationWrapper avw(app.getAppConnector(), false);
     for (auto const& tx : txs)
     {
         auto txResult = tx->checkValid(avw, ls, 0, lowerBoundCloseTimeOffset,
