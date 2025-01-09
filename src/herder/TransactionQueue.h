@@ -118,21 +118,11 @@ class TransactionQueue
         std::optional<TimestampedTx> mTransaction;
     };
 
-    // TODO: Get rid of `Application` in constructor? Might be able to get away
-    // with an AppConnector here.
     explicit TransactionQueue(Application& app,
                               SearchableSnapshotConstPtr bucketSnapshot,
                               uint32 pendingDepth, uint32 banDepth,
                               uint32 poolLedgerMultiplier, bool isSoroban);
     virtual ~TransactionQueue();
-
-    // TODO: Need to be careful about interleaving herder. At the very least,
-    // should condense Herder's use of functions into "before application" and
-    // "after application" atomic functions. I also need to think about whether
-    // it's safe for txs to be added during application. My first guess is that
-    // it's fine, but we really need to be careful here. For example, perhaps a
-    // tx that comes in after pre-apply steps but before post-apply steps would
-    // be on the wrong side of a "shift" call?
 
     static std::vector<AssetPair>
     findAllAssetPairsInvolvedInPaymentLoops(TransactionFrameBasePtr tx);
@@ -145,12 +135,9 @@ class TransactionQueue
 
     void shutdown();
 
-    // TODO: Docs
-    // TODO: Rename both function and arg names.
-    // TODO: Might be able to remove `newValidationSnapshot` and use the
-    // internal `AppConnector` to construct it instead. But IDK if that's doable
-    // in the background (though I think this is only called from the
-    // foreground?)
+    // TODO: Better docs
+    // TODO: More descriptive name
+    // Update internal queue structures after a ledger closes
     void update(
         Transactions const& applied, LedgerHeader const& lcl,
         SearchableSnapshotConstPtr newBucketSnapshot,
@@ -162,10 +149,6 @@ class TransactionQueue
     bool sourceAccountPending(AccountID const& accountID) const;
 
     virtual size_t getMaxQueueSizeOps() const = 0;
-
-    // TODO: Add an `atomically` function that grabs lock and calls the passed
-    // in function. This may be useful for chaining operations together in
-    // HerderImpl.
 
 #ifdef BUILD_TESTS
     AccountState
@@ -219,9 +202,9 @@ class TransactionQueue
 
     bool mShutdown{false};
     bool mWaiting{false};
-    // TODO: Is this thing safe to use in a multi-threaded context? vv It takes
-    // an application in its constructor and appears to store a VirtualClock
-    // reference. Is that OK?
+    // TODO: VirtualTimer is not thread-safe. Right now it's only used in
+    // functions that are called from the main thread. However, if I move
+    // broadcasting to the background I will need to be careful with this.
     VirtualTimer mBroadcastTimer;
 
     virtual std::pair<Resource, std::optional<Resource>>
@@ -251,8 +234,8 @@ class TransactionQueue
 
     bool isFiltered(TransactionFrameBasePtr tx) const;
 
+    // Snapshots to use for transaction validation
     ValidationSnapshotPtr mValidationSnapshot;
-
     SearchableSnapshotConstPtr mBucketSnapshot;
 
     TxQueueLimiter mTxQueueLimiter;
@@ -262,7 +245,6 @@ class TransactionQueue
 
     size_t mBroadcastSeed;
 
-    // TODO: Lock all public functions
     mutable std::recursive_mutex mTxQueueMutex;
 
   private:

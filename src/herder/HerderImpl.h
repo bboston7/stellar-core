@@ -298,7 +298,7 @@ class HerderImpl : public Herder
     Application& mApp;
     LedgerManager& mLedgerManager;
 
-    // TODO: Docs
+    // Bucket list snapshot to use for transaction queues
     SearchableSnapshotConstPtr mTxQueueBucketSnapshot;
 
     struct SCPMetrics

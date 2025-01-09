@@ -39,12 +39,9 @@ class AppConnector
     // 1. This makes a copy, which is safe to use in other threads (TODO: Really
     // double check this. I don't see any references or pointers in
     // SorobanNetworkConfig, but there is a `mutable` field, which needs to be
-    // investigated).
+    // investigated as it throws `const` functions into question).
     // 2. This returns nullopt when the network config is not set, while
     // `getSorobanNetworkConfig` will throw an assertion error in that case.
-    // TODO: Should this be a universal reference (&&)? I pass it to a std::move
-    // "call" in the ImmutableValidationSnapshot constructor.
-    // TODO: Is this even necessary anymore after getting rid of the tx pool?
     std::optional<SorobanNetworkConfig> maybeGetSorobanNetworkConfigReadOnly() const;
     medida::MetricsRegistry& getMetrics() const;
     SorobanMetrics& getSorobanMetrics() const;
@@ -60,11 +57,8 @@ class AppConnector
     void postOnOverlayThread(std::function<void()>&& f,
                              std::string const& message);
     VirtualClock::time_point now() const;
-    // TODO: Is this thread safe? Is `now` really thread safe? Seems like they
-    // have the same issue potentially of `mVirtualNow` changing during access.
     VirtualClock::system_time_point system_now() const;
     Config const& getConfig() const;
-    // TODO: Am I using this anywhere after getting rid of tx pool?
     std::shared_ptr<Config const> getConfigPtr() const;
     bool overlayShuttingDown() const;
     OverlayMetrics& getOverlayMetrics();

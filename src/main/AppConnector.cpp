@@ -136,6 +136,11 @@ AppConnector::now() const
 VirtualClock::system_time_point
 AppConnector::system_now() const
 {
+    // TODO: Is this thread safe? It looks like it is when in REAL_TIME mode,
+    // but I'm not so sure about VIRTUAL_TIME mode as that mode has a
+    // `mVirtualNow` that looks like it can change during access? The same is
+    // true for `AppConnector::now`, which is marked "thread safe" in the header
+    // file. Maybe both of these need some hardening though?
     return mApp.getClock().system_now();
 }
 

@@ -240,7 +240,7 @@ TxQueueLimiter::reset(uint32_t ledgerVersion)
 }
 
 void
-TxQueueLimiter::update(ValidationSnapshotPtr vs, SearchableSnapshotConstPtr bls)
+TxQueueLimiter::updateSnapshots(ValidationSnapshotPtr vs, SearchableSnapshotConstPtr bls)
 {
     mValidationSnapshot = vs;
     mBucketSnapshot = bls;

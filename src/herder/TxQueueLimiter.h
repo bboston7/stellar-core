@@ -34,9 +34,8 @@ class TxQueueLimiter
 
     bool const mIsSoroban;
 
+    // State snapshots used to compute limits
     ValidationSnapshotPtr mValidationSnapshot;
-    // TODO: This will probably go away. Same comment about safety of storing
-    // this.
     SearchableSnapshotConstPtr mBucketSnapshot;
 
   public:
@@ -85,7 +84,8 @@ class TxQueueLimiter
     // Resets the internal transaction container and the eviction state.
     void reset(uint32_t ledgerVersion);
 
-    // TODO: Docs / rename?
-    void update(ValidationSnapshotPtr vs, SearchableSnapshotConstPtr bls);
+    // Update snapshots. Should be called after ledger close
+    void updateSnapshots(ValidationSnapshotPtr vs,
+                         SearchableSnapshotConstPtr bls);
 };
 }

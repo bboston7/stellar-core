@@ -277,8 +277,6 @@ HerderImpl::shutdown()
                    "Shutdown interrupting quorum transitive closure analysis.");
         mLastQuorumMapIntersectionState.mInterruptFlag = true;
     }
-    // TODO: Is this check really necessary? Does anyone ever call shutdown
-    // without calling start first?
     if (mTransactionQueue)
     {
         mTransactionQueue->shutdown();
@@ -610,7 +608,7 @@ HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
     }
     else if (!tx->isSoroban())
     {
-        if (mApp.getConfig().BACKGROUND_TX_FLOODING && !submittedFromSelf)
+        if (mApp.getConfig().BACKGROUND_TX_QUEUE && !submittedFromSelf)
         {
             mApp.postOnOverlayThread(
                 [this, tx]() { mTransactionQueue->tryAdd(tx, false); },
@@ -624,7 +622,7 @@ HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
     }
     else if (mSorobanTransactionQueue)
     {
-        if (mApp.getConfig().BACKGROUND_TX_FLOODING && !submittedFromSelf)
+        if (mApp.getConfig().BACKGROUND_TX_QUEUE && !submittedFromSelf)
         {
             mApp.postOnOverlayThread(
                 [this, tx]() { mSorobanTransactionQueue->tryAdd(tx, false); },
@@ -2170,6 +2168,7 @@ HerderImpl::maybeSetupSorobanQueue(uint32_t protocolVersion)
 void
 HerderImpl::start()
 {
+    releaseAssert(!mTxQueueBucketSnapshot);
     mTxQueueBucketSnapshot = mApp.getBucketManager()
                                  .getBucketSnapshotManager()
                                  .copySearchableLiveBucketListSnapshot();
@@ -2328,9 +2327,11 @@ HerderImpl::updateTransactionQueue(TxSetXDRFrameConstPtr externalizedTxSet)
                                          lhhe.header.scpValue.closeTime));
     };
     // Update bucket list snapshot, if needed. Note that this modifies the
-    // pointer itself on update, so we need to pass the pointer itself to the tx
-    // queues.
-    mApp.getBucketManager().getBucketSnapshotManager().maybeCopySearchableBucketListSnapshot(mTxQueueBucketSnapshot);
+    // pointer itself on update, so we need to pass the potentially new pointer
+    // to the tx queues.
+    mApp.getBucketManager()
+        .getBucketSnapshotManager()
+        .maybeCopySearchableBucketListSnapshot(mTxQueueBucketSnapshot);
     if (txsPerPhase.size() > static_cast<size_t>(TxSetPhase::CLASSIC))
     {
         mTransactionQueue->update(

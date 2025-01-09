@@ -103,7 +103,6 @@ class LedgerTxnReadOnly : public AbstractLedgerStateSnapshot
         std::function<void(LedgerSnapshot const&)> f) const override;
 };
 
-// TODO: I think this is what I want to use instead of LedgerSnapshot?
 // A concrete implementation of read-only BucketList snapshot wrapper
 class BucketSnapshotState : public AbstractLedgerStateSnapshot
 {
@@ -167,8 +166,5 @@ class LedgerSnapshot : public NonMovableOrCopyable
     void executeWithMaybeInnerSnapshot(
         std::function<void(LedgerSnapshot const&)> f) const;
 };
-
-// TODO: Rename to indicate constness?
-using LedgerSnapshotPtr = std::shared_ptr<LedgerSnapshot const>;
 
 }

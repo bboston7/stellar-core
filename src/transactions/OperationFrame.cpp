@@ -143,8 +143,6 @@ OperationFrame::apply(AppConnector& app, SignatureChecker& signatureChecker,
     ZoneScoped;
     CLOG_TRACE(Tx, "{}", xdrToCerealString(mOperation, "Operation"));
 
-    // TODO: I don't think this really needs an "assertMain" here because avw
-    // includes one in its constructor.
     AppValidationWrapper avw(app);
     LedgerSnapshot ltxState(ltx);
     bool applyRes =

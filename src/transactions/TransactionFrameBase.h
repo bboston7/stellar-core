@@ -35,7 +35,6 @@ using TransactionFrameBasePtr = std::shared_ptr<TransactionFrameBase const>;
 using TransactionFrameBaseConstPtr =
     std::shared_ptr<TransactionFrameBase const>;
 
-// TODO: Move all of this?
 // TODO: Explain why this exists. Allows common validation flows between "apply"
 // and "validate" to work whether given an immutable snapshot (for use in
 // "validate") or a wrapper around the AppConnector (for use in "apply").

@@ -176,8 +176,6 @@ TxSetUtils::getInvalidTxList(TxFrameList const& txs, Application& app,
 
     TxFrameList invalidTxs;
 
-    // NOTE: It's safe to use an AppValidationWrapper here because this is
-    // guaranteed to run on the main thread.
     AppValidationWrapper avw(app.getAppConnector());
     for (auto const& tx : txs)
     {

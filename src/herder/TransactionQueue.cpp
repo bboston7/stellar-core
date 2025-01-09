@@ -449,7 +449,6 @@ TransactionQueue::canAdd(
     }
 
     auto closeTime = lh.scpValue.closeTime;
-    // TODO: Do we even need this check anymore? vv
     if (protocolVersionStartsFrom(ledgerVersion, ProtocolVersion::V_19))
     {
         // This is done so minSeqLedgerGap is validated against the next
@@ -1187,8 +1186,7 @@ SorobanTransactionQueue::getMaxQueueSizeOps() const
 {
     std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
     // TODO: I removed a conditional checking that the protocol version is
-    // post-soroban here. I think that check is unnecessary, but if something
-    // errors out here now, that's why.
+    // post-soroban here. I think that check is now unnecessary, right?
     auto res = mTxQueueLimiter.maxScaledLedgerResources(true);
     releaseAssert(res.size() == NUM_SOROBAN_TX_RESOURCES);
     return res.getVal(Resource::Type::OPERATIONS);
@@ -1304,8 +1302,9 @@ TransactionQueue::broadcast(bool fromCallback)
         mWaiting = true;
         mBroadcastTimer.expires_from_now(
             std::chrono::milliseconds(getFloodPeriod()));
-        // TODO: I'm pretty sure this callback will only be called from the main
-        // thread?
+        // TODO: This use of mBroadcastTimer is OK because this function can
+        // only be called from the main thread. If I push the cut point out to
+        // allow for background broadcasting then I need to replace this timer.
         mBroadcastTimer.async_wait([&]() { broadcast(true); },
                                    &VirtualTimer::onFailureNoop);
     }
@@ -1345,17 +1344,14 @@ TransactionQueue::update(
     std::function<TxFrameList(TxFrameList const&)> const& filterInvalidTxs)
 {
     ZoneScoped;
-    releaseAssert(threadIsMain()); // TODO: Necessary? Maybe for the
-                                   // ImmutableValidationSnapshot constructor?
+    releaseAssert(threadIsMain());
     std::lock_guard<std::recursive_mutex> guard(mTxQueueMutex);
+
     mValidationSnapshot =
         std::make_shared<ImmutableValidationSnapshot>(mAppConn);
     mBucketSnapshot = newBucketSnapshot;
-    mTxQueueLimiter.update(mValidationSnapshot, mBucketSnapshot);
+    mTxQueueLimiter.updateSnapshots(mValidationSnapshot, mBucketSnapshot);
 
-    // TODO: Mark private any functions that are only used here. May need to
-    // mark TransactionQueueTest a friend class of TransactionQueue to get
-    // tests building.
     removeApplied(applied);
     shift();
 

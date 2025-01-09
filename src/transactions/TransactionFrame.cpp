@@ -1829,8 +1829,6 @@ TransactionFrame::apply(AppConnector& app, AbstractLedgerTxn& ltx,
                                       SOROBAN_PROTOCOL_VERSION) &&
             isSoroban())
         {
-            sorobanConfig =
-                app.getLedgerManager().getSorobanNetworkConfigForApply();
             sorobanResourceFee = computePreApplySorobanResourceFee(
                 ledgerVersion, *sorobanConfig, app.getConfig());
 

@@ -430,8 +430,6 @@ phaseTxsAreValid(TxSetPhaseFrame const& phase, Application& app,
                  uint64_t upperBoundCloseTimeOffset)
 {
     ZoneScoped;
-    // TODO: I think this is true? If it's not, the function shouldn't be taking
-    // an `Application`!
     releaseAssert(threadIsMain());
     // This is done so minSeqLedgerGap is validated against the next
     // ledgerSeq, which is what will be used at apply time
