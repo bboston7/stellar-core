@@ -866,10 +866,6 @@ TEST_CASE("TransactionQueue with PreconditionsV2", "[herder][transactionqueue]")
     cfg.TESTING_UPGRADE_MAX_TX_SET_SIZE = 4;
     cfg.FLOOD_TX_PERIOD_MS = 100;
     auto app = createTestApplication(clock, cfg);
-    auto bls = app->getBucketManager()
-                   .getBucketSnapshotManager()
-                   .copySearchableLiveBucketListSnapshot();
-    auto queue = ClassicTransactionQueue{*app, bls, 4, 2, 2};
     auto const minBalance2 = app->getLedgerManager().getLastMinBalance(2);
 
     auto root = TestAccount::createRoot(*app);
@@ -904,6 +900,11 @@ TEST_CASE("TransactionQueue with PreconditionsV2", "[herder][transactionqueue]")
     condMinSeqLedgerGap.minSeqLedgerGap = 1;
     auto txSeqA1S3MinSeqLedgerGap = transactionWithV2Precondition(
         *app, account1, 3, 200, condMinSeqLedgerGap);
+
+    auto bls = app->getBucketManager()
+                   .getBucketSnapshotManager()
+                   .copySearchableLiveBucketListSnapshot();
+    auto queue = ClassicTransactionQueue{*app, bls, 4, 2, 2};
 
     SECTION("fee bump new tx with minSeqNum past lastSeq")
     {
