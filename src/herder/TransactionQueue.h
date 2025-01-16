@@ -336,7 +336,6 @@ class SorobanTransactionQueue : public TransactionQueue
     {
         return mValidationSnapshot->getConfig().FLOOD_SOROBAN_TX_PERIOD_MS;
     }
-
 };
 
 class ClassicTransactionQueue : public TransactionQueue
@@ -364,7 +363,6 @@ class ClassicTransactionQueue : public TransactionQueue
     {
         return mValidationSnapshot->getConfig().FLOOD_TX_PERIOD_MS;
     }
-
 };
 
 extern std::array<const char*,
