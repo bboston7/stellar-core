@@ -533,10 +533,6 @@ testTransactionQueueBasicScenarios()
     cfg.TESTING_UPGRADE_MAX_TX_SET_SIZE = 4;
     cfg.FLOOD_TX_PERIOD_MS = 100;
     auto app = createTestApplication(clock, cfg);
-    auto bls = app->getBucketManager()
-                   .getBucketSnapshotManager()
-                   .copySearchableLiveBucketListSnapshot();
-    auto queue = ClassicTransactionQueue{*app, bls, 4, 2, 2};
     auto const minBalance2 = app->getLedgerManager().getLastMinBalance(2);
 
     auto root = TestAccount::createRoot(*app);
@@ -554,6 +550,11 @@ testTransactionQueueBasicScenarios()
     auto txSeqA2T1 = transaction(*app, account2, 1, 1, 200);
     auto txSeqA2T2 = transaction(*app, account2, 2, 1, 200);
     auto txSeqA3T1 = transaction(*app, account3, 1, 1, 100);
+
+    auto bls = app->getBucketManager()
+                   .getBucketSnapshotManager()
+                   .copySearchableLiveBucketListSnapshot();
+    auto queue = ClassicTransactionQueue{*app, bls, 4, 2, 2};
 
     SECTION("simple sequence")
     {
