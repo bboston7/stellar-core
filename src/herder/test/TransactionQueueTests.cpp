@@ -249,6 +249,13 @@ class TransactionQueueTest
         }
     }
 
+    // TODO: Docs
+    void
+    updateSnapshots(SearchableSnapshotConstPtr const& newBucketSnapshot)
+    {
+        mTransactionQueue.updateSnapshots(newBucketSnapshot);
+    }
+
   private:
     TransactionQueue& mTransactionQueue;
 };
@@ -2488,6 +2495,10 @@ TEST_CASE("transaction queue with fee-bump", "[herder][transactionqueue]")
                     auto fb2 = feeBump(*app, account3, tx2,
                                        fb1->getInclusionFee() * 10);
 
+                    auto bls = app->getBucketManager()
+                                   .getBucketSnapshotManager()
+                                   .copySearchableLiveBucketListSnapshot();
+                    test.updateSnapshots(bls);
                     test.add(
                         fb2,
                         TransactionQueue::AddResultCode::ADD_STATUS_PENDING);

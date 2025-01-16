@@ -290,9 +290,13 @@ class TransactionQueue
     // thread-safe manner or change them to not require private member access.
     friend class TransactionQueueTest;
 
+    // TODO: Docs
+    void updateSnapshots(SearchableSnapshotConstPtr const& newBucketSnapshot);
+
     size_t getQueueSizeOps() const;
     std::optional<int64_t> getInQueueSeqNum(AccountID const& account) const;
     std::function<void(TransactionFrameBasePtr&)> mTxBroadcastedEvent;
+
 #endif
 };
 
