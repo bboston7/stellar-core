@@ -781,10 +781,6 @@ TEST_CASE("TransactionQueue hitting the rate limit",
     cfg.TESTING_UPGRADE_MAX_TX_SET_SIZE = 4;
     cfg.FLOOD_TX_PERIOD_MS = 100;
     auto app = createTestApplication(clock, cfg);
-    auto bls = app->getBucketManager()
-                   .getBucketSnapshotManager()
-                   .copySearchableLiveBucketListSnapshot();
-    auto queue = ClassicTransactionQueue{*app, bls, 4, 2, 2};
     auto const minBalance2 = app->getLedgerManager().getLastMinBalance(2);
 
     auto root = TestAccount::createRoot(*app);
@@ -794,6 +790,11 @@ TEST_CASE("TransactionQueue hitting the rate limit",
     auto account4 = root.create("a4", minBalance2);
     auto account5 = root.create("a5", minBalance2);
     auto account6 = root.create("a6", minBalance2);
+
+    auto bls = app->getBucketManager()
+                   .getBucketSnapshotManager()
+                   .copySearchableLiveBucketListSnapshot();
+    auto queue = ClassicTransactionQueue{*app, bls, 4, 2, 2};
 
     TransactionQueueTest testQueue{queue};
     std::vector<TransactionFrameBasePtr> txs;
