@@ -57,6 +57,13 @@ class Application;
  *   unbans any transactions that have been banned for more than banDepth
  *   ledgers.
  */
+
+// TODO:
+// * Dig into flow control, make sure it holds some kind of lock to prevent ASIO overlay queue from growing too much
+//     * Might want to put bg tx queue on its own thread with intermediate priority (lower than SCP, higher than bucket maintenance). Otherwise, running this on the overlay thread might delay SCP message processing as incoming SCP messages need to wait for tx queue additions to occur, which is bad.
+//         * My note: Try both approaches and benchmark
+
+
 class TransactionQueue
 {
   public:
