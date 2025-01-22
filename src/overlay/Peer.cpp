@@ -969,6 +969,9 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
                                                   envelope.statement));
     }
 
+    // TODO: Special case for TRANSACTION here to add to tx queue in the
+    // background.
+
     // Subtle: move `msgTracker` shared_ptr into the lambda, to ensure
     // its destructor is invoked from main thread only. Note that we can't use
     // unique_ptr here, because std::function requires its callable

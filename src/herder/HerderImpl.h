@@ -97,6 +97,12 @@ class HerderImpl : public Herder
                            bool isLatestSlot);
     void emitEnvelope(SCPEnvelope const& envelope);
 
+    static TransactionQueue::AddResult
+    recvTransaction(ClassicTransactionQueuePtr classicTxQueue,
+                    SorobanTransactionQueuePtr sorobanTxQueue,
+                    TransactionFrameBasePtr tx,
+                    bool submittedFromSelf);
+
     TransactionQueue::AddResult
     recvTransaction(TransactionFrameBasePtr tx,
                     bool submittedFromSelf) override;
@@ -248,8 +254,9 @@ class HerderImpl : public Herder
     void purgeOldPersistedTxSets();
     void writeDebugTxSet(LedgerCloseData const& lcd);
 
-    std::unique_ptr<ClassicTransactionQueue> mTransactionQueue;
-    std::unique_ptr<SorobanTransactionQueue> mSorobanTransactionQueue;
+    // TODO: Need some way to get these queues
+    ClassicTransactionQueuePtr mTransactionQueue;
+    SorobanTransactionQueuePtr mSorobanTransactionQueue;
 
     void updateTransactionQueue(TxSetXDRFrameConstPtr txSet);
     void maybeSetupSorobanQueue(uint32_t protocolVersion);

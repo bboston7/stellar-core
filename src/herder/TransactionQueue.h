@@ -337,6 +337,7 @@ class SorobanTransactionQueue : public TransactionQueue
         return mValidationSnapshot->getConfig().FLOOD_SOROBAN_TX_PERIOD_MS;
     }
 };
+using SorobanTransactionQueuePtr = std::shared_ptr<SorobanTransactionQueue>;
 
 class ClassicTransactionQueue : public TransactionQueue
 {
@@ -364,6 +365,7 @@ class ClassicTransactionQueue : public TransactionQueue
         return mValidationSnapshot->getConfig().FLOOD_TX_PERIOD_MS;
     }
 };
+using ClassicTransactionQueuePtr = std::shared_ptr<ClassicTransactionQueue>;
 
 extern std::array<const char*,
                   static_cast<int>(

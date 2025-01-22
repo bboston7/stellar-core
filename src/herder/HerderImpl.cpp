@@ -590,21 +590,32 @@ HerderImpl::emitEnvelope(SCPEnvelope const& envelope)
 }
 
 TransactionQueue::AddResult
-HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
+HerderImpl::recvTransaction(ClassicTransactionQueuePtr classicTxQueue,
+                            SorobanTransactionQueuePtr sorobanTxQueue,
+                            TransactionFrameBasePtr tx, bool submittedFromSelf)
 {
     ZoneScoped;
+    // TODO: Maybe classicTxQueue should be a reference, since it's required
+    releaseAssert(classicTxQueue);
     TransactionQueue::AddResult result(
         TransactionQueue::AddResultCode::ADD_STATUS_COUNT);
 
     // Allow txs of the same kind to reach the tx queue in case it can be
     // replaced by fee
-    bool hasSoroban =
-        mSorobanTransactionQueue &&
-        mSorobanTransactionQueue->sourceAccountPending(tx->getSourceID()) &&
-        !tx->isSoroban();
-    bool hasClassic =
-        mTransactionQueue->sourceAccountPending(tx->getSourceID()) &&
-        tx->isSoroban();
+    // TODO: Is there a potential TOCTOU issue here as sourceAccountPending
+    // could change before adding? I think no because the other competing thread
+    // would be whatever is handling ledger close. However, that will only
+    // decrease the sourceAccountPending value, which means this erroneously
+    // rejects (which is safe). I guess it's possible for a user-submitted
+    // transaction to come in and conflict with the overlay thread, but that
+    // would require them to be simultaneously running two clients and
+    // submitting from both of them. Still, it might be safest to use some kind
+    // of atomic function that handles both this check AND the add.
+    bool hasSoroban = sorobanTxQueue &&
+                      sorobanTxQueue->sourceAccountPending(tx->getSourceID()) &&
+                      !tx->isSoroban();
+    bool hasClassic = classicTxQueue->sourceAccountPending(tx->getSourceID()) &&
+                      tx->isSoroban();
     if (hasSoroban || hasClassic)
     {
         CLOG_DEBUG(Herder,
@@ -617,31 +628,11 @@ HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
     }
     else if (!tx->isSoroban())
     {
-        if (mApp.getConfig().BACKGROUND_TX_QUEUE && !submittedFromSelf)
-        {
-            mApp.postOnOverlayThread(
-                [this, tx]() { mTransactionQueue->tryAdd(tx, false); },
-                "try add tx");
-            result.code = TransactionQueue::AddResultCode::ADD_STATUS_UNKNOWN;
-        }
-        else
-        {
-            result = mTransactionQueue->tryAdd(tx, submittedFromSelf);
-        }
+        result = classicTxQueue->tryAdd(tx, submittedFromSelf);
     }
-    else if (mSorobanTransactionQueue)
+    else if (sorobanTxQueue)
     {
-        if (mApp.getConfig().BACKGROUND_TX_QUEUE && !submittedFromSelf)
-        {
-            mApp.postOnOverlayThread(
-                [this, tx]() { mSorobanTransactionQueue->tryAdd(tx, false); },
-                "try add tx");
-            result.code = TransactionQueue::AddResultCode::ADD_STATUS_UNKNOWN;
-        }
-        else
-        {
-            result = mSorobanTransactionQueue->tryAdd(tx, submittedFromSelf);
-        }
+        result = sorobanTxQueue->tryAdd(tx, submittedFromSelf);
     }
     else
     {
@@ -659,6 +650,25 @@ HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
                    KeyUtils::toShortString(tx->getSourceID()));
     }
     return result;
+}
+
+TransactionQueue::AddResult
+HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
+{
+    ZoneScoped;
+    if (mApp.getConfig().BACKGROUND_TX_QUEUE && !submittedFromSelf)
+    {
+        mApp.postOnOverlayThread(
+            [this, tx]() {
+                recvTransaction(mTransactionQueue, mSorobanTransactionQueue, tx,
+                                false);
+            },
+            "try add tx");
+        return TransactionQueue::AddResult(
+            TransactionQueue::AddResultCode::ADD_STATUS_UNKNOWN);
+    }
+    return recvTransaction(mTransactionQueue, mSorobanTransactionQueue, tx,
+                           submittedFromSelf);
 }
 
 bool
@@ -2194,7 +2204,7 @@ HerderImpl::maybeSetupSorobanQueue(uint32_t protocolVersion)
         {
             releaseAssert(mTxQueueBucketSnapshot);
             mSorobanTransactionQueue =
-                std::make_unique<SorobanTransactionQueue>(
+                std::make_shared<SorobanTransactionQueue>(
                     mApp, mTxQueueBucketSnapshot,
                     TRANSACTION_QUEUE_TIMEOUT_LEDGERS,
                     TRANSACTION_QUEUE_BAN_LEDGERS,
@@ -2216,7 +2226,7 @@ HerderImpl::start()
                                  .getBucketSnapshotManager()
                                  .copySearchableLiveBucketListSnapshot();
     releaseAssert(!mTransactionQueue);
-    mTransactionQueue = std::make_unique<ClassicTransactionQueue>(
+    mTransactionQueue = std::make_shared<ClassicTransactionQueue>(
         mApp, mTxQueueBucketSnapshot, TRANSACTION_QUEUE_TIMEOUT_LEDGERS,
         TRANSACTION_QUEUE_BAN_LEDGERS, TRANSACTION_QUEUE_SIZE_MULTIPLIER);
 
