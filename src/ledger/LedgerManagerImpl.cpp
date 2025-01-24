@@ -230,10 +230,10 @@ LedgerManagerImpl::setState(State s)
     if (s != getState())
     {
         std::string oldState = getStateHuman();
-        mState = s;
+        mState.store(s);
         mApp.syncOwnMetrics();
         CLOG_INFO(Ledger, "Changing state {} -> {}", oldState, getStateHuman());
-        if (mState != LM_CATCHING_UP_STATE)
+        if (mState.load() != LM_CATCHING_UP_STATE)
         {
             mApp.getLedgerApplyManager().logAndUpdateCatchupStatus(true);
         }
@@ -243,7 +243,7 @@ LedgerManagerImpl::setState(State s)
 LedgerManager::State
 LedgerManagerImpl::getState() const
 {
-    return mState;
+    return mState.load();
 }
 
 std::string
@@ -667,7 +667,7 @@ LedgerManagerImpl::valueExternalized(LedgerCloseData const& ledgerData,
     if (res == LedgerApplyManager::ProcessLedgerResult::
                    WAIT_TO_APPLY_BUFFERED_OR_CATCHUP)
     {
-        if (mState != LM_CATCHING_UP_STATE)
+        if (mState.load() != LM_CATCHING_UP_STATE)
         {
             // Out of sync, buffer what we just heard and start catchup.
             CLOG_INFO(Ledger,
