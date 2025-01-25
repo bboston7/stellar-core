@@ -52,21 +52,21 @@ std::array<const char*,
     TX_STATUS_STRING = std::array{"PENDING", "DUPLICATE", "ERROR",
                                   "TRY_AGAIN_LATER", "FILTERED"};
 
-TransactionQueue::AddResult::AddResult(AddResultCode addCode)
+TxQueueAddResult::TxQueueAddResult(TxQueueAddResultCode addCode)
     : code(addCode), txResult()
 {
 }
 
-TransactionQueue::AddResult::AddResult(AddResultCode addCode,
-                                       MutableTxResultPtr payload)
+TxQueueAddResult::TxQueueAddResult(TxQueueAddResultCode addCode,
+                                   MutableTxResultPtr payload)
     : code(addCode), txResult(payload)
 {
     releaseAssert(txResult);
 }
 
-TransactionQueue::AddResult::AddResult(AddResultCode addCode,
-                                       TransactionFrameBasePtr tx,
-                                       TransactionResultCode txErrorCode)
+TxQueueAddResult::TxQueueAddResult(TxQueueAddResultCode addCode,
+                                   TransactionFrameBasePtr tx,
+                                   TransactionResultCode txErrorCode)
     : code(addCode), txResult(tx->createSuccessResult())
 {
     releaseAssert(txErrorCode != txSUCCESS);

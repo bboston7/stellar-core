@@ -54,6 +54,7 @@ class AppConnector
     std::shared_ptr<Config const> getConfigPtr() const;
     bool overlayShuttingDown() const;
     OverlayMetrics& getOverlayMetrics();
+    bool ledgerIsSynced() const;
     // This method is always exclusively called from one thread
     bool
     checkScheduledAndCache(std::shared_ptr<CapacityTrackedMessage> msgTracker);

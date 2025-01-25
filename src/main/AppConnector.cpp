@@ -162,6 +162,13 @@ AppConnector::getOverlayMetrics()
 }
 
 bool
+AppConnector::ledgerIsSynced() const
+{
+    // Ledger manager's state enum is atomic
+    return mApp.getLedgerManager().isSynced();
+}
+
+bool
 AppConnector::checkScheduledAndCache(
     std::shared_ptr<CapacityTrackedMessage> msgTracker)
 {

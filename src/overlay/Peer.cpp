@@ -1011,7 +1011,7 @@ Peer::recvMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     bool ignoreIfOutOfSync = msgType == TRANSACTION ||
                              msgType == FLOOD_ADVERT || msgType == FLOOD_DEMAND;
 
-    if (!mAppConnector.getLedgerManager().isSynced() && ignoreIfOutOfSync)
+    if (!mAppConnector.ledgerIsSynced() && ignoreIfOutOfSync)
     {
         // For transactions, exit early during the state rebuild, as we
         // can't properly verify them
@@ -1481,7 +1481,7 @@ Peer::recvSCPMessage(CapacityTrackedMessage const& msg)
     // add it to the floodmap so that this peer gets credit for it
     releaseAssert(msg.maybeGetHash());
     mAppConnector.getOverlayManager().recvFloodedMsgID(
-        msg.getMessage(), shared_from_this(), msg.maybeGetHash().value());
+        shared_from_this(), msg.maybeGetHash().value());
 
     auto res = mAppConnector.getHerder().recvSCPEnvelope(envelope);
     if (res == Herder::ENVELOPE_STATUS_DISCARDED)
