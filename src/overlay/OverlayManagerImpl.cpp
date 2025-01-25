@@ -1192,7 +1192,7 @@ OverlayManagerImpl::recordAddTransactionStats(TxQueueAddResult const& addResult,
     auto const& om = getOverlayMetrics();
     switch (addResult.code)
     {
-    case TransactionQueue::AddResultCode::ADD_STATUS_PENDING:
+    case TxQueueAddResultCode::ADD_STATUS_PENDING:
         om.mPulledRelevantTxs.Mark();
         // record that this peer sent us this transaction
         // add it to the floodmap so that this peer gets credit for it
@@ -1202,7 +1202,7 @@ OverlayManagerImpl::recordAddTransactionStats(TxQueueAddResult const& addResult,
             "Peer::recvTransaction Received unique transaction {} from {}",
             hexAbbrev(txHash), peer->toString());
         break;
-    case TransactionQueue::AddResultCode::ADD_STATUS_DUPLICATE:
+    case TxQueueAddResultCode::ADD_STATUS_DUPLICATE:
         om.mPulledIrrelevantTxs.Mark();
         // record that this peer sent us this transaction
         // add it to the floodmap so that this peer gets credit for it
