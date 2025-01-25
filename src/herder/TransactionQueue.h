@@ -102,7 +102,6 @@ class TransactionQueue
   public:
     static uint64_t const FEE_MULTIPLIER;
 
-    // TODO: Remove these `using` statements
     using AddResultCode = TxQueueAddResultCode;
     using AddResult = TxQueueAddResult;
 

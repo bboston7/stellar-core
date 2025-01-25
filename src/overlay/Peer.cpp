@@ -460,6 +460,8 @@ void
 Peer::maybeExecuteInBackground(std::string const& jobName,
                                std::function<void(std::shared_ptr<Peer>)> f)
 {
+    // TODO: What if this is running on the txqueue thread? This could be
+    // invoked via the destructor on the message tracker.
     if (useBackgroundThread() && threadIsMain())
     {
         mAppConnector.postOnOverlayThread(
@@ -971,6 +973,17 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
 
     // TODO: Special case for TRANSACTION here to add to tx queue in the
     // background.
+    if (msgTracker->getMessage().type() == TRANSACTION &&
+        mAppConnector.getConfig().BACKGROUND_TX_QUEUE)
+    {
+        releaseAssert(!threadIsMain());
+        // TODO
+        recvMessage(msgTracker);
+        // TODO: If I end up running this on a different thread then I need to
+        // be sure to std::move `msgTracker` into the lambda as-per the note
+        // below.
+        return true;
+    }
 
     // Subtle: move `msgTracker` shared_ptr into the lambda, to ensure
     // its destructor is invoked from main thread only. Note that we can't use
@@ -992,7 +1005,7 @@ void
 Peer::recvMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
 {
     ZoneScoped;
-    releaseAssert(threadIsMain());
+    // TODO: Note in the docs that this function may be called in the background
 
     auto const& stellarMsg = msgTracker->getMessage();
 
@@ -1020,7 +1033,19 @@ Peer::recvMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
 
     try
     {
-        recvRawMessage(msgTracker);
+        if (msgType == TRANSACTION &&
+            mAppConnector.getConfig().BACKGROUND_TX_QUEUE)
+        {
+            // TODO: I think I can just directly invoke recvTransaction here. I
+            // believe the only additional stuff recvRawMessage does is metrics,
+            // which I can come back to later.
+            releaseAssert(false);
+        }
+        else
+        {
+            releaseAssert(threadIsMain());
+            recvRawMessage(msgTracker);
+        }
     }
     catch (CryptoError const& e)
     {
