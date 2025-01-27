@@ -75,8 +75,7 @@ enum class TxQueueAddResultCode
     ADD_STATUS_ERROR,
     ADD_STATUS_TRY_AGAIN_LATER,
     ADD_STATUS_FILTERED,
-    ADD_STATUS_COUNT,
-    ADD_STATUS_UNKNOWN // TODO: rename?
+    ADD_STATUS_COUNT
 };
 
 struct TxQueueAddResult

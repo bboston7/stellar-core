@@ -656,17 +656,6 @@ TransactionQueue::AddResult
 HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
 {
     ZoneScoped;
-    if (mApp.getConfig().BACKGROUND_TX_QUEUE && !submittedFromSelf)
-    {
-        mApp.postOnOverlayThread(
-            [this, tx]() {
-                recvTransaction(mTransactionQueue, mSorobanTransactionQueue, tx,
-                                false);
-            },
-            "try add tx");
-        return TransactionQueue::AddResult(
-            TransactionQueue::AddResultCode::ADD_STATUS_UNKNOWN);
-    }
     return recvTransaction(mTransactionQueue, mSorobanTransactionQueue, tx,
                            submittedFromSelf);
 }

@@ -1087,6 +1087,9 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     // No need to hold the lock for the whole duration of the function, just
     // need to check state for a potential early exit. If the peer gets dropped
     // after, we'd still process the message, but that's harmless.
+    // TODO: I think it's OK that the flow I developed skips this? The message
+    // type is skips most of these checks, except for the authenticated check.
+    // Maybe I should add an isAuthenticated check? Or a shouldAbort check?
     {
         RECURSIVE_LOCK_GUARD(mStateMutex, guard);
         if (shouldAbort(guard))
