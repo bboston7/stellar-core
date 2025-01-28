@@ -582,8 +582,9 @@ HerderImpl::emitEnvelope(SCPEnvelope const& envelope)
     broadcast(envelope);
 }
 
+// TODO: Move to Herder.cpp?
 TransactionQueue::AddResult
-HerderImpl::recvTransaction(TransactionQueuesPtr txQueues,
+Herder::recvTransaction(TransactionQueuesPtr txQueues,
                             TransactionFrameBasePtr tx, bool submittedFromSelf)
 {
     ZoneScoped;
@@ -651,7 +652,7 @@ TransactionQueue::AddResult
 HerderImpl::recvTransaction(TransactionFrameBasePtr tx, bool submittedFromSelf)
 {
     ZoneScoped;
-    return recvTransaction(mTransactionQueues, tx, submittedFromSelf);
+    return Herder::recvTransaction(mTransactionQueues, tx, submittedFromSelf);
 }
 
 bool

@@ -40,7 +40,7 @@ class AppConnector
     void checkOnOperationApply(Operation const& operation,
                                OperationResult const& opres,
                                LedgerTxnDelta const& ltxDelta);
-    Hash const& getNetworkID() const;
+    Hash const& getNetworkID() const; // TODO: Is this *really* not thread safe?
 
     // Thread-safe methods
     void postOnMainThread(

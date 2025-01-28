@@ -228,5 +228,10 @@ class Herder
 
     // TODO: Docs
     virtual TransactionQueuesPtr getTransactionQueues() const = 0;
+
+    // TODO: Docs
+    static TransactionQueue::AddResult
+    recvTransaction(TransactionQueuesPtr txQueues, TransactionFrameBasePtr tx,
+                    bool submittedFromSelf);
 };
 }

@@ -1038,10 +1038,27 @@ Peer::recvMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
         if (msgType == TRANSACTION &&
             mAppConnector.getConfig().BACKGROUND_TX_QUEUE)
         {
-            // TODO: I think I can just directly invoke recvTransaction here. I
-            // believe the only additional stuff recvRawMessage does is metrics,
-            // which I can come back to later.
-            releaseAssert(false);
+            // TODO: Refactor this to more closely mirror recvTransaction flow?
+            // Also need to get all the metrics/etc from
+            // OverlayManagerImpl::recordAddTransactionStats in here.
+            releaseAssert(!threadIsMain());
+            releaseAssert(msgTracker->maybeGetHash().has_value());
+            Hash const index = msgTracker->maybeGetHash().value();
+            // TODO: If `getNetworkID` is truly not thread safe then we might
+            // need to keep a copy of it somewhere safe.
+            auto transaction = TransactionFrameBase::makeTransactionFromWire(
+                mAppConnector.getNetworkID(),
+                msgTracker->getMessage().transaction());
+            releaseAssert(transaction);
+            TransactionQueue::AddResult addResult =
+                Herder::recvTransaction(mTransactionQueues, transaction, false);
+            mAppConnector.postOnMainThread(
+                [self = shared_from_this(), index, addResult, transaction]() {
+                    self->mAppConnector.getOverlayManager()
+                        .recordAddTransactionStats(
+                            addResult, transaction->getFullHash(), self, index);
+                },
+                "Peer::recvMessage recordAddTransactionStats");
         }
         else
         {
@@ -1213,6 +1230,7 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
 
     case TRANSACTION:
     {
+        // TODO: Losing this metric right now vv
         auto t = mOverlayMetrics.mRecvTransactionTimer.TimeScope();
         recvTransaction(*msgTracker);
     }
