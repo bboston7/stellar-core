@@ -350,7 +350,6 @@ class SorobanTransactionQueue : public TransactionQueue
         return mValidationSnapshot->getConfig().FLOOD_SOROBAN_TX_PERIOD_MS;
     }
 };
-using SorobanTransactionQueuePtr = std::shared_ptr<SorobanTransactionQueue>;
 
 class ClassicTransactionQueue : public TransactionQueue
 {
@@ -378,7 +377,39 @@ class ClassicTransactionQueue : public TransactionQueue
         return mValidationSnapshot->getConfig().FLOOD_TX_PERIOD_MS;
     }
 };
-using ClassicTransactionQueuePtr = std::shared_ptr<ClassicTransactionQueue>;
+
+// TODO: Rename?
+// TODO: Docs. A thread-safe container for transaction queues that allows for
+// delayed-initialization of the queues.
+// TODO: Doc comments on methods.
+class TransactionQueues : public NonMovableOrCopyable
+{
+  public:
+    TransactionQueues() = default;
+
+    void setClassicTransactionQueue(
+        std::unique_ptr<ClassicTransactionQueue> classicTransactionQueue);
+    void setSorobanTransactionQueue(
+        std::unique_ptr<SorobanTransactionQueue> sorobanTransactionQueue);
+
+    bool hasClassicTransactionQueue() const;
+    bool hasSorobanTransactionQueue() const;
+
+    ClassicTransactionQueue& getClassicTransactionQueue() const;
+    SorobanTransactionQueue& getSorobanTransactionQueue() const;
+
+    // Convenience functions that operate on both queues (if they exist)
+    void shutdown();
+    bool sourceAccountPending(AccountID const& accountID) const;
+    bool isBanned(Hash const& hash) const;
+    TransactionFrameBaseConstPtr getTx(Hash const& hash) const;
+
+  private:
+    mutable std::mutex mMutex;
+    std::unique_ptr<ClassicTransactionQueue> mClassicTransactionQueue = nullptr;
+    std::unique_ptr<SorobanTransactionQueue> mSorobanTransactionQueue = nullptr;
+};
+using TransactionQueuesPtr = std::shared_ptr<TransactionQueues>;
 
 extern std::array<const char*,
                   static_cast<int>(

@@ -98,9 +98,7 @@ class HerderImpl : public Herder
     void emitEnvelope(SCPEnvelope const& envelope);
 
     static TransactionQueue::AddResult
-    recvTransaction(ClassicTransactionQueuePtr classicTxQueue,
-                    SorobanTransactionQueuePtr sorobanTxQueue,
-                    TransactionFrameBasePtr tx,
+    recvTransaction(TransactionQueuesPtr txQueues, TransactionFrameBasePtr tx,
                     bool submittedFromSelf);
 
     TransactionQueue::AddResult
@@ -255,8 +253,10 @@ class HerderImpl : public Herder
     void writeDebugTxSet(LedgerCloseData const& lcd);
 
     // TODO: Need some way to get these queues
-    ClassicTransactionQueuePtr mTransactionQueue;
-    SorobanTransactionQueuePtr mSorobanTransactionQueue;
+    // TODO: Maybe something else should create this and pass it in somehow,
+    // either via Application or explicitly in the constructor for HerderImpl.
+    TransactionQueuesPtr mTransactionQueues =
+        std::make_shared<TransactionQueues>();
 
     void updateTransactionQueue(TxSetXDRFrameConstPtr txSet);
     void maybeSetupSorobanQueue(uint32_t protocolVersion);

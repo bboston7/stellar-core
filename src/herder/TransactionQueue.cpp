@@ -1473,4 +1473,105 @@ ClassicTransactionQueue::getMaxQueueSizeOps() const
     releaseAssert(res.size() == NUM_CLASSIC_TX_RESOURCES);
     return res.getVal(Resource::Type::OPERATIONS);
 }
+
+void
+TransactionQueues::setClassicTransactionQueue(
+    std::unique_ptr<ClassicTransactionQueue> classicTransactionQueue)
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    releaseAssert(!mClassicTransactionQueue);
+    mClassicTransactionQueue = std::move(classicTransactionQueue);
+}
+
+void
+TransactionQueues::setSorobanTransactionQueue(
+    std::unique_ptr<SorobanTransactionQueue> sorobanTransactionQueue)
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    releaseAssert(!mSorobanTransactionQueue);
+    mSorobanTransactionQueue = std::move(sorobanTransactionQueue);
+}
+
+bool
+TransactionQueues::hasClassicTransactionQueue() const
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    return mClassicTransactionQueue != nullptr;
+}
+
+bool
+TransactionQueues::hasSorobanTransactionQueue() const
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    return mSorobanTransactionQueue != nullptr;
+}
+
+ClassicTransactionQueue&
+TransactionQueues::getClassicTransactionQueue() const
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    releaseAssert(mClassicTransactionQueue);
+    return *mClassicTransactionQueue;
+}
+
+SorobanTransactionQueue&
+TransactionQueues::getSorobanTransactionQueue() const
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    releaseAssert(mSorobanTransactionQueue);
+    return *mSorobanTransactionQueue;
+}
+
+void
+TransactionQueues::shutdown()
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    if (mClassicTransactionQueue)
+    {
+        mClassicTransactionQueue->shutdown();
+    }
+    if (mSorobanTransactionQueue)
+    {
+        mSorobanTransactionQueue->shutdown();
+    }
+}
+
+bool
+TransactionQueues::sourceAccountPending(AccountID const& accountID) const
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    releaseAssert(mClassicTransactionQueue);
+    bool accPending = mClassicTransactionQueue->sourceAccountPending(accountID);
+    if (mSorobanTransactionQueue)
+    {
+        accPending = accPending ||
+                     mSorobanTransactionQueue->sourceAccountPending(accountID);
+    }
+    return accPending;
+}
+
+bool
+TransactionQueues::isBanned(Hash const& hash) const
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    auto banned = mClassicTransactionQueue->isBanned(hash);
+    if (mSorobanTransactionQueue)
+    {
+        banned = banned || mSorobanTransactionQueue->isBanned(hash);
+    }
+    return banned;
+}
+
+TransactionFrameBaseConstPtr
+TransactionQueues::getTx(Hash const& hash) const
+{
+    std::lock_guard<std::mutex> guard(mMutex);
+    auto classic = mClassicTransactionQueue->getTx(hash);
+    if (!classic && mSorobanTransactionQueue)
+    {
+        return mSorobanTransactionQueue->getTx(hash);
+    }
+    return classic;
+}
+
 }
