@@ -2520,4 +2520,9 @@ HerderImpl::getTx(Hash const& hash) const
     return mTransactionQueues->getTx(hash);
 }
 
+TransactionQueuesPtr HerderImpl::getTransactionQueues() const {
+    releaseAssert(mTransactionQueues);
+    return mTransactionQueues;
+}
+
 }

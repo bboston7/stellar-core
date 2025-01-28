@@ -225,5 +225,8 @@ class Herder
     virtual TransactionFrameBaseConstPtr getTx(Hash const& hash) const = 0;
 
     virtual void beginApply() = 0;
+
+    // TODO: Docs
+    virtual TransactionQueuesPtr getTransactionQueues() const = 0;
 };
 }

@@ -71,8 +71,10 @@ Peer::Peer(Application& app, PeerRole role)
     , mRecurringTimer(app)
     , mDelayedExecutionTimer(app)
     , mTxAdverts(std::make_shared<TxAdverts>(app))
+    , mTransactionQueues(mAppConnector.getHerder().getTransactionQueues())
 {
     releaseAssert(threadIsMain());
+    releaseAssert(mTransactionQueues); // TODO: Remove?
     mPingSentTime = PING_NOT_SENT;
     mLastPing = std::chrono::hours(24); // some default very high value
     auto bytes = randomBytes(mSendNonce.size());
