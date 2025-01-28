@@ -134,21 +134,22 @@ LedgerManager::maxClassicLedgerResources(LedgerHeader const& header)
 Resource
 LedgerManager::maxSorobanLedgerResources(SorobanNetworkConfig const& conf)
 {
-    ZoneScoped std::vector<int64_t> limits = {
-        conf.ledgerMaxTxCount(),
-        conf.ledgerMaxInstructions(),
-        conf.ledgerMaxTransactionSizesBytes(),
-        conf.ledgerMaxReadBytes(),
-        conf.ledgerMaxWriteBytes(),
-        conf.ledgerMaxReadLedgerEntries(),
-        conf.ledgerMaxWriteLedgerEntries()};
+    ZoneScoped;
+    std::vector<int64_t> limits = {conf.ledgerMaxTxCount(),
+                                   conf.ledgerMaxInstructions(),
+                                   conf.ledgerMaxTransactionSizesBytes(),
+                                   conf.ledgerMaxReadBytes(),
+                                   conf.ledgerMaxWriteBytes(),
+                                   conf.ledgerMaxReadLedgerEntries(),
+                                   conf.ledgerMaxWriteLedgerEntries()};
     return Resource(limits);
 }
 
 Resource
 LedgerManager::maxSorobanTransactionResources(SorobanNetworkConfig const& conf)
 {
-    ZoneScoped int64_t const opCount = 1;
+    ZoneScoped;
+    int64_t const opCount = 1;
     std::vector<int64_t> limits = {opCount,
                                    conf.txMaxInstructions(),
                                    conf.txMaxSizeBytes(),
