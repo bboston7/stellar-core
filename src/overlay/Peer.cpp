@@ -869,94 +869,116 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
 {
     ZoneScoped;
     releaseAssert(!threadIsMain() || !useBackgroundThread());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
 
-    if (shouldAbort(guard))
-    {
-        return false;
-    }
+    // TODO: Remove if I get rid of the special lock scoping vv
+    std::shared_ptr<CapacityTrackedMessage> msgTracker = nullptr;
 
-    std::string errorMsg;
-    if (getState(guard) >= GOT_HELLO && msg.v0().message.type() != ERROR_MSG)
+    // TODO: Move back if I git rid of lock scoping vv
+    Scheduler::ActionType type = Scheduler::ActionType::NORMAL_ACTION;
+    std::string queueName;
     {
-        if (!mHmac.checkAuthenticatedMessage(msg, errorMsg))
+        RECURSIVE_LOCK_GUARD(mStateMutex, guard);
+
+        if (shouldAbort(guard))
         {
-            if (!threadIsMain())
-            {
-                mAppConnector.postOnMainThread(
-                    [self = shared_from_this(), errorMsg]() {
-                        self->sendErrorAndDrop(ERR_AUTH, errorMsg);
-                    },
-                    "Peer::sendErrorAndDrop");
-            }
-            else
-            {
-                sendErrorAndDrop(ERR_AUTH, errorMsg);
-            }
             return false;
         }
+
+        std::string errorMsg;
+        if (getState(guard) >= GOT_HELLO &&
+            msg.v0().message.type() != ERROR_MSG)
+        {
+            if (!mHmac.checkAuthenticatedMessage(msg, errorMsg))
+            {
+                if (!threadIsMain())
+                {
+                    mAppConnector.postOnMainThread(
+                        [self = shared_from_this(), errorMsg]() {
+                            self->sendErrorAndDrop(ERR_AUTH, errorMsg);
+                        },
+                        "Peer::sendErrorAndDrop");
+                }
+                else
+                {
+                    sendErrorAndDrop(ERR_AUTH, errorMsg);
+                }
+                return false;
+            }
+        }
+
+        // NOTE: Additionally, we may use state snapshots to verify TRANSACTION
+        // type messages in the background.
+
+        // Start tracking capacity here, so read throttling is applied
+        // appropriately. Flow control might not be started at that time
+        msgTracker = std::make_shared<CapacityTrackedMessage>(
+            shared_from_this(), msg.v0().message);
+
+        std::string cat;
+
+        switch (msgTracker->getMessage().type())
+        {
+        case HELLO:
+        case AUTH:
+            cat = AUTH_ACTION_QUEUE;
+            break;
+        // control messages
+        case PEERS:
+        case ERROR_MSG:
+        case SEND_MORE:
+        case SEND_MORE_EXTENDED:
+            cat = "CTRL";
+            break;
+        // high volume flooding
+        case TRANSACTION:
+        case FLOOD_ADVERT:
+        case FLOOD_DEMAND:
+        {
+            cat = "TX";
+            type = Scheduler::ActionType::DROPPABLE_ACTION;
+            break;
+        }
+
+        // consensus, inbound
+        case GET_TX_SET:
+        case GET_SCP_QUORUMSET:
+        case GET_SCP_STATE:
+            cat = "SCPQ";
+            type = Scheduler::ActionType::DROPPABLE_ACTION;
+            break;
+
+        // consensus, self
+        case DONT_HAVE:
+        case TX_SET:
+        case GENERALIZED_TX_SET:
+        case SCP_QUORUMSET:
+        case SCP_MESSAGE:
+            cat = "SCP";
+            break;
+
+        default:
+            cat = "MISC";
+        }
+
+        // processing of incoming messages during authenticated must be
+        // in-order, so while not authenticated, place all messages onto
+        // AUTH_ACTION_QUEUE scheduler queue
+        queueName = isAuthenticated(guard) ? cat : AUTH_ACTION_QUEUE;
+        type = isAuthenticated(guard) ? type
+                                      : Scheduler::ActionType::NORMAL_ACTION;
+
+        // TODO: This scope (ending here) exists to ensure this doesn't hold the
+        // state lock upon entry to the transaction queue. This can cause
+        // deadlocks! I think it's safe to release the lock here as there's no
+        // longer any state querying. In practice though, if I end up posting
+        // the tryAdd action onto some tx-queue specific thread, then I can
+        // remove the scoping I added here and the lock will be released upon
+        // return from this function (like it always has).
     }
 
-    // NOTE: Additionally, we may use state snapshots to verify TRANSACTION type
-    // messages in the background.
-
-    // Start tracking capacity here, so read throttling is applied
-    // appropriately. Flow control might not be started at that time
-    auto msgTracker = std::make_shared<CapacityTrackedMessage>(
-        shared_from_this(), msg.v0().message);
-
-    std::string cat;
-    Scheduler::ActionType type = Scheduler::ActionType::NORMAL_ACTION;
-
-    switch (msgTracker->getMessage().type())
-    {
-    case HELLO:
-    case AUTH:
-        cat = AUTH_ACTION_QUEUE;
-        break;
-    // control messages
-    case PEERS:
-    case ERROR_MSG:
-    case SEND_MORE:
-    case SEND_MORE_EXTENDED:
-        cat = "CTRL";
-        break;
-    // high volume flooding
-    case TRANSACTION:
-    case FLOOD_ADVERT:
-    case FLOOD_DEMAND:
-    {
-        cat = "TX";
-        type = Scheduler::ActionType::DROPPABLE_ACTION;
-        break;
-    }
-
-    // consensus, inbound
-    case GET_TX_SET:
-    case GET_SCP_QUORUMSET:
-    case GET_SCP_STATE:
-        cat = "SCPQ";
-        type = Scheduler::ActionType::DROPPABLE_ACTION;
-        break;
-
-    // consensus, self
-    case DONT_HAVE:
-    case TX_SET:
-    case GENERALIZED_TX_SET:
-    case SCP_QUORUMSET:
-    case SCP_MESSAGE:
-        cat = "SCP";
-        break;
-
-    default:
-        cat = "MISC";
-    }
-
-    // processing of incoming messages during authenticated must be in-order, so
-    // while not authenticated, place all messages onto AUTH_ACTION_QUEUE
-    // scheduler queue
-    auto queueName = isAuthenticated(guard) ? cat : AUTH_ACTION_QUEUE;
-    type = isAuthenticated(guard) ? type : Scheduler::ActionType::NORMAL_ACTION;
+    // TODO: vv Remove asserts if I get rid of the scoping above
+    releaseAssert(msgTracker);
+    releaseAssert(!queueName.empty());
 
     // If a message is already scheduled, drop
     if (mAppConnector.checkScheduledAndCache(msgTracker))
