@@ -1054,8 +1054,12 @@ TransactionQueue::broadcastTx(TimestampedTx& tx)
     // Must be main thread because we are accessing the overlay manager
     releaseAssert(threadIsMain());
 
+    // TODO: Remove
+    std::string txStr = hexAbbrev(tx.mTx->getFullHash());
+
     if (tx.mBroadcasted)
     {
+        CLOG_DEBUG(Tx, "Transaction {} already broadcasted", txStr);
         return BroadcastStatus::BROADCAST_STATUS_ALREADY;
     }
 
@@ -1080,8 +1084,10 @@ TransactionQueue::broadcastTx(TimestampedTx& tx)
         // false to our caller so that they will not count this tx against
         // the per-timeslice counters -- we want to allow the caller to try
         // useful work from other sources.
+        CLOG_DEBUG(Tx, "Transaction {} skipped", txStr);
         return BroadcastStatus::BROADCAST_STATUS_SKIPPED;
     }
+    CLOG_DEBUG(Tx, "Broadcasting transaction {}", txStr);
     return mAppConn.getOverlayManager().broadcastMessage(
                tx.mTx->toStellarMessage(),
                std::make_optional<Hash>(tx.mTx->getFullHash()))
