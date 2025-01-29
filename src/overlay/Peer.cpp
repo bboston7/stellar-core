@@ -974,6 +974,9 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
         // the tryAdd action onto some tx-queue specific thread, then I can
         // remove the scoping I added here and the lock will be released upon
         // return from this function (like it always has).
+
+        // TODO: Really investigate whether this peer+transaction queue locking
+        // each other issue can come up anywhere else.
     }
 
     // TODO: vv Remove asserts if I get rid of the scoping above
