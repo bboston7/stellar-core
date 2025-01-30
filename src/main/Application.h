@@ -243,6 +243,8 @@ class Application
                                                 std::string jobName) = 0;
     virtual void postOnOverlayThread(std::function<void()>&& f,
                                      std::string jobName) = 0;
+    virtual void postOnTxQueueThread(std::function<void()>&& f,
+                                     std::string jobName) = 0;
     virtual void postOnLedgerCloseThread(std::function<void()>&& f,
                                          std::string jobName) = 0;
 
