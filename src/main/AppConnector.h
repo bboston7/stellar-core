@@ -48,6 +48,8 @@ class AppConnector
         Scheduler::ActionType type = Scheduler::ActionType::NORMAL_ACTION);
     void postOnOverlayThread(std::function<void()>&& f,
                              std::string const& message);
+    void postOnTxQueueThread(std::function<void()>&& f,
+                             std::string const& message);
     VirtualClock::time_point now() const;
     VirtualClock::system_time_point system_now() const;
     Config const& getConfig() const;

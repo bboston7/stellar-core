@@ -112,6 +112,13 @@ AppConnector::postOnOverlayThread(std::function<void()>&& f,
     mApp.postOnOverlayThread(std::move(f), message);
 }
 
+void
+AppConnector::postOnTxQueueThread(std::function<void()>&& f,
+                                  std::string const& message)
+{
+    mApp.postOnTxQueueThread(std::move(f), message);
+}
+
 Config const&
 AppConnector::getConfig() const
 {

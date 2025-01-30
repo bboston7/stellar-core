@@ -1003,25 +1003,39 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
     if (msgTracker->getMessage().type() == TRANSACTION &&
         mAppConnector.getConfig().BACKGROUND_TX_QUEUE)
     {
+        // TODO: This assert might not be relevant. It's theoretically possible
+        // to enable background tx queue without enabling background overlay
+        // (under this implementation). Whether or not that's a good idea is a
+        // separate question.
         releaseAssert(!threadIsMain());
-        // TODO
-        recvMessage(msgTracker);
+        // Subtle: move `msgTracker` shared_ptr into the lambda, to ensure
+        // its destructor is invoked from main thread only. Note that we can't
+        // use unique_ptr here, because std::function requires its callable to
+        // be copyable (C++23 fixes this with std::move_only_function, but we're
+        // not there yet)
+        mAppConnector.postOnTxQueueThread(
+            [self = shared_from_this(), t = std::move(msgTracker)]() {
+                self->recvMessage(t);
+            },
+            "Peer::recvMessage"); // TODO: Change message to something better
         // TODO: If I end up running this on a different thread then I need to
         // be sure to std::move `msgTracker` into the lambda as-per the note
         // below.
-        return true;
     }
+    else
+    {
 
-    // Subtle: move `msgTracker` shared_ptr into the lambda, to ensure
-    // its destructor is invoked from main thread only. Note that we can't use
-    // unique_ptr here, because std::function requires its callable
-    // to be copyable (C++23 fixes this with std::move_only_function, but we're
-    // not there yet)
-    mAppConnector.postOnMainThread(
-        [self = shared_from_this(), t = std::move(msgTracker)]() {
-            self->recvMessage(t);
-        },
-        std::move(queueName), type);
+        // Subtle: move `msgTracker` shared_ptr into the lambda, to ensure
+        // its destructor is invoked from main thread only. Note that we can't
+        // use unique_ptr here, because std::function requires its callable to
+        // be copyable (C++23 fixes this with std::move_only_function, but we're
+        // not there yet)
+        mAppConnector.postOnMainThread(
+            [self = shared_from_this(), t = std::move(msgTracker)]() {
+                self->recvMessage(t);
+            },
+            std::move(queueName), type);
+    }
 
     // msgTracker should be null now
     releaseAssert(!msgTracker);
