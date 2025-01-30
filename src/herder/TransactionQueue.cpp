@@ -705,8 +705,17 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
     mTxQueueLimiter.addTransaction(tx);
     mKnownTxHashes[tx->getFullHash()] = tx;
 
-    mAppConn.postOnMainThread([this]() { broadcast(false); },
-                              "tx queue broadcast");
+    if (threadIsMain())
+    {
+        broadcast(false, guard);
+    }
+    else if (!mWaiting)
+    {
+        // NOTE: If mWaiting is set, then the broadcast timer is already running
+        // and there is no need to take up main thread time to start it.
+        mAppConn.postOnMainThread([this]() { broadcast(false); },
+                                  "tx queue broadcast");
+    }
 
     return res;
 }
