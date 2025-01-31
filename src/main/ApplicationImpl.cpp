@@ -168,6 +168,8 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
     releaseAssert(mConfig.WORKER_THREADS > 0);
     releaseAssert(mEvictionIOContext);
 
+    mThreadTypes[std::this_thread::get_id()] = ThreadType::MAIN;
+
     // Allocate one thread for Eviction scan
     mEvictionThread = std::thread{[this]() {
         runCurrentThreadWithMediumPriority();
