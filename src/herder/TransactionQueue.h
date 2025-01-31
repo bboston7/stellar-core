@@ -215,6 +215,7 @@ class TransactionQueue
 
     bool mShutdown{false};
     bool mWaiting{false};
+    bool mPendingMainThreadBroadcast{false}; // TODO: I don't love this solution
     // TODO: VirtualTimer is not thread-safe. Right now it's only used in
     // functions that are called from the main thread. However, if I move
     // broadcasting to the background I will need to be careful with this.

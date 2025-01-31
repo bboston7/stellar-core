@@ -709,10 +709,14 @@ TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
     {
         broadcast(false, guard);
     }
-    else if (!mWaiting)
+    else if (!mWaiting && !mPendingMainThreadBroadcast)
     {
         // NOTE: If mWaiting is set, then the broadcast timer is already running
         // and there is no need to take up main thread time to start it.
+        // Similarly, if mPendingMainThreadBroadcast is set, then there is
+        // already something enqueued to be broadcast on the main thread, which
+        // will result in this transaction being broadcast too.
+        mPendingMainThreadBroadcast = true;
         mAppConn.postOnMainThread([this]() { broadcast(false); },
                                   "tx queue broadcast");
     }
@@ -1319,6 +1323,7 @@ TransactionQueue::broadcast(bool fromCallback,
     // Must be called from the main thread due to the use of `mBroadcastTimer`
     releaseAssert(threadIsMain());
 
+    mPendingMainThreadBroadcast = false;
     if (mShutdown || (!fromCallback && mWaiting))
     {
         return;
