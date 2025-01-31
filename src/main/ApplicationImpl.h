@@ -117,6 +117,8 @@ class ApplicationImpl : public Application
     manualClose(std::optional<uint32_t> const& manualLedgerSeq,
                 std::optional<TimePoint> const& manualCloseTime) override;
 
+    bool threadIsType(ThreadType type) const override;
+
 #ifdef BUILD_TESTS
     virtual void generateLoad(GeneratedLoadConfig cfg) override;
 
@@ -225,6 +227,11 @@ class ApplicationImpl : public Application
     // higher-priority worker thread type, but for now we only need a single
     // thread for eviction scans.
     std::optional<std::thread> mEvictionThread;
+
+    // TODO: I don't know if this is thread safe. The only time it's written to
+    // is in the constructor, and other than that threads may read from from it
+    // in parallel. I suspect that's OK, but I need to double check.
+    std::unordered_map<std::thread::id, Application::ThreadType> mThreadTypes;
 
     asio::signal_set mStopSignals;
 

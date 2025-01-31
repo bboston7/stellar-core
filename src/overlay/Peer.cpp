@@ -464,7 +464,8 @@ Peer::maybeExecuteInBackground(std::string const& jobName,
 {
     // TODO: What if this is running on the txqueue thread? This could be
     // invoked via the destructor on the message tracker.
-    if (useBackgroundThread() && threadIsMain())
+    if (useBackgroundThread() &&
+        !mAppConnector.threadIsType(Application::ThreadType::OVERLAY))
     {
         mAppConnector.postOnOverlayThread(
             [self = shared_from_this(), f]() { f(self); }, jobName);

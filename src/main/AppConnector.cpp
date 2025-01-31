@@ -182,6 +182,12 @@ AppConnector::checkScheduledAndCache(
     return mApp.getOverlayManager().checkScheduledAndCache(msgTracker);
 }
 
+bool
+AppConnector::threadIsType(Application::ThreadType type) const
+{
+    return mApp.threadIsType(type);
+}
+
 SearchableHotArchiveSnapshotConstPtr
 AppConnector::copySearchableHotArchiveBucketListSnapshot()
 {

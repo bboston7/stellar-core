@@ -173,6 +173,7 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
         runCurrentThreadWithMediumPriority();
         mEvictionIOContext->run();
     }};
+    mThreadTypes[mEvictionThread->get_id()] = ThreadType::EVICTION;
 
     --t;
 
@@ -182,6 +183,7 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
             runCurrentThreadWithLowPriority();
             mWorkerIOContext.run();
         }};
+        mThreadTypes[thread.get_id()] = ThreadType::WORKER;
         mWorkerThreads.emplace_back(std::move(thread));
     }
 
@@ -189,6 +191,7 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
     {
         // Keep priority unchanged as overlay processes time-sensitive tasks
         mOverlayThread = std::thread{[this]() { mOverlayIOContext->run(); }};
+        mThreadTypes[mOverlayThread->get_id()] = ThreadType::OVERLAY;
     }
 
     if (mConfig.BACKGROUND_TX_QUEUE)
@@ -196,12 +199,14 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
         // TODO: Keep priority unchanged as tx queue processes time-sensitive
         // tasks? Or should tx queue priority be downgraded?
         mTxQueueThread = std::thread{[this]() { mTxQueueIOContext->run(); }};
+        mThreadTypes[mTxQueueThread->get_id()] = ThreadType::TX_QUEUE;
     }
 
     if (mConfig.parallelLedgerClose())
     {
         mLedgerCloseThread =
             std::thread{[this]() { mLedgerCloseIOContext->run(); }};
+        mThreadTypes[mLedgerCloseThread->get_id()] = ThreadType::LEDGER_CLOSE;
     }
 }
 
@@ -1220,6 +1225,18 @@ medida::MetricsRegistry&
 ApplicationImpl::getMetrics()
 {
     return *mMetrics;
+}
+
+// TODO: this satisfies ticket #4613, albeit in a different way. That ticket
+// proposes using global static variables, while this is a mapping in App
+bool
+ApplicationImpl::threadIsType(ThreadType type) const
+{
+    auto it = mThreadTypes.find(std::this_thread::get_id());
+    // TODO: I don't think it should be possible to get here with an unknown
+    // thread!
+    releaseAssert(it != mThreadTypes.end());
+    return it->second == type;
 }
 
 void
