@@ -462,8 +462,6 @@ void
 Peer::maybeExecuteInBackground(std::string const& jobName,
                                std::function<void(std::shared_ptr<Peer>)> f)
 {
-    // TODO: What if this is running on the txqueue thread? This could be
-    // invoked via the destructor on the message tracker.
     if (useBackgroundThread() &&
         !mAppConnector.threadIsType(Application::ThreadType::OVERLAY))
     {
