@@ -1,12 +1,12 @@
 #pragma once
 
 #include "bucket/BucketUtils.h"
+#include "main/Application.h"
 #include "main/Config.h"
 #include "medida/metrics_registry.h"
 
 namespace stellar
 {
-class Application;
 class OverlayManager;
 class LedgerManager;
 class Herder;

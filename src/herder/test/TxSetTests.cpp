@@ -971,8 +971,10 @@ TEST_CASE("applicable txset validation - transactions belong to correct phase",
                         1)},
                     2000);
             }
+            AppValidationWrapper avw(app->getAppConnector(), false,
+                                     std::nullopt);
             LedgerSnapshot ls(*app);
-            REQUIRE(tx->checkValid(app->getAppConnector(), ls, 0, 0, 0)
+            REQUIRE(tx->checkValid(avw, ls, 0, 0, 0)
                         ->isSuccess());
             return tx;
         };
@@ -1097,8 +1099,10 @@ TEST_CASE("applicable txset validation - Soroban resources", "[txset][soroban]")
             auto tx = sorobanTransactionFrameFromOps(
                 app->getNetworkID(), source, {op}, {}, resources, 2000,
                 100'000'000);
+            AppValidationWrapper avw(app->getAppConnector(), false,
+                                     std::nullopt);
             LedgerSnapshot ls(*app);
-            REQUIRE(tx->checkValid(app->getAppConnector(), ls, 0, 0, 0)
+            REQUIRE(tx->checkValid(avw, ls, 0, 0, 0)
                         ->isSuccess());
             return tx;
         };

@@ -1617,6 +1617,11 @@ TxSetPhaseFrame::checkValid(Application& app,
         return false;
     }
 
+    // TODO: I think it's right to pass `false` for `forApply` here, as this
+    // doesn't appear to be part of the apply flow (as evinced by the fact that
+    // this function passes the readonly soroban network config to
+    // `checkValidSoroban` above).
+    AppValidationWrapper avw(app.getAppConnector(), false, std::nullopt);
     return txsAreValid(app, lowerBoundCloseTimeOffset,
                        upperBoundCloseTimeOffset);
 }
@@ -1820,10 +1825,10 @@ TxSetPhaseFrame::txsAreValid(Application& app,
     LedgerSnapshot ls(app);
     ls.getLedgerHeader().currentToModify().ledgerSeq =
         app.getLedgerManager().getLastClosedLedgerNum() + 1;
+    AppValidationWrapper avw(app.getAppConnector(), false, std::nullopt);
     for (auto const& tx : *this)
     {
-        auto txResult = tx->checkValid(app.getAppConnector(), ls, 0,
-                                       lowerBoundCloseTimeOffset,
+        auto txResult = tx->checkValid(avw, ls, 0, lowerBoundCloseTimeOffset,
                                        upperBoundCloseTimeOffset);
         if (!txResult->isSuccess())
         {
