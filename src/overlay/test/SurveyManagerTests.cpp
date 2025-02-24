@@ -143,31 +143,6 @@ TEST_CASE("topology encrypted response memory check",
                                                      xdr::xdr_to_opaque(body));
     };
 
-    auto doOldStyleTest = [&](auto& body) {
-        // Fill up the PeerStatLists
-        for (uint32_t i = 0; i < PeerStatList::max_size(); ++i)
-        {
-            PeerStats s;
-            s.versionStr = std::string(s.versionStr.max_size(), 'a');
-            body.inboundPeers.push_back(s);
-            body.outboundPeers.push_back(s);
-        }
-
-        doEncryptTest(body);
-    };
-
-    SECTION("V0")
-    {
-        body.type(SURVEY_TOPOLOGY_RESPONSE_V0);
-        auto& topologyBody = body.topologyResponseBodyV0();
-        doOldStyleTest(topologyBody);
-    }
-    SECTION("V1")
-    {
-        body.type(SURVEY_TOPOLOGY_RESPONSE_V1);
-        auto& topologyBody = body.topologyResponseBodyV1();
-        doOldStyleTest(topologyBody);
-    }
     SECTION("V2")
     {
         body.type(SURVEY_TOPOLOGY_RESPONSE_V2);
@@ -205,32 +180,42 @@ TEST_CASE("topology survey", "[overlay][survey][topology]")
 
     auto getResults = [&](NodeID const& nodeID) {
         simulation->crankForAtLeast(std::chrono::seconds(1), false);
-        auto strResult =
-            simulation->getNode(nodeID)->getCommandHandler().manualCmd(
-                "getsurveyresult");
-
-        Json::Value result;
-        Json::Reader reader;
-        REQUIRE(reader.parse(strResult, result));
-        return result;
+        return getSurveyResult(*simulation->getNode(nodeID));
     };
 
     auto sendRequest = [&](PublicKey const& surveyor,
                            PublicKey const& surveyed) {
-        std::string topologyCmd = "surveytopology?duration=100&node=";
-        simulation->getNode(surveyor)->getCommandHandler().manualCmd(
-            topologyCmd + KeyUtils::toStrKey(surveyed));
+        REQUIRE(surveyTopologyTimeSliced(*simulation->getNode(surveyor),
+                                         surveyed, 0, 0));
     };
 
     auto crankForSurvey = [&]() {
         simulation->crankForAtLeast(
             configList[A].getExpectedLedgerCloseTime() *
-                SurveyManager::SURVEY_THROTTLE_TIMEOUT_MULT,
+                SurveyManager::SURVEY_THROTTLE_TIMEOUT_MULT * 2,
             false);
+    };
+
+    // Get survey into reporting mode
+    auto startSurveyReportingFrom = [&](PublicKey const& node) {
+        constexpr uint32_t nonce = 0xCAFE;
+        auto& surveyor = *simulation->getNode(node);
+        startSurveyCollecting(surveyor, nonce);
+
+        // Let survey run for a bit
+        crankForSurvey();
+
+        stopSurveyCollecting(surveyor, nonce);
+
+        // Give the network time to transition to the reporting phase
+        crankForSurvey();
     };
 
     SECTION("5 normal nodes (A->B->C B->E)")
     {
+        // A is running survey
+        startSurveyReportingFrom(keyList[A]);
+
         sendRequest(keyList[A], keyList[B]);
         crankForSurvey();
 
@@ -287,6 +272,9 @@ TEST_CASE("topology survey", "[overlay][survey][topology]")
     SECTION("D is not in transitive quorum, so A doesn't respond or relay to B"
             "(D-/>A-/>B)")
     {
+        // D is running survey
+        startSurveyReportingFrom(keyList[D]);
+
         sendRequest(keyList[D], keyList[A]);
         sendRequest(keyList[D], keyList[B]);
 
@@ -307,6 +295,9 @@ TEST_CASE("topology survey", "[overlay][survey][topology]")
     SECTION("B does not have C in SURVEYOR_KEYS, so B doesn't respond or relay "
             "to A (C-/>B-/>A)")
     {
+        // C is running survey
+        startSurveyReportingFrom(keyList[C]);
+
         sendRequest(keyList[C], keyList[B]);
         sendRequest(keyList[C], keyList[A]);
 
@@ -324,6 +315,9 @@ TEST_CASE("topology survey", "[overlay][survey][topology]")
     }
     SECTION("A (surveyor) filters out unknown responses")
     {
+        // A is running survey
+        startSurveyReportingFrom(keyList[A]);
+
         auto getSM = [&](NodeID const& key) -> auto&
         {
             return simulation->getNode(key)
@@ -336,12 +330,15 @@ TEST_CASE("topology survey", "[overlay][survey][topology]")
 
         // D responds to A's request, even though A did not ask
         // Create a fake request so that D can respond
-        auto request = getSM(keyList[A]).makeOldStyleSurveyRequest(keyList[D]);
+        auto request = getSM(keyList[A])
+                           .createTimeSlicedSurveyRequestForTesting(keyList[D]);
+        REQUIRE(request.has_value());
         auto peers = simulation->getNode(keyList[D])
                          ->getOverlayManager()
                          .getOutboundAuthenticatedPeers();
         REQUIRE(peers.find(keyList[A]) != peers.end());
-        getSM(keyList[D]).relayOrProcessRequest(request, peers[keyList[A]]);
+        getSM(keyList[D])
+            .relayOrProcessRequest(request.value(), peers[keyList[A]]);
 
         crankForSurvey();
         auto result = getResults(keyList[A]);
@@ -426,9 +423,8 @@ TEST_CASE("survey request process order", "[overlay][survey][topology]")
 
     auto sendRequest = [&](PublicKey const& surveyor,
                            PublicKey const& surveyed) {
-        std::string topologyCmd = "surveytopology?duration=100&node=";
-        simulation->getNode(surveyor)->getCommandHandler().manualCmd(
-            topologyCmd + KeyUtils::toStrKey(surveyed));
+        REQUIRE(surveyTopologyTimeSliced(*simulation->getNode(surveyor),
+                                         surveyed, 0, 0));
     };
 
     auto crankForSurvey = [&]() {
@@ -438,8 +434,21 @@ TEST_CASE("survey request process order", "[overlay][survey][topology]")
             false);
     };
 
+    // Get survey into reporting mode
+    auto startSurveyReportingFrom = [&](PublicKey const& node) {
+        constexpr uint32_t nonce = 0xCAFE;
+        auto& surveyor = *simulation->getNode(node);
+        startSurveyCollecting(surveyor, nonce);
+        crankForSurvey();
+        stopSurveyCollecting(surveyor, nonce);
+        crankForSurvey();
+    };
+
     SECTION("request processed fifo")
     {
+        // Surveying from node 0
+        startSurveyReportingFrom(keyList[0]);
+
         // Request node 0 to survey 1, 2, ..., (numberOfNodes - 1),
         // and the requests should be processed in that order.
         for (int i = 1; i < numberOfNodes; i++)

@@ -660,8 +660,6 @@ Peer::msgSummary(StellarMessage const& msg)
         return fmt::format(FMT_STRING("GET_SCP_STATE {:d}"),
                            msg.getSCPLedgerSeq());
 
-    case SURVEY_REQUEST:
-    case SURVEY_RESPONSE:
     case TIME_SLICED_SURVEY_REQUEST:
     case TIME_SLICED_SURVEY_RESPONSE:
     case TIME_SLICED_SURVEY_START_COLLECTING:
@@ -726,11 +724,9 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
     case GET_SCP_STATE:
         mOverlayMetrics.mSendGetSCPStateMeter.Mark();
         break;
-    case SURVEY_REQUEST:
     case TIME_SLICED_SURVEY_REQUEST:
         mOverlayMetrics.mSendSurveyRequestMeter.Mark();
         break;
-    case SURVEY_RESPONSE:
     case TIME_SLICED_SURVEY_RESPONSE:
         mOverlayMetrics.mSendSurveyResponseMeter.Mark();
         break;
@@ -1128,7 +1124,6 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     }
     break;
 
-    case SURVEY_REQUEST:
     case TIME_SLICED_SURVEY_REQUEST:
     {
         auto t = mOverlayMetrics.mRecvSurveyRequestTimer.TimeScope();
@@ -1136,7 +1131,6 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     }
     break;
 
-    case SURVEY_RESPONSE:
     case TIME_SLICED_SURVEY_RESPONSE:
     {
         auto t = mOverlayMetrics.mRecvSurveyResponseTimer.TimeScope();

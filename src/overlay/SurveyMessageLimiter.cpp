@@ -24,6 +24,12 @@ SurveyMessageLimiter::addAndValidateRequest(
     SurveyRequestMessage const& request,
     std::function<bool()> onSuccessValidation)
 {
+    if (request.commandType != TIME_SLICED_SURVEY_TOPOLOGY)
+    {
+        // TIME_SLICED_SURVEY_TOPOLOGY is the only supported command type
+        return false;
+    }
+
     if (!surveyLedgerNumValid(request.ledgerNum))
     {
         return false;
