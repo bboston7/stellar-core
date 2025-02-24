@@ -125,6 +125,7 @@ CommandHandler::CommandHandler(Application& app) : mApp(app)
     addRoute("generateload", &CommandHandler::generateLoad);
     addRoute("testacc", &CommandHandler::testAcc);
     addRoute("testtx", &CommandHandler::testTx);
+    // TODO: Double check that I removed all outdated routings
     addRoute("getsurveyresult", &CommandHandler::getSurveyResult);
     addRoute("startsurveycollecting", &CommandHandler::startSurveyCollecting);
     addRoute("stopsurveycollecting", &CommandHandler::stopSurveyCollecting);
