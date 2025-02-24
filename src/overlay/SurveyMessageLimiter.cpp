@@ -7,6 +7,8 @@
 #include "main/Application.h"
 #include "overlay/SurveyDataManager.h"
 
+// TODO: Might be unused methods / code paths to remove in this class
+
 namespace stellar
 {
 

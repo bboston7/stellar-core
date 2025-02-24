@@ -16,6 +16,8 @@ namespace stellar
 {
 class Application;
 
+// TODO: Most (if not all) references to `SurveyCommandType` should be removed
+
 /*
 SurveyManager orchestrates network surveys by initiating them and
 maintaining a backlog of peers to survey, sending and processing messages,
@@ -31,21 +33,15 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     SurveyManager(Application& app);
 
     // Start/stop survey reporting. Must be called before/after gathering data
-    // during the reporting phase of a survey. `surveyDuration` must be provided
-    // for old style surveys, and must not be provided for time sliced surveys.
-    bool
-    startSurveyReporting(SurveyMessageCommandType type,
-                         std::optional<std::chrono::seconds> surveyDuration);
+    // during the reporting phase of a survey.
+    bool startSurveyReporting();
     void stopSurveyReporting();
 
     // Add a node to the backlog of nodes to survey. inboundPeerIndex and
-    // outboundPeerIndex are mandatory for time sliced surveys and indicate
-    // which peers the node should report on
-    void addNodeToRunningSurveyBacklog(
-        SurveyMessageCommandType type,
-        std::optional<std::chrono::seconds> surveyDuration,
-        NodeID const& nodeToSurvey, std::optional<uint32_t> inboundPeerIndex,
-        std::optional<uint32_t> outboundPeerIndex);
+    // outboundPeerIndex indicate which peers the node should report on
+    void addNodeToRunningSurveyBacklog(NodeID const& nodeToSurvey,
+                                       uint32_t inboundPeerIndex,
+                                       uint32_t outboundPeerIndex);
 
     void relayOrProcessResponse(StellarMessage const& msg, Peer::pointer peer);
     void relayOrProcessRequest(StellarMessage const& msg, Peer::pointer peer);
@@ -53,8 +49,6 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     Json::Value const& getJsonResults();
 
     static std::string getMsgSummary(StellarMessage const& msg);
-
-    StellarMessage makeOldStyleSurveyRequest(NodeID const& nodeToSurvey) const;
 
     // Start survey collecting with a given nonce. Returns `false` if unable to
     // start a survey due to an ongoing survey on the network. Otherwise returns
@@ -91,10 +85,6 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
   private:
     // topology specific methods
     void sendTopologyRequest(NodeID const& nodeToSurvey);
-    void processOldStyleTopologyResponse(NodeID const& surveyedPeerID,
-                                         SurveyResponseBody const& body);
-    void
-    processOldStyleTopologyRequest(SurveyRequestMessage const& request) const;
     void processTimeSlicedTopologyResponse(NodeID const& surveyedPeerID,
                                            SurveyResponseBody const& body);
     void processTimeSlicedTopologyRequest(
@@ -114,8 +104,7 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
 
     void broadcast(StellarMessage const& msg) const;
 
-    void topOffRequests(SurveyMessageCommandType type);
-    void updateOldStyleSurveyExpiration(std::chrono::seconds surveyDuration);
+    void topOffRequests();
 
     // Add `nodeToSurvey` to the survey backlog. Throws if the node is
     // already queued up to survey, or if the node itself is the surveyor.
@@ -126,11 +115,6 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
                               ByteSlice const& bin, Peer::pointer peer);
 
     static std::string commandTypeName(SurveyMessageCommandType type);
-
-    // Validate a survey response message. Returns the message if it is valid
-    // and nullopt otherwise.
-    std::optional<SurveyResponseMessage>
-    validateSurveyResponse(StellarMessage const& msg, Peer::pointer peer);
 
     // Validate a time sliced survey response message. Returns the message if it
     // is valid and nullopt otherwise.
@@ -153,9 +137,8 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     uint32_t const NUM_LEDGERS_BEFORE_IGNORE;
     uint32_t const MAX_REQUEST_LIMIT_PER_LEDGER;
 
-    // If a survey is in the reporting phase, this will be set to the type of
-    // the running survey
-    std::optional<SurveyMessageCommandType> mRunningSurveyReportingPhaseType;
+    // True iff running a survey in the reporting phase
+    bool mRunningSurveyReportingPhase;
     Curve25519Secret mCurve25519SecretKey;
     Curve25519Public mCurve25519PublicKey;
     SurveyMessageLimiter mMessageLimiter;

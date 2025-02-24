@@ -19,8 +19,6 @@ namespace stellar
 
 uint32_t const SurveyManager::SURVEY_THROTTLE_TIMEOUT_MULT(3);
 
-uint32_t constexpr TIME_SLICED_SURVEY_MIN_OVERLAY_PROTOCOL_VERSION = 34;
-
 namespace
 {
 // Generate JSON for a single peer
@@ -77,8 +75,6 @@ extractSurveyRequestMessage(StellarMessage const& msg)
 {
     switch (msg.type())
     {
-    case SURVEY_REQUEST:
-        return msg.signedSurveyRequestMessage().request;
     case TIME_SLICED_SURVEY_REQUEST:
         return msg.signedTimeSlicedSurveyRequestMessage().request.request;
     default:
@@ -106,14 +102,14 @@ SurveyManager::SurveyManager(Application& app)
 }
 
 bool
-SurveyManager::startSurveyReporting(
-    SurveyMessageCommandType type,
-    std::optional<std::chrono::seconds> surveyDuration)
+SurveyManager::startSurveyReporting()
 {
-    if (mRunningSurveyReportingPhaseType)
+    if (mRunningSurveyReportingPhase)
     {
+        // Survey already reporting
         return false;
     }
+    mRunningSurveyReportingPhase = true;
 
     // results are only cleared when we start the NEXT survey so we can query
     // the results  after the survey closes
@@ -125,37 +121,11 @@ SurveyManager::startSurveyReporting(
     mPeersToSurvey.clear();
     mPeersToSurveyQueue = std::queue<NodeID>();
 
-    mRunningSurveyReportingPhaseType =
-        std::make_optional<SurveyMessageCommandType>(type);
-
     mCurve25519SecretKey = curve25519RandomSecret();
     mCurve25519PublicKey = curve25519DerivePublic(mCurve25519SecretKey);
 
-    // Check surveyDuration (should only be set for old style surveys; time
-    // sliced surveys use a builtin timeout)
-    switch (type)
-    {
-    case SURVEY_TOPOLOGY:
-        if (!surveyDuration.has_value())
-        {
-            throw std::runtime_error(
-                "startSurveyReporting failed: missing survey duration");
-        }
-        updateOldStyleSurveyExpiration(surveyDuration.value());
-        break;
-    case TIME_SLICED_SURVEY_TOPOLOGY:
-        // Time sliced surveys have a built-in timeout, so one should not be
-        // passed in.
-        if (surveyDuration.has_value())
-        {
-            throw std::runtime_error(
-                "startSurveyReporting failed: unexpected survey duration");
-        }
-        break;
-    }
-
     // starts timer
-    topOffRequests(type);
+    topOffRequests();
 
     return true;
 }
@@ -164,12 +134,12 @@ void
 SurveyManager::stopSurveyReporting()
 {
     // do nothing if survey isn't running in reporting phase
-    if (!mRunningSurveyReportingPhaseType)
+    if (!mRunningSurveyReportingPhase)
     {
         return;
     }
 
-    mRunningSurveyReportingPhaseType.reset();
+    mRunningSurveyReportingPhase = false;
     mSurveyThrottleTimer->cancel();
 
     clearCurve25519Keys(mCurve25519PublicKey, mCurve25519SecretKey);
@@ -334,80 +304,27 @@ SurveyManager::relayStopSurveyCollecting(StellarMessage const& msg,
 }
 
 void
-SurveyManager::addNodeToRunningSurveyBacklog(
-    SurveyMessageCommandType type,
-    std::optional<std::chrono::seconds> surveyDuration,
-    NodeID const& nodeToSurvey, std::optional<uint32_t> inboundPeersIndex,
-    std::optional<uint32_t> outboundPeersIndex)
+SurveyManager::addNodeToRunningSurveyBacklog(NodeID const& nodeToSurvey,
+                                             uint32_t inboundPeersIndex,
+                                             uint32_t outboundPeersIndex)
 {
-    if (!mRunningSurveyReportingPhaseType ||
-        *mRunningSurveyReportingPhaseType != type)
+    if (!mRunningSurveyReportingPhase)
     {
         throw std::runtime_error("addNodeToRunningSurveyBacklog failed");
     }
 
     addPeerToBacklog(nodeToSurvey);
 
-    switch (type)
-    {
-    case SURVEY_TOPOLOGY:
-        if (!surveyDuration.has_value())
-        {
-            throw std::runtime_error("addNodeToRunningSurveyBacklog failed: "
-                                     "missing survey duration");
-        }
-        updateOldStyleSurveyExpiration(surveyDuration.value());
-        break;
-    case TIME_SLICED_SURVEY_TOPOLOGY:
-        // Time sliced surveys have a built-in timeout, so one should not be
-        // passed in.
-        if (surveyDuration.has_value())
-        {
-            throw std::runtime_error("addNodeToRunningSurveyBacklog failed: "
-                                     "unexpected survey duration");
-        }
-
-        if (!inboundPeersIndex.has_value() || !outboundPeersIndex.has_value())
-        {
-            throw std::runtime_error(
-                "addNodeToRunningSurveyBacklog failed: missing peer indices");
-        }
-
-        mInboundPeerIndices[nodeToSurvey] = inboundPeersIndex.value();
-        mOutboundPeerIndices[nodeToSurvey] = outboundPeersIndex.value();
-        break;
-    }
-}
-
-std::optional<SurveyResponseMessage>
-SurveyManager::validateSurveyResponse(StellarMessage const& msg,
-                                      Peer::pointer peer)
-{
-    releaseAssert(msg.type() == SURVEY_RESPONSE);
-    auto const& signedResponse = msg.signedSurveyResponseMessage();
-    auto const& response = signedResponse.response;
-
-    auto onSuccessValidation = [&]() -> bool {
-        return dropPeerIfSigInvalid(response.surveyedPeerID,
-                                    signedResponse.responseSignature,
-                                    xdr::xdr_to_opaque(response), peer);
-    };
-
-    if (mMessageLimiter.recordAndValidateResponse(response,
-                                                  onSuccessValidation))
-    {
-        return response;
-    }
-    else
-    {
-        return std::nullopt;
-    }
+    mInboundPeerIndices[nodeToSurvey] = inboundPeersIndex;
+    mOutboundPeerIndices[nodeToSurvey] = outboundPeersIndex;
 }
 
 std::optional<SurveyResponseMessage>
 SurveyManager::validateTimeSlicedSurveyResponse(StellarMessage const& msg,
                                                 Peer::pointer peer)
 {
+    // TODO: Remove this (and similar) asserts? XDR union already throws. Or
+    // make this take the proper type instead of a `StellarMessage`.
     releaseAssert(msg.type() == TIME_SLICED_SURVEY_RESPONSE);
     auto const& signedResponse = msg.signedTimeSlicedSurveyResponseMessage();
     auto const& response = signedResponse.response.response;
@@ -441,11 +358,12 @@ SurveyManager::relayOrProcessResponse(StellarMessage const& msg,
                                       Peer::pointer peer)
 {
     std::optional<SurveyResponseMessage> maybeResponse;
+    // TODO: Convert to conditional and just pass proper type into
+    // `validateTimeSlicedSurveyResponse`? Why pass around `StellarMessage`s?
+    // Throughout this class we should convert these as early as possible to the
+    // proper message type.
     switch (msg.type())
     {
-    case SURVEY_RESPONSE:
-        maybeResponse = validateSurveyResponse(msg, peer);
-        break;
     case TIME_SLICED_SURVEY_RESPONSE:
         maybeResponse = validateTimeSlicedSurveyResponse(msg, peer);
         break;
@@ -469,8 +387,7 @@ SurveyManager::relayOrProcessResponse(StellarMessage const& msg,
     {
         // only process if survey is still running and we haven't seen the
         // response
-        if (mRunningSurveyReportingPhaseType &&
-            *mRunningSurveyReportingPhaseType == response.commandType)
+        if (mRunningSurveyReportingPhase)
         {
             try
             {
@@ -480,14 +397,10 @@ SurveyManager::relayOrProcessResponse(StellarMessage const& msg,
 
                 SurveyResponseBody body;
                 xdr::xdr_from_opaque(opaqueDecrypted, body);
+                // TODO: Same message as above about converting to conditional
+                // and doing typechecking earlier
                 switch (msg.type())
                 {
-                case SURVEY_RESPONSE:
-                {
-                    processOldStyleTopologyResponse(response.surveyedPeerID,
-                                                    body);
-                }
-                break;
                 case TIME_SLICED_SURVEY_RESPONSE:
                 {
                     processTimeSlicedTopologyResponse(response.surveyedPeerID,
@@ -536,14 +449,9 @@ SurveyManager::relayOrProcessRequest(StellarMessage const& msg,
 
     auto onSuccessValidation = [&]() -> bool {
         bool res;
+        // TODO: Unnecessary switch. Maybe pass full type through this fn.
         switch (msg.type())
         {
-        case SURVEY_REQUEST:
-            res = dropPeerIfSigInvalid(
-                request.surveyorPeerID,
-                msg.signedSurveyRequestMessage().requestSignature,
-                xdr::xdr_to_opaque(request), peer);
-            break;
         case TIME_SLICED_SURVEY_REQUEST:
         {
             SignedTimeSlicedSurveyRequestMessage const& signedRequest =
@@ -583,11 +491,9 @@ SurveyManager::relayOrProcessRequest(StellarMessage const& msg,
 
     if (request.surveyedPeerID == mApp.getConfig().NODE_SEED.getPublicKey())
     {
+        // TODO: Unnecessary switch. Maybe pass full type through this fn.
         switch (msg.type())
         {
-        case SURVEY_REQUEST:
-            processOldStyleTopologyRequest(request);
-            break;
         case TIME_SLICED_SURVEY_REQUEST:
             processTimeSlicedTopologyRequest(
                 msg.signedTimeSlicedSurveyRequestMessage().request);
@@ -615,26 +521,10 @@ SurveyManager::populateSurveyRequestMessage(NodeID const& nodeToSurvey,
     request.commandType = type;
 }
 
-StellarMessage
-SurveyManager::makeOldStyleSurveyRequest(NodeID const& nodeToSurvey) const
-{
-    StellarMessage newMsg;
-    newMsg.type(SURVEY_REQUEST);
-
-    auto& signedRequest = newMsg.signedSurveyRequestMessage();
-
-    auto& request = signedRequest.request;
-    populateSurveyRequestMessage(nodeToSurvey, SURVEY_TOPOLOGY, request);
-    auto sigBody = xdr::xdr_to_opaque(request);
-    signedRequest.requestSignature = mApp.getConfig().NODE_SEED.sign(sigBody);
-
-    return newMsg;
-}
-
 void
 SurveyManager::sendTopologyRequest(NodeID const& nodeToSurvey)
 {
-    if (!mRunningSurveyReportingPhaseType.has_value())
+    if (!mRunningSurveyReportingPhase)
     {
         CLOG_ERROR(Overlay, "Tried to send survey request when no survey is "
                             "running in reporting phase");
@@ -642,84 +532,38 @@ SurveyManager::sendTopologyRequest(NodeID const& nodeToSurvey)
     }
 
     StellarMessage newMsg;
-    switch (mRunningSurveyReportingPhaseType.value())
+    newMsg.type(TIME_SLICED_SURVEY_REQUEST);
+
+    auto& signedRequest = newMsg.signedTimeSlicedSurveyRequestMessage();
+    auto& outerRequest = signedRequest.request;
+    auto& innerRequest = outerRequest.request;
+    populateSurveyRequestMessage(nodeToSurvey, TIME_SLICED_SURVEY_TOPOLOGY,
+                                 innerRequest);
+
+    auto maybeNonce = mSurveyDataManager.getNonce();
+    if (!maybeNonce.has_value())
     {
-    case SURVEY_TOPOLOGY:
-        newMsg = makeOldStyleSurveyRequest(nodeToSurvey);
-        break;
-    case TIME_SLICED_SURVEY_TOPOLOGY:
-    {
-        newMsg.type(TIME_SLICED_SURVEY_REQUEST);
-
-        auto& signedRequest = newMsg.signedTimeSlicedSurveyRequestMessage();
-        auto& outerRequest = signedRequest.request;
-        auto& innerRequest = outerRequest.request;
-        populateSurveyRequestMessage(nodeToSurvey, TIME_SLICED_SURVEY_TOPOLOGY,
-                                     innerRequest);
-
-        auto maybeNonce = mSurveyDataManager.getNonce();
-        if (!maybeNonce.has_value())
-        {
-            // Reporting phase has ended. Drop the request.
-            return;
-        }
-
-        outerRequest.nonce = maybeNonce.value();
-        outerRequest.inboundPeersIndex = mInboundPeerIndices.at(nodeToSurvey);
-        outerRequest.outboundPeersIndex = mOutboundPeerIndices.at(nodeToSurvey);
-
-        auto sigBody = xdr::xdr_to_opaque(outerRequest);
-        signedRequest.requestSignature =
-            mApp.getConfig().NODE_SEED.sign(sigBody);
+        // Reporting phase has ended. Drop the request.
+        return;
     }
-    break;
-    default:
-        releaseAssert(false);
-    }
+
+    outerRequest.nonce = maybeNonce.value();
+    outerRequest.inboundPeersIndex = mInboundPeerIndices.at(nodeToSurvey);
+    outerRequest.outboundPeersIndex = mOutboundPeerIndices.at(nodeToSurvey);
+
+    auto sigBody = xdr::xdr_to_opaque(outerRequest);
+    signedRequest.requestSignature = mApp.getConfig().NODE_SEED.sign(sigBody);
+
     // Record the request in message limiter and broadcast
     relayOrProcessRequest(newMsg, nullptr);
-}
-
-void
-SurveyManager::processOldStyleTopologyResponse(NodeID const& surveyedPeerID,
-                                               SurveyResponseBody const& body)
-{
-    releaseAssert(body.type() == SURVEY_TOPOLOGY_RESPONSE_V0 ||
-                  body.type() == SURVEY_TOPOLOGY_RESPONSE_V1);
-    auto& peerResults =
-        mResults["topology"][KeyUtils::toStrKey(surveyedPeerID)];
-    auto populatePeerResults = [&](auto const& topologyBody) {
-        auto& inboundResults = peerResults["inboundPeers"];
-        auto& outboundResults = peerResults["outboundPeers"];
-
-        peerResults["numTotalInboundPeers"] =
-            topologyBody.totalInboundPeerCount;
-        peerResults["numTotalOutboundPeers"] =
-            topologyBody.totalOutboundPeerCount;
-
-        recordResults(inboundResults, topologyBody.inboundPeers);
-        recordResults(outboundResults, topologyBody.outboundPeers);
-    };
-
-    bool extendedSurveyType = body.type() == SURVEY_TOPOLOGY_RESPONSE_V1;
-    if (extendedSurveyType)
-    {
-        auto const& topologyBody = body.topologyResponseBodyV1();
-        populatePeerResults(topologyBody);
-        peerResults["maxInboundPeerCount"] = topologyBody.maxInboundPeerCount;
-        peerResults["maxOutboundPeerCount"] = topologyBody.maxOutboundPeerCount;
-    }
-    else
-    {
-        auto const& topologyBody = body.topologyResponseBodyV0();
-        populatePeerResults(topologyBody);
-    }
 }
 
 void
 SurveyManager::processTimeSlicedTopologyResponse(NodeID const& surveyedPeerID,
                                                  SurveyResponseBody const& body)
 {
+    // TODO: Pass in type directly instead of checking and converting in this
+    // function
     releaseAssert(body.type() == SURVEY_TOPOLOGY_RESPONSE_V2);
     auto& peerResults =
         mResults["topology"][KeyUtils::toStrKey(surveyedPeerID)];
@@ -769,56 +613,6 @@ SurveyManager::populateSurveyResponseMessage(
 }
 
 void
-SurveyManager::processOldStyleTopologyRequest(
-    SurveyRequestMessage const& request) const
-{
-    CLOG_TRACE(Overlay, "Responding to Topology request from {}",
-               mApp.getConfig().toShortString(request.surveyorPeerID));
-
-    StellarMessage newMsg;
-    newMsg.type(SURVEY_RESPONSE);
-
-    auto& signedResponse = newMsg.signedSurveyResponseMessage();
-
-    SurveyResponseBody body;
-    body.type(SURVEY_TOPOLOGY_RESPONSE_V1);
-
-    auto& topologyBody = body.topologyResponseBodyV1();
-
-    auto const& randomInboundPeers =
-        mApp.getOverlayManager().getRandomInboundAuthenticatedPeers();
-    auto const& randomOutboundPeers =
-        mApp.getOverlayManager().getRandomOutboundAuthenticatedPeers();
-
-    populatePeerStats(randomInboundPeers, topologyBody.inboundPeers,
-                      mApp.getClock().now());
-
-    populatePeerStats(randomOutboundPeers, topologyBody.outboundPeers,
-                      mApp.getClock().now());
-
-    topologyBody.totalInboundPeerCount =
-        static_cast<uint32_t>(randomInboundPeers.size());
-    topologyBody.totalOutboundPeerCount =
-        static_cast<uint32_t>(randomOutboundPeers.size());
-    topologyBody.maxInboundPeerCount =
-        mApp.getConfig().MAX_ADDITIONAL_PEER_CONNECTIONS;
-    topologyBody.maxOutboundPeerCount =
-        mApp.getConfig().TARGET_PEER_CONNECTIONS;
-
-    auto& response = signedResponse.response;
-    if (!populateSurveyResponseMessage(request, SURVEY_TOPOLOGY, body,
-                                       response))
-    {
-        return;
-    }
-
-    auto sigBody = xdr::xdr_to_opaque(response);
-    signedResponse.responseSignature = mApp.getConfig().NODE_SEED.sign(sigBody);
-
-    broadcast(newMsg);
-}
-
-void
 SurveyManager::processTimeSlicedTopologyRequest(
     TimeSlicedSurveyRequestMessage const& request)
 {
@@ -863,26 +657,8 @@ SurveyManager::processTimeSlicedTopologyRequest(
 void
 SurveyManager::broadcast(StellarMessage const& msg) const
 {
-    uint32_t minOverlayVersion = 0;
-    switch (msg.type())
-    {
-    case SURVEY_REQUEST:
-    case SURVEY_RESPONSE:
-        // Do nothing. All nodes on the network can understand these messages.
-        break;
-    case TIME_SLICED_SURVEY_START_COLLECTING:
-    case TIME_SLICED_SURVEY_STOP_COLLECTING:
-    case TIME_SLICED_SURVEY_REQUEST:
-    case TIME_SLICED_SURVEY_RESPONSE:
-        // Only send messages to nodes that can understand them.
-        minOverlayVersion = TIME_SLICED_SURVEY_MIN_OVERLAY_PROTOCOL_VERSION;
-        break;
-    default:
-        releaseAssert(false);
-    }
     mApp.getOverlayManager().broadcastMessage(
-        std::make_shared<StellarMessage const>(msg), /*hash*/ std::nullopt,
-        minOverlayVersion);
+        std::make_shared<StellarMessage const>(msg));
 }
 
 void
@@ -894,7 +670,7 @@ SurveyManager::clearOldLedgers(uint32_t lastClosedledgerSeq)
 Json::Value const&
 SurveyManager::getJsonResults()
 {
-    mResults["surveyInProgress"] = mRunningSurveyReportingPhaseType.has_value();
+    mResults["surveyInProgress"] = mRunningSurveyReportingPhase;
 
     auto& jsonBacklog = mResults["backlog"];
     jsonBacklog.clear();
@@ -922,14 +698,6 @@ SurveyManager::getMsgSummary(StellarMessage const& msg)
     SurveyMessageCommandType commandType;
     switch (msg.type())
     {
-    case SURVEY_REQUEST:
-        summary = "SURVEY_REQUEST:";
-        commandType = msg.signedSurveyRequestMessage().request.commandType;
-        break;
-    case SURVEY_RESPONSE:
-        summary = "SURVEY_RESPONSE:";
-        commandType = msg.signedSurveyResponseMessage().response.commandType;
-        break;
     case TIME_SLICED_SURVEY_REQUEST:
         summary = "TIME_SLICED_SURVEY_REQUEST:";
         commandType = msg.signedTimeSlicedSurveyRequestMessage()
@@ -952,7 +720,7 @@ SurveyManager::getMsgSummary(StellarMessage const& msg)
 }
 
 void
-SurveyManager::topOffRequests(SurveyMessageCommandType type)
+SurveyManager::topOffRequests()
 {
     if (surveyIsFinishedReporting())
     {
@@ -967,7 +735,7 @@ SurveyManager::topOffRequests(SurveyMessageCommandType type)
     // happen if some connections get congested)
 
     uint32_t requestsSentInSchedule = 0;
-    while (mRunningSurveyReportingPhaseType &&
+    while (mRunningSurveyReportingPhase &&
            requestsSentInSchedule < MAX_REQUEST_LIMIT_PER_LEDGER &&
            !mPeersToSurvey.empty())
     {
@@ -985,28 +753,19 @@ SurveyManager::topOffRequests(SurveyMessageCommandType type)
     }
 
     std::weak_ptr<SurveyManager> weak = shared_from_this();
-    auto handler = [weak, type]() {
+    auto handler = [weak]() {
         auto self = weak.lock();
         if (!self)
         {
             return;
         }
 
-        self->topOffRequests(type);
+        self->topOffRequests();
     };
 
     // schedule next top off
     mSurveyThrottleTimer->expires_from_now(SURVEY_THROTTLE_TIMEOUT_SEC);
     mSurveyThrottleTimer->async_wait(handler, &VirtualTimer::onFailureNoop);
-}
-
-void
-SurveyManager::updateOldStyleSurveyExpiration(
-    std::chrono::seconds surveyDuration)
-{
-    // This function should only be called for old style surveys
-    releaseAssert(mRunningSurveyReportingPhaseType.value() == SURVEY_TOPOLOGY);
-    mSurveyExpirationTime = mApp.getClock().now() + surveyDuration;
 }
 
 void
