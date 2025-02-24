@@ -113,11 +113,6 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
                                       SurveyRequestMessage& request) const;
 
     void broadcast(StellarMessage const& msg) const;
-    void populatePeerStats(std::vector<Peer::pointer> const& peers,
-                           PeerStatList& results,
-                           VirtualClock::time_point now) const;
-    void recordResults(Json::Value& jsonResultList,
-                       PeerStatList const& peerList) const;
 
     void topOffRequests(SurveyMessageCommandType type);
     void updateOldStyleSurveyExpiration(std::chrono::seconds surveyDuration);

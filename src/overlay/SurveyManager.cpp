@@ -886,58 +886,6 @@ SurveyManager::broadcast(StellarMessage const& msg) const
 }
 
 void
-SurveyManager::populatePeerStats(std::vector<Peer::pointer> const& peers,
-                                 PeerStatList& results,
-                                 VirtualClock::time_point now) const
-{
-    size_t resultSize = std::min<size_t>(peers.size(), results.max_size());
-    results.reserve(resultSize);
-
-    for (size_t i = 0; i < resultSize; ++i)
-    {
-        auto& peer = peers[i];
-        auto& peerMetrics = peer->getPeerMetrics();
-
-        PeerStats stats;
-        stats.id = peer->getPeerID();
-        stats.versionStr = peer->getRemoteVersion();
-        stats.messagesRead = peerMetrics.mMessageRead;
-        stats.messagesWritten = peerMetrics.mMessageWrite;
-        stats.bytesRead = peerMetrics.mByteRead;
-        stats.bytesWritten = peerMetrics.mByteWrite;
-
-        stats.uniqueFloodBytesRecv = peerMetrics.mUniqueFloodBytesRecv;
-        stats.duplicateFloodBytesRecv = peerMetrics.mDuplicateFloodBytesRecv;
-        stats.uniqueFetchBytesRecv = peerMetrics.mUniqueFetchBytesRecv;
-        stats.duplicateFetchBytesRecv = peerMetrics.mDuplicateFetchBytesRecv;
-
-        stats.uniqueFloodMessageRecv = peerMetrics.mUniqueFloodMessageRecv;
-        stats.duplicateFloodMessageRecv =
-            peerMetrics.mDuplicateFloodMessageRecv;
-        stats.uniqueFetchMessageRecv = peerMetrics.mUniqueFetchMessageRecv;
-        stats.duplicateFetchMessageRecv =
-            peerMetrics.mDuplicateFetchMessageRecv;
-
-        stats.secondsConnected =
-            std::chrono::duration_cast<std::chrono::seconds>(
-                now - peerMetrics.mConnectedTime.load())
-                .count();
-
-        results.emplace_back(stats);
-    }
-}
-
-void
-SurveyManager::recordResults(Json::Value& jsonResultList,
-                             PeerStatList const& peerList) const
-{
-    for (auto const& peer : peerList)
-    {
-        jsonResultList.append(peerStatsToJson(peer));
-    }
-}
-
-void
 SurveyManager::clearOldLedgers(uint32_t lastClosedledgerSeq)
 {
     mMessageLimiter.clearOldLedgers(lastClosedledgerSeq);
