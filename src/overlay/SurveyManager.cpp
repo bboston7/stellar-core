@@ -521,16 +521,9 @@ SurveyManager::populateSurveyRequestMessage(NodeID const& nodeToSurvey,
     request.commandType = type;
 }
 
-void
-SurveyManager::sendTopologyRequest(NodeID const& nodeToSurvey)
+std::optional<StellarMessage>
+SurveyManager::createTimeSlicedSurveyRequest(NodeID const& nodeToSurvey) const
 {
-    if (!mRunningSurveyReportingPhase)
-    {
-        CLOG_ERROR(Overlay, "Tried to send survey request when no survey is "
-                            "running in reporting phase");
-        return;
-    }
-
     StellarMessage newMsg;
     newMsg.type(TIME_SLICED_SURVEY_REQUEST);
 
@@ -544,7 +537,7 @@ SurveyManager::sendTopologyRequest(NodeID const& nodeToSurvey)
     if (!maybeNonce.has_value())
     {
         // Reporting phase has ended. Drop the request.
-        return;
+        return std::nullopt;
     }
 
     outerRequest.nonce = maybeNonce.value();
@@ -554,8 +547,27 @@ SurveyManager::sendTopologyRequest(NodeID const& nodeToSurvey)
     auto sigBody = xdr::xdr_to_opaque(outerRequest);
     signedRequest.requestSignature = mApp.getConfig().NODE_SEED.sign(sigBody);
 
-    // Record the request in message limiter and broadcast
-    relayOrProcessRequest(newMsg, nullptr);
+    return newMsg;
+}
+
+void
+SurveyManager::sendTopologyRequest(NodeID const& nodeToSurvey)
+{
+    if (!mRunningSurveyReportingPhase)
+    {
+        CLOG_ERROR(Overlay, "Tried to send survey request when no survey is "
+                            "running in reporting phase");
+        return;
+    }
+
+    std::optional<StellarMessage> newMsg =
+        createTimeSlicedSurveyRequest(nodeToSurvey);
+
+    if (newMsg.has_value())
+    {
+        // Record the request in message limiter and broadcast
+        relayOrProcessRequest(newMsg.value(), nullptr);
+    }
 }
 
 void
@@ -879,6 +891,13 @@ SurveyDataManager&
 SurveyManager::getSurveyDataManagerForTesting()
 {
     return mSurveyDataManager;
+}
+
+std::optional<StellarMessage>
+SurveyManager::createTimeSlicedSurveyRequestForTesting(
+    NodeID const& nodeToSurvey) const
+{
+    return createTimeSlicedSurveyRequest(nodeToSurvey);
 }
 #endif
 

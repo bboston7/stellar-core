@@ -80,6 +80,11 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
 #ifdef BUILD_TESTS
     // Get a reference to the internal `SurveyDataManager` (for testing only)
     SurveyDataManager& getSurveyDataManagerForTesting();
+
+    // Exposes the private function `createTimeSlicedSurveyRequest` for testing
+    // purposes
+    std::optional<StellarMessage>
+    createTimeSlicedSurveyRequestForTesting(NodeID const& nodeToSurvey) const;
 #endif
 
   private:
@@ -128,6 +133,11 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
 
     // Returns `true` if the survey has finished the reporting phase
     bool surveyIsFinishedReporting();
+
+    // Create a time sliced survey request for `nodeToSurvey`, if possible.
+    // Returns `nullopt` on failure.
+    std::optional<StellarMessage>
+    createTimeSlicedSurveyRequest(NodeID const& nodeToSurvey) const;
 
     Application& mApp;
 
