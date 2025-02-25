@@ -1117,14 +1117,10 @@ CommandHandler::surveyTopologyTimeSliced(std::string const& params,
 
     auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
 
-    bool success = surveyManager.startSurveyReporting(
-        SurveyMessageCommandType::TIME_SLICED_SURVEY_TOPOLOGY,
-        /*surveyDuration*/ std::nullopt);
+    bool success = surveyManager.startSurveyReporting();
 
-    surveyManager.addNodeToRunningSurveyBacklog(
-        SurveyMessageCommandType::TIME_SLICED_SURVEY_TOPOLOGY,
-        /*surveyDuration*/ std::nullopt, id, inboundPeerIndex,
-        outboundPeerIndex);
+    surveyManager.addNodeToRunningSurveyBacklog(id, inboundPeerIndex,
+                                                outboundPeerIndex);
     retStr = "Adding node.";
 
     retStr += success ? "Survey started " : "Survey already running!";
