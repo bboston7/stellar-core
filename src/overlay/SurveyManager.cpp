@@ -860,29 +860,18 @@ SurveyManager::updateSurveyPhase(
 bool
 SurveyManager::surveyIsFinishedReporting()
 {
-    if (!mRunningSurveyReportingPhaseType.has_value())
+    if (!mRunningSurveyReportingPhase)
     {
         return true;
     }
 
-    switch (mRunningSurveyReportingPhaseType.value())
+    // Survey is finished when reporting phase ends
+    std::optional<uint32_t> maybeNonce = mSurveyDataManager.getNonce();
+    if (!maybeNonce.has_value())
     {
-    case SURVEY_TOPOLOGY:
-        // Survey is finished if the survey duration has passed and there are no
-        // remaining peers to survey
-        return mApp.getClock().now() > mSurveyExpirationTime &&
-               mPeersToSurvey.empty();
-    case TIME_SLICED_SURVEY_TOPOLOGY:
-    {
-        // Survey is finished when reporting phase ends
-        std::optional<uint32_t> maybeNonce = mSurveyDataManager.getNonce();
-        if (!maybeNonce.has_value())
-        {
-            return true;
-        }
-        return !mSurveyDataManager.nonceIsReporting(maybeNonce.value());
+        return true;
     }
-    }
+    return !mSurveyDataManager.nonceIsReporting(maybeNonce.value());
 }
 
 #ifdef BUILD_TESTS
