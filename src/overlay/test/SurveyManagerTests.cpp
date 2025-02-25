@@ -143,31 +143,6 @@ TEST_CASE("topology encrypted response memory check",
                                                      xdr::xdr_to_opaque(body));
     };
 
-    auto doOldStyleTest = [&](auto& body) {
-        // Fill up the PeerStatLists
-        for (uint32_t i = 0; i < PeerStatList::max_size(); ++i)
-        {
-            PeerStats s;
-            s.versionStr = std::string(s.versionStr.max_size(), 'a');
-            body.inboundPeers.push_back(s);
-            body.outboundPeers.push_back(s);
-        }
-
-        doEncryptTest(body);
-    };
-
-    SECTION("V0")
-    {
-        body.type(SURVEY_TOPOLOGY_RESPONSE_V0);
-        auto& topologyBody = body.topologyResponseBodyV0();
-        doOldStyleTest(topologyBody);
-    }
-    SECTION("V1")
-    {
-        body.type(SURVEY_TOPOLOGY_RESPONSE_V1);
-        auto& topologyBody = body.topologyResponseBodyV1();
-        doOldStyleTest(topologyBody);
-    }
     SECTION("V2")
     {
         body.type(SURVEY_TOPOLOGY_RESPONSE_V2);
