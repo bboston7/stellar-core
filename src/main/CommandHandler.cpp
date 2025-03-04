@@ -98,6 +98,7 @@ CommandHandler::CommandHandler(Application& app) : mApp(app)
         addRoute("peers", &CommandHandler::peers);
         addRoute("quorum", &CommandHandler::quorum);
         addRoute("scp", &CommandHandler::scpInfo);
+        addRoute("stopsurvey", &CommandHandler::stopSurvey);
 #ifndef BUILD_TESTS
         addRoute("getsurveyresult", &CommandHandler::getSurveyResult);
         addRoute("startsurveycollecting",
@@ -1046,6 +1047,15 @@ CommandHandler::checkBooted() const
         throw std::runtime_error(
             "Application is not fully booted, try again later");
     }
+}
+
+void
+CommandHandler::stopSurvey(std::string const&, std::string& retStr)
+{
+    ZoneScoped;
+    auto& surveyManager = mApp.getOverlayManager().getSurveyManager();
+    surveyManager.stopSurveyReporting();
+    retStr = "survey stopped";
 }
 
 void

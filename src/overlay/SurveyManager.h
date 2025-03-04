@@ -34,6 +34,10 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     // reporting phase of a survey.
     bool startSurveyReporting();
 
+    // Stop survey reporting. Must be called after gathering data during the
+    // reporting phase of a survey.
+    void stopSurveyReporting();
+
     // Add a node to the backlog of nodes to survey. inboundPeerIndex and
     // outboundPeerIndex indicate which peers the node should report on
     void addNodeToRunningSurveyBacklog(NodeID const& nodeToSurvey,
@@ -85,9 +89,6 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
 #endif
 
   private:
-    // Stop survey reporting. Must be called after gathering data during the
-    // reporting phase of a survey.
-    void stopSurveyReporting();
     // topology specific methods
     void sendTopologyRequest(NodeID const& nodeToSurvey);
     void processTimeSlicedTopologyResponse(NodeID const& surveyedPeerID,
