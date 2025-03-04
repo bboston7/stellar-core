@@ -372,13 +372,8 @@ SurveyManager::relayOrProcessResponse(StellarMessage const& msg,
 
                 SurveyResponseBody body;
                 xdr::xdr_from_opaque(opaqueDecrypted, body);
-
-                // SURVEY_TOPOLOGY_RESPONSE_V2 is the only type of survey
-                // response remaining in the XDR union for SurveyResponseBody
-                TopologyResponseBodyV2 const& topologyBody =
-                    body.topologyResponseBodyV2();
                 processTimeSlicedTopologyResponse(response.surveyedPeerID,
-                                                  topologyBody);
+                                                  body);
             }
             catch (std::exception const& e)
             {
@@ -520,11 +515,15 @@ SurveyManager::sendTopologyRequest(NodeID const& nodeToSurvey)
 }
 
 void
-SurveyManager::processTimeSlicedTopologyResponse(
-    NodeID const& surveyedPeerID, TopologyResponseBodyV2 const& topologyBody)
+SurveyManager::processTimeSlicedTopologyResponse(NodeID const& surveyedPeerID,
+                                                 SurveyResponseBody const& body)
 {
     auto& peerResults =
         mResults["topology"][KeyUtils::toStrKey(surveyedPeerID)];
+
+    // SURVEY_TOPOLOGY_RESPONSE_V2 is the only type of survey
+    // response remaining in the XDR union for SurveyResponseBody
+    TopologyResponseBodyV2 const& topologyBody = body.topologyResponseBodyV2();
 
     // Fill in node data
     TimeSlicedNodeData const& node = topologyBody.nodeData;

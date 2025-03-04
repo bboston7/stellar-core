@@ -92,7 +92,7 @@ class SurveyManager : public std::enable_shared_from_this<SurveyManager>,
     // topology specific methods
     void sendTopologyRequest(NodeID const& nodeToSurvey);
     void processTimeSlicedTopologyResponse(NodeID const& surveyedPeerID,
-                                           TopologyResponseBodyV2 const& body);
+                                           SurveyResponseBody const& body);
     void processTimeSlicedTopologyRequest(
         TimeSlicedSurveyRequestMessage const& request);
 
