@@ -59,15 +59,14 @@ AppConnector::getSorobanNetworkConfigForApply() const
     return mApp.getLedgerManager().getSorobanNetworkConfigForApply();
 }
 
+// TODO: Get rid of this function and just use
+// getLastClosedSorobanNetworkConfig. It looks like it maybe always exists
+// now?
 std::optional<SorobanNetworkConfig>
 AppConnector::maybeGetSorobanNetworkConfigReadOnly() const
 {
     releaseAssert(threadIsMain());
-    if (mApp.getLedgerManager().hasSorobanNetworkConfig())
-    {
-        return mApp.getLedgerManager().getSorobanNetworkConfigReadOnly();
-    }
-    return std::nullopt;
+    return getLastClosedSorobanNetworkConfig();
 }
 
 medida::MetricsRegistry&
