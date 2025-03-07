@@ -1197,7 +1197,8 @@ OverlayManagerImpl::recvTransaction(StellarMessage const& msg,
         // add it to the floodmap so that this peer gets credit for it
         recvFloodedMsgID(msg, peer, index);
 
-        mTxDemandsManager.recordTxPullLatency(transaction->getFullHash(), peer);
+        // mTxDemandsManager.recordTxPullLatency(transaction->getFullHash(),
+        // peer);
 
         // add it to our current set
         // and make sure it is valid

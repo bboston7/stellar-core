@@ -1314,7 +1314,8 @@ Peer::recvTxBatch(StellarMessage const& msg)
         mAppConnector.getOverlayManager().recvTransaction(
             txMsg, shared_from_this(), hash);
         mOverlayMetrics.mRecvTransactionAccumulator.inc(
-            std::chrono::duration_cast<std::chrono::microseconds>(mAppConnector.now() - start)
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                mAppConnector.now() - start)
                 .count());
         mOverlayMetrics.mRecvTransactionCounter.inc();
     }
