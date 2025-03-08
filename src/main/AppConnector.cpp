@@ -56,17 +56,20 @@ AppConnector::getLastClosedSorobanNetworkConfig() const
 SorobanNetworkConfig const&
 AppConnector::getSorobanNetworkConfigForApply() const
 {
+    releaseAssert(threadIsMain() ||
+                  mApp.threadIsType(Application::ThreadType::APPLY));
     return mApp.getLedgerManager().getSorobanNetworkConfigForApply();
 }
 
-// TODO: Get rid of this function and just use
-// getLastClosedSorobanNetworkConfig. It looks like it maybe always exists
-// now?
 std::optional<SorobanNetworkConfig>
 AppConnector::maybeGetSorobanNetworkConfigReadOnly() const
 {
     releaseAssert(threadIsMain());
-    return getLastClosedSorobanNetworkConfig();
+    if (mApp.getLedgerManager().hasLastClosedSorobanNetworkConfig())
+    {
+        return mApp.getLedgerManager().getLastClosedSorobanNetworkConfig();
+    }
+    return std::nullopt;
 }
 
 medida::MetricsRegistry&
