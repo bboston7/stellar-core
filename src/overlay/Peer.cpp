@@ -784,6 +784,7 @@ Peer::sendAuthenticatedMessage(
     std::shared_ptr<StellarMessage const> msg,
     std::optional<VirtualClock::time_point> timePlaced)
 {
+    ZoneScoped;
     {
         // No need to hold the lock for the duration of this function:
         // simply check if peer is shutting down, and if so, avoid putting
@@ -801,6 +802,7 @@ Peer::sendAuthenticatedMessage(
         // Construct an authenticated message and place it in the queue
         // _synchronously_ This is important because we assign auth sequence to
         // each message, which must be ordered
+        ZoneNamedN(authZone, "sendAuthenticatedMessage CB", true);
         AuthenticatedMessage amsg;
         self->mHmac.setAuthenticatedMessageBody(amsg, *msg);
         xdr::msg_ptr xdrBytes;
@@ -928,6 +930,7 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
     case TRANSACTION:
     case FLOOD_ADVERT:
     case FLOOD_DEMAND:
+    case TX_BATCH:
     {
         cat = "TX";
         type = Scheduler::ActionType::DROPPABLE_ACTION;
@@ -943,12 +946,16 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
         break;
 
     // consensus, self
-    case DONT_HAVE:
-    case TX_SET:
-    case GENERALIZED_TX_SET:
     case SCP_QUORUMSET:
+    case DONT_HAVE:
     case SCP_MESSAGE:
         cat = "SCP";
+        break;
+
+    // Separate queue to maximize chances of executing "immediately"
+    case TX_SET:
+    case GENERALIZED_TX_SET:
+        cat = "TX_SET";
         break;
 
     default:
@@ -1195,6 +1202,13 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     }
     break;
 
+    case TX_BATCH:
+    {
+        auto t = mOverlayMetrics.mRecvTxBatchTimer.TimeScope();
+        recvTxBatch(stellarMsg);
+    }
+    break;
+
     case GET_SCP_QUORUMSET:
     {
         auto t = mOverlayMetrics.mRecvGetSCPQuorumSetTimer.TimeScope();
@@ -1277,6 +1291,33 @@ Peer::process(QueryInfo& queryInfo)
         queryInfo.mNumQueries = 0;
     }
     return queryInfo.mNumQueries < QUERIES_PER_WINDOW;
+}
+
+void
+Peer::recvTxBatch(StellarMessage const& msg)
+{
+    ZoneScoped;
+    releaseAssert(threadIsMain());
+    releaseAssert(msg.type() == TX_BATCH);
+
+    // Pre-create single StellarMessage instance to reuse
+    StellarMessage txMsg;
+    txMsg.type(TRANSACTION);
+
+    for (auto const& tx : msg.txBatch().transactions)
+    {
+        auto start = mAppConnector.now();
+
+        // Reuse the message object instead of creating a new one each time
+        txMsg.transaction() = tx;
+        auto hash = xdrBlake2(txMsg);
+        mAppConnector.getOverlayManager().recvTransaction(
+            txMsg, shared_from_this(), hash);
+        mOverlayMetrics.mRecvTransactionAccumulator.inc(
+            std::chrono::duration_cast<std::chrono::microseconds>(mAppConnector.now() - start)
+                .count());
+        mOverlayMetrics.mRecvTransactionCounter.inc();
+    }
 }
 
 void
@@ -1982,6 +2023,7 @@ Peer::handleMaxTxSizeIncrease(uint32_t increase)
 bool
 Peer::sendAdvert(Hash const& hash)
 {
+    ZoneScoped;
     releaseAssert(threadIsMain());
     if (!mTxAdverts)
     {

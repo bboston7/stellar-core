@@ -21,12 +21,10 @@ namespace stellar
 
 typedef std::shared_ptr<SCPQuorumSet> SCPQuorumSetPtr;
 
-static size_t const MAX_MESSAGE_SIZE = 1024 * 1024 * 16;     // 16 MB
-static size_t const MAX_TX_SET_ALLOWANCE = 1024 * 1024 * 10; // 10 MB
-static size_t const MAX_SOROBAN_BYTE_ALLOWANCE =
-    MAX_TX_SET_ALLOWANCE / 2; // 5 MB
-static size_t const MAX_CLASSIC_BYTE_ALLOWANCE =
-    MAX_TX_SET_ALLOWANCE / 2; // 5 MB
+static size_t const MAX_MESSAGE_SIZE = 1024 * 1024 * 16;          // 16 MB
+static size_t const MAX_TX_SET_ALLOWANCE = 1024 * 1024 * 14;      // 14 MB
+static size_t const MAX_SOROBAN_BYTE_ALLOWANCE = 1024 * 1024 * 5; // 5 MB
+static size_t const MAX_CLASSIC_BYTE_ALLOWANCE = 1024 * 1024 * 9; // 9 MB
 
 static_assert(MAX_TX_SET_ALLOWANCE >=
               MAX_SOROBAN_BYTE_ALLOWANCE + MAX_CLASSIC_BYTE_ALLOWANCE);
@@ -289,6 +287,7 @@ class Peer : public std::enable_shared_from_this<Peer>,
     void recvTxSet(StellarMessage const& msg);
     void recvGeneralizedTxSet(StellarMessage const& msg);
     void recvTransaction(CapacityTrackedMessage const& msgTracker);
+    void recvTxBatch(StellarMessage const& msg);
     void recvGetSCPQuorumSet(StellarMessage const& msg);
     void recvSCPQuorumSet(StellarMessage const& msg);
     void recvSCPMessage(CapacityTrackedMessage const& msgTracker);
