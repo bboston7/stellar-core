@@ -199,6 +199,7 @@ Config::Config() : NODE_SEED(SecretKey::random())
     DISABLE_BUCKET_GC = false;
     DISABLE_XDR_FSYNC = false;
     MAX_SLOTS_TO_REMEMBER = 12;
+    TRANSACTION_QUEUE_SIZE_MULTIPLIER = 3;
     // Configure MAXIMUM_LEDGER_CLOSETIME_DRIFT based on MAX_SLOTS_TO_REMEMBER
     // (plus a small buffer) to make sure we don't reject SCP state sent to us
     // by default. Limit allowed drift to 90 seconds as to not overwhelm the
@@ -1050,6 +1051,11 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                 {"MAX_OUTBOUND_QUEUE_SIZE",
                  [&]() {
                      MAX_OUTBOUND_QUEUE_SIZE = readInt<uint32_t>(item, 1);
+                 }},
+                {"TRANSACTION_QUEUE_SIZE_MULTIPLIER",
+                 [&]() {
+                     TRANSACTION_QUEUE_SIZE_MULTIPLIER =
+                         readInt<uint32_t>(item, 1);
                  }},
                 {"PEER_PORT",
                  [&]() { PEER_PORT = readInt<unsigned short>(item, 1); }},
