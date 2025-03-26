@@ -1079,6 +1079,7 @@ ClassicTransactionQueue::getMaxResourcesToFloodThisPeriod() const
 TransactionQueue::BroadcastStatus
 TransactionQueue::broadcastTx(TimestampedTx& tx)
 {
+    ZoneScoped;
     // Must be main thread because we are accessing the overlay manager
     releaseAssert(threadIsMain());
 
@@ -1169,6 +1170,7 @@ SorobanTransactionQueue::getMaxResourcesToFloodThisPeriod() const
 bool
 SorobanTransactionQueue::broadcastSome()
 {
+    ZoneScoped;
     // Must be main thread for call to `broadcastTx`
     releaseAssert(threadIsMain());
 
@@ -1256,6 +1258,7 @@ SorobanTransactionQueue::getMaxQueueSizeOps() const
 bool
 ClassicTransactionQueue::broadcastSome()
 {
+    ZoneScoped;
     // Must be main thread for call to `broadcastTx`
     releaseAssert(threadIsMain());
 
@@ -1334,6 +1337,7 @@ ClassicTransactionQueue::broadcastSome()
 void
 TransactionQueue::broadcast(bool fromCallback, TxQueueLock const& guard)
 {
+    ZoneScoped;
     // Must be called from the main thread due to the use of `mBroadcastTimer`
     releaseAssert(threadIsMain());
 
@@ -1378,6 +1382,7 @@ TransactionQueue::broadcast(bool fromCallback)
 void
 TransactionQueue::rebroadcast(TxQueueLock const& guard)
 {
+    ZoneScoped;
     // For `broadcast` call
     releaseAssert(threadIsMain());
 
