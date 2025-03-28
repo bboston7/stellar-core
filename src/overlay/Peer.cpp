@@ -157,9 +157,7 @@ Peer::beginMessageProcessing(StellarMessage const& msg)
 void
 Peer::endMessageProcessing(StellarMessage const& msg)
 {
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-
-    if (shouldAbort(guard))
+    if (shouldAbort())
     {
         return;
     }
@@ -209,8 +207,7 @@ std::chrono::seconds
 Peer::getIOTimeout() const
 {
     releaseAssert(threadIsMain());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-    if (isAuthenticated(guard))
+    if (isAuthenticated())
     {
         // Normally willing to wait 30s to hear anything
         // from an authenticated peer.
@@ -242,11 +239,10 @@ void
 Peer::startRecurrentTimer()
 {
     releaseAssert(threadIsMain());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
 
     constexpr std::chrono::seconds RECURRENT_TIMER_PERIOD(5);
 
-    if (shouldAbort(guard))
+    if (shouldAbort())
     {
         return;
     }
@@ -273,8 +269,7 @@ Peer::shutdownAndRemovePeer(std::string const& reason,
                             DropDirection dropDirection)
 {
     releaseAssert(threadIsMain());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-    auto state = getState(guard);
+    auto state = getState();
 
     if (state != GOT_AUTH)
     {
@@ -295,7 +290,7 @@ Peer::shutdownAndRemovePeer(std::string const& reason,
 #endif
 
     // Set peer state to CLOSING to prevent any further processing
-    setState(guard, CLOSING);
+    setState(CLOSING);
 
     // Remove peer from peer lists tracked by OverlayManager
     mAppConnector.getOverlayManager().removePeer(this);
@@ -448,7 +443,6 @@ Peer::clearBelow(uint32_t seq)
 void
 Peer::connectHandler(asio::error_code const& error)
 {
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
     if (error)
     {
         drop("unable to connect: " + error.message(),
@@ -457,7 +451,7 @@ Peer::connectHandler(asio::error_code const& error)
     else
     {
         connected();
-        setState(guard, CONNECTED);
+        setState(CONNECTED);
         // Always send HELLO from main thread
         if (useBackgroundThread())
         {
@@ -796,8 +790,7 @@ Peer::sendAuthenticatedMessage(
         // more work onto the queues. If peer shuts down _after_ we already
         // placed the message, any remaining messages will still go through
         // before we close the socket, so this should be harmless.
-        RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-        if (shouldAbort(guard))
+        if (shouldAbort())
         {
             return;
         }
@@ -827,13 +820,13 @@ Peer::sendAuthenticatedMessage(
 }
 
 bool
-Peer::isConnected(RecursiveLockGuard const& stateGuard) const
+Peer::isConnected() const
 {
     return mState != CONNECTING && mState != CLOSING;
 }
 
 bool
-Peer::isAuthenticated(RecursiveLockGuard const& stateGuard) const
+Peer::isAuthenticated() const
 {
     return mState == GOT_AUTH;
 }
@@ -842,20 +835,17 @@ Peer::isAuthenticated(RecursiveLockGuard const& stateGuard) const
 bool
 Peer::isAuthenticatedForTesting() const
 {
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-    return isAuthenticated(guard);
+    return isAuthenticated();
 }
 bool
 Peer::isConnectedForTesting() const
 {
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-    return isConnected(guard);
+    return isConnected();
 }
 bool
 Peer::shouldAbortForTesting() const
 {
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-    return shouldAbort(guard);
+    return shouldAbort();
 }
 #endif
 
@@ -868,7 +858,7 @@ Peer::getLifeTime() const
 }
 
 bool
-Peer::shouldAbort(RecursiveLockGuard const& stateGuard) const
+Peer::shouldAbort() const
 {
     return mState == CLOSING || mAppConnector.overlayShuttingDown();
 }
@@ -878,15 +868,14 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
 {
     ZoneScoped;
     releaseAssert(!threadIsMain() || !useBackgroundThread());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
 
-    if (shouldAbort(guard))
+    if (shouldAbort())
     {
         return false;
     }
 
     std::string errorMsg;
-    if (getState(guard) >= GOT_HELLO && msg.v0().message.type() != ERROR_MSG)
+    if (getState() >= GOT_HELLO && msg.v0().message.type() != ERROR_MSG)
     {
         if (!mHmac.checkAuthenticatedMessage(msg, errorMsg))
         {
@@ -964,8 +953,8 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
     // processing of incoming messages during authenticated must be in-order, so
     // while not authenticated, place all messages onto AUTH_ACTION_QUEUE
     // scheduler queue
-    auto queueName = isAuthenticated(guard) ? cat : AUTH_ACTION_QUEUE;
-    type = isAuthenticated(guard) ? type : Scheduler::ActionType::NORMAL_ACTION;
+    auto queueName = isAuthenticated() ? cat : AUTH_ACTION_QUEUE;
+    type = isAuthenticated() ? type : Scheduler::ActionType::NORMAL_ACTION;
 
     // If a message is already scheduled, drop
     if (mAppConnector.checkScheduledAndCache(msgTracker))
@@ -1035,8 +1024,7 @@ Peer::recvMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     // need to check state for a potential early exit. If the peer gets dropped
     // after, we'd still process the message, but that's harmless.
     {
-        RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-        if (shouldAbort(guard))
+        if (shouldAbort())
         {
             return;
         }
@@ -1130,13 +1118,12 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     // type is skips most of these checks, except for the authenticated check.
     // Maybe I should add an isAuthenticated check? Or a shouldAbort check?
     {
-        RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-        if (shouldAbort(guard))
+        if (shouldAbort())
         {
             return;
         }
 
-        if (!isAuthenticated(guard) && (stellarMsg.type() != HELLO) &&
+        if (!isAuthenticated() && (stellarMsg.type() != HELLO) &&
             (stellarMsg.type() != AUTH) && (stellarMsg.type() != ERROR_MSG))
         {
             drop(fmt::format(
@@ -1153,7 +1140,7 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
             return;
         }
 
-        releaseAssert(isAuthenticated(guard) || stellarMsg.type() == HELLO ||
+        releaseAssert(isAuthenticated() || stellarMsg.type() == HELLO ||
                       stellarMsg.type() == AUTH ||
                       stellarMsg.type() == ERROR_MSG);
         mAppConnector.getOverlayManager().recordMessageMetric(
@@ -1428,8 +1415,7 @@ void
 Peer::pingPeer()
 {
     releaseAssert(threadIsMain());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-    if (isAuthenticated(guard) && mPingSentTime == PING_NOT_SENT)
+    if (isAuthenticated() && mPingSentTime == PING_NOT_SENT)
     {
         mPingSentTime = mAppConnector.now();
         auto h = pingIDfromTimePoint(mPingSentTime);
@@ -1651,9 +1637,8 @@ Peer::recvHello(Hello const& elo)
 {
     ZoneScoped;
     releaseAssert(threadIsMain());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
 
-    if (getState(guard) >= GOT_HELLO)
+    if (getState() >= GOT_HELLO)
     {
         drop("received unexpected HELLO",
              Peer::DropDirection::WE_DROPPED_REMOTE);
@@ -1685,7 +1670,7 @@ Peer::recvHello(Hello const& elo)
     mHmac.setRecvMackey(peerAuth.getReceivingMacKey(elo.cert.pubkey, mSendNonce,
                                                     mRecvNonce, mRole));
 
-    setState(guard, GOT_HELLO);
+    setState(GOT_HELLO);
 
     // mAddress is set in TCPPeer::initiate and TCPPeer::accept. It should
     // contain valid IP (but not necessarily port yet)
@@ -1787,9 +1772,9 @@ Peer::recvHello(Hello const& elo)
 }
 
 void
-Peer::setState(RecursiveLockGuard const& stateGuard, PeerState newState)
+Peer::setState(PeerState newState)
 {
-    mState = newState;
+    mState.store(newState);
 }
 
 void
@@ -1797,21 +1782,20 @@ Peer::recvAuth(StellarMessage const& msg)
 {
     ZoneScoped;
     releaseAssert(threadIsMain());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
 
-    if (getState(guard) != GOT_HELLO)
+    if (getState() != GOT_HELLO)
     {
         sendErrorAndDrop(ERR_MISC, "out-of-order AUTH message");
         return;
     }
 
-    if (isAuthenticated(guard))
+    if (isAuthenticated())
     {
         sendErrorAndDrop(ERR_MISC, "out-of-order AUTH message");
         return;
     }
 
-    setState(guard, GOT_AUTH);
+    setState(GOT_AUTH);
 
     if (mRole == REMOTE_CALLED_US)
     {

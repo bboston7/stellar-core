@@ -81,8 +81,7 @@ TCPPeer::initiate(Application& app, PeerBareAddress const& address)
 
             // We might have been dropped while waiting to connect; in this
             // case, do not execute handler and just exit
-            RECURSIVE_LOCK_GUARD(result->mStateMutex, guard);
-            if (result->shouldAbort(guard))
+            if (result->shouldAbort())
             {
                 return;
             }
@@ -401,13 +400,12 @@ TCPPeer::writeHandler(asio::error_code const& error,
 {
     ZoneScoped;
     releaseAssert(!threadIsMain() || !useBackgroundThread());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
 
     mLastWrite = mAppConnector.now();
 
     if (error)
     {
-        if (isConnected(guard))
+        if (isConnected())
         {
             // Only emit a warning if we have an error while connected;
             // errors during shutdown or connection are common/expected.
@@ -491,7 +489,6 @@ TCPPeer::scheduleRead()
     // Post to the peer-specific Scheduler a call to ::startRead below;
     // this will be throttled to try to balance input rates across peers.
     ZoneScoped;
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
 
     if (mFlowControl->isThrottled())
     {
@@ -500,7 +497,7 @@ TCPPeer::scheduleRead()
 
     releaseAssert(canRead());
 
-    if (shouldAbort(guard))
+    if (shouldAbort())
     {
         return;
     }
@@ -528,8 +525,7 @@ TCPPeer::startRead()
     ZoneScoped;
     releaseAssert(!threadIsMain() || !useBackgroundThread());
     releaseAssert(canRead());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-    if (shouldAbort(guard))
+    if (shouldAbort())
     {
         return;
     }
@@ -649,7 +645,6 @@ TCPPeer::startRead()
 size_t
 TCPPeer::getIncomingMsgLength()
 {
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
     auto const& header = mThreadVars.getIncomingHeader();
     releaseAssert(header.size() == HDRSZ);
     size_t length = static_cast<size_t>(header[0]);
@@ -661,13 +656,13 @@ TCPPeer::getIncomingMsgLength()
     length <<= 8;
     length |= header[3];
     if (length <= 0 ||
-        (!isAuthenticated(guard) && (length > MAX_UNAUTH_MESSAGE_SIZE)) ||
+        (!isAuthenticated() && (length > MAX_UNAUTH_MESSAGE_SIZE)) ||
         length > MAX_MESSAGE_SIZE)
     {
         mOverlayMetrics.mErrorRead.Mark();
         CLOG_ERROR(Overlay, "{} TCP: message size unacceptable: {}{}",
                    mIPAddress, length,
-                   (isAuthenticated(guard) ? "" : " while not authenticated"));
+                   (isAuthenticated() ? "" : " while not authenticated"));
         drop("error during read", Peer::DropDirection::WE_DROPPED_REMOTE);
         length = 0;
     }

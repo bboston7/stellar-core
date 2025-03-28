@@ -301,6 +301,7 @@ class TransactionQueue
   private:
     AppConnector& mAppConn;
 
+    // TODO: Tracy mutexes? Or simplify and use a tracy mutex?
     mutable std::mutex mTxQueueMutex;
     mutable std::shared_ptr<std::condition_variable> mTxQueueCv =
         std::make_shared<std::condition_variable>();
