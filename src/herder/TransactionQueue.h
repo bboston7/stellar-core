@@ -234,7 +234,7 @@ class TransactionQueue
     // internal call should call the second overload (which enforces that the
     // lock is already held).
     void broadcast(bool fromCallback);
-    void broadcast(bool fromCallback, std::lock_guard<std::mutex> const& guard);
+    void broadcast(bool fromCallback, LockGuard const& guard);
     // broadcasts a single transaction
     enum class BroadcastStatus
     {
@@ -272,8 +272,12 @@ class TransactionQueue
 
     size_t mBroadcastSeed;
 
-    // TODO: Double check this is used in all public functions
+// TODO: Double check this is used in all public functions
+#ifdef USE_TRACY
+    mutable TracyLockable(std::mutex, mTxQueueMutex);
+#else
     mutable std::mutex mTxQueueMutex;
+#endif
 
   private:
     AppConnector& mAppConn;
@@ -289,7 +293,7 @@ class TransactionQueue
 
     // TODO: Explain that this takes a lock guard due to the `broadcast` call
     // that it makes.
-    void rebroadcast(std::lock_guard<std::mutex> const& guard);
+    void rebroadcast(LockGuard const& guard);
 
     // TODO: Docs
     // Private versions of public functions that contain the actual
@@ -330,7 +334,7 @@ class SorobanTransactionQueue : public TransactionQueue
     void
     clearBroadcastCarryover()
     {
-        std::lock_guard<std::mutex> guard(mTxQueueMutex);
+        LOCK_GUARD(mTxQueueMutex, guard);
         mBroadcastOpCarryover.clear();
         mBroadcastOpCarryover.resize(1, Resource::makeEmptySoroban());
     }
@@ -409,7 +413,11 @@ class TransactionQueues : public NonMovableOrCopyable
     TransactionFrameBaseConstPtr getTx(Hash const& hash) const;
 
   private:
+#ifdef USE_TRACY
+    mutable TracyLockable(std::mutex, mMutex);
+#else
     mutable std::mutex mMutex;
+#endif
     std::unique_ptr<ClassicTransactionQueue> mClassicTransactionQueue = nullptr;
     std::unique_ptr<SorobanTransactionQueue> mSorobanTransactionQueue = nullptr;
 };
