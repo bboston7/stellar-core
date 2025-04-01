@@ -270,7 +270,7 @@ isDuplicateTx(TransactionFrameBasePtr oldTx, TransactionFrameBasePtr newTx)
 bool
 TransactionQueue::sourceAccountPending(AccountID const& accountID) const
 {
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     return mAccountStates.find(accountID) != mAccountStates.end();
 }
 
@@ -326,21 +326,6 @@ validateSorobanMemo(TransactionFrameBasePtr tx)
     }
 
     return true;
-}
-
-TransactionQueue::TxQueueLock
-TransactionQueue::lock() const
-{
-    if (threadIsMain())
-    {
-        mMainThreadWaiting.store(true);
-        std::unique_lock<std::mutex> lock(mTxQueueMutex);
-        mMainThreadWaiting.store(false);
-        return TxQueueLock(std::move(lock), mTxQueueCv);
-    }
-    std::unique_lock<std::mutex> lock(mTxQueueMutex);
-    mTxQueueCv->wait(lock, [this] { return !mMainThreadWaiting.load(); });
-    return TxQueueLock(std::move(lock), mTxQueueCv);
 }
 
 TransactionQueue::AddResult
@@ -656,7 +641,7 @@ TransactionQueue::AddResult
 TransactionQueue::tryAdd(TransactionFrameBasePtr tx, bool submittedFromSelf)
 {
     ZoneScoped;
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     CLOG_DEBUG(Tx, "Try add tx {} in {}", hexAbbrev(tx->getFullHash()),
                threadIsMain() ? "foreground" : "background");
 
@@ -833,7 +818,7 @@ void
 TransactionQueue::ban(Transactions const& banTxs)
 {
     ZoneScoped;
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     banInternal(banTxs);
 }
 
@@ -886,7 +871,7 @@ TransactionQueue::AccountState
 TransactionQueue::getAccountTransactionQueueInfo(
     AccountID const& accountID) const
 {
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     auto i = mAccountStates.find(accountID);
     if (i == std::end(mAccountStates))
     {
@@ -898,7 +883,7 @@ TransactionQueue::getAccountTransactionQueueInfo(
 size_t
 TransactionQueue::countBanned(int index) const
 {
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     return mBannedTransactions[index].size();
 }
 #endif
@@ -973,7 +958,7 @@ TransactionQueue::shift()
 bool
 TransactionQueue::isBanned(Hash const& hash) const
 {
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     return isBannedInternal(hash);
 }
 
@@ -991,7 +976,7 @@ TxFrameList
 TransactionQueue::getTransactions(LedgerHeader const& lcl) const
 {
     ZoneScoped;
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     return getTransactionsInternal(lcl);
 }
 
@@ -1019,7 +1004,7 @@ TransactionFrameBaseConstPtr
 TransactionQueue::getTx(Hash const& hash) const
 {
     ZoneScoped;
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     auto it = mKnownTxHashes.find(hash);
     if (it != mKnownTxHashes.end())
     {
@@ -1240,7 +1225,7 @@ size_t
 SorobanTransactionQueue::getMaxQueueSizeOps() const
 {
     ZoneScoped;
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     if (protocolVersionStartsFrom(
             mBucketSnapshot->getLedgerHeader().ledgerVersion,
             SOROBAN_PROTOCOL_VERSION))
@@ -1335,7 +1320,8 @@ ClassicTransactionQueue::broadcastSome()
 }
 
 void
-TransactionQueue::broadcast(bool fromCallback, TxQueueLock const& guard)
+TransactionQueue::broadcast(bool fromCallback,
+                            std::lock_guard<std::mutex> const& guard)
 {
     ZoneScoped;
     // Must be called from the main thread due to the use of `mBroadcastTimer`
@@ -1375,12 +1361,12 @@ TransactionQueue::broadcast(bool fromCallback, TxQueueLock const& guard)
 void
 TransactionQueue::broadcast(bool fromCallback)
 {
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     broadcast(fromCallback, guard);
 }
 
 void
-TransactionQueue::rebroadcast(TxQueueLock const& guard)
+TransactionQueue::rebroadcast(std::lock_guard<std::mutex> const& guard)
 {
     ZoneScoped;
     // For `broadcast` call
@@ -1402,7 +1388,7 @@ void
 TransactionQueue::shutdown()
 {
     releaseAssert(threadIsMain());
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     mShutdown = true;
     mBroadcastTimer.cancel();
 }
@@ -1415,7 +1401,7 @@ TransactionQueue::update(
 {
     ZoneScoped;
     releaseAssert(threadIsMain());
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
 
     mValidationSnapshot =
         std::make_shared<ImmutableValidationSnapshot>(mAppConn);
@@ -1474,7 +1460,7 @@ void
 TransactionQueue::updateSnapshots(
     SearchableSnapshotConstPtr const& newBucketSnapshot)
 {
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     mValidationSnapshot =
         std::make_shared<ImmutableValidationSnapshot>(mAppConn);
     mBucketSnapshot = newBucketSnapshot;
@@ -1484,14 +1470,14 @@ TransactionQueue::updateSnapshots(
 size_t
 TransactionQueue::getQueueSizeOps() const
 {
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     return mTxQueueLimiter.size();
 }
 
 std::optional<int64_t>
 TransactionQueue::getInQueueSeqNum(AccountID const& account) const
 {
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     auto stateIter = mAccountStates.find(account);
     if (stateIter == mAccountStates.end())
     {
@@ -1509,7 +1495,7 @@ size_t
 ClassicTransactionQueue::getMaxQueueSizeOps() const
 {
     ZoneScoped;
-    TxQueueLock guard = lock();
+    std::lock_guard<std::mutex> guard(mTxQueueMutex);
     auto res = mTxQueueLimiter.maxScaledLedgerResources(false);
     releaseAssert(res.size() == NUM_CLASSIC_TX_RESOURCES);
     return res.getVal(Resource::Type::OPERATIONS);

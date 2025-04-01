@@ -172,30 +172,6 @@ class TransactionQueue
 #endif
 
   protected:
-    // TODO: Docs?
-    // TODO: Move?
-    // TODO: It might be worth benchmarking this against the solution that does
-    // not use priority locking (just uses std::mutex). The added complexity of
-    // this may not be worth it.
-    class TxQueueLock : NonMovableOrCopyable
-    {
-      public:
-        TxQueueLock(std::unique_lock<std::mutex>&& lock,
-                    std::shared_ptr<std::condition_variable> cv)
-            : mLock(std::move(lock)), mCv(cv)
-        {
-        }
-        ~TxQueueLock()
-        {
-            // Wake threads on destruction
-            mCv->notify_all();
-        }
-
-      private:
-        std::unique_lock<std::mutex> mLock;
-        std::shared_ptr<std::condition_variable> mCv;
-    };
-
     /**
      * The AccountState for every account. As noted above, an AccountID is in
      * AccountStates iff at least one of the following is true for the
@@ -258,7 +234,7 @@ class TransactionQueue
     // internal call should call the second overload (which enforces that the
     // lock is already held).
     void broadcast(bool fromCallback);
-    void broadcast(bool fromCallback, TxQueueLock const& guard);
+    void broadcast(bool fromCallback, std::lock_guard<std::mutex> const& guard);
     // broadcasts a single transaction
     enum class BroadcastStatus
     {
@@ -285,8 +261,6 @@ class TransactionQueue
     // held.
     void banInternal(Transactions const& banTxs);
 
-    TxQueueLock lock() const;
-
     // Snapshots to use for transaction validation
     ImmutableValidationSnapshotPtr mValidationSnapshot;
     SearchableSnapshotConstPtr mBucketSnapshot;
@@ -298,14 +272,11 @@ class TransactionQueue
 
     size_t mBroadcastSeed;
 
+    // TODO: Double check this is used in all public functions
+    mutable std::mutex mTxQueueMutex;
+
   private:
     AppConnector& mAppConn;
-
-    // TODO: Tracy mutexes? Or simplify and use a tracy mutex?
-    mutable std::mutex mTxQueueMutex;
-    mutable std::shared_ptr<std::condition_variable> mTxQueueCv =
-        std::make_shared<std::condition_variable>();
-    mutable std::atomic<bool> mMainThreadWaiting{false};
 
     void removeApplied(Transactions const& txs);
 
@@ -318,7 +289,7 @@ class TransactionQueue
 
     // TODO: Explain that this takes a lock guard due to the `broadcast` call
     // that it makes.
-    void rebroadcast(TxQueueLock const& guard);
+    void rebroadcast(std::lock_guard<std::mutex> const& guard);
 
     // TODO: Docs
     // Private versions of public functions that contain the actual
@@ -359,7 +330,7 @@ class SorobanTransactionQueue : public TransactionQueue
     void
     clearBroadcastCarryover()
     {
-        TxQueueLock lock = TransactionQueue::lock();
+        std::lock_guard<std::mutex> guard(mTxQueueMutex);
         mBroadcastOpCarryover.clear();
         mBroadcastOpCarryover.resize(1, Resource::makeEmptySoroban());
     }
