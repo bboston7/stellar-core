@@ -70,7 +70,12 @@ class LedgerManagerForBucketTests : public LedgerManagerImpl
     void sealLedgerTxnAndTransferEntriesToBucketList(
         AbstractLedgerTxn& ltx,
         std::unique_ptr<LedgerCloseMetaFrame> const& ledgerCloseMeta,
-        LedgerHeader lh, uint32_t initialLedgerVers) override;
+        LedgerHeader lh, uint32_t initialLedgerVers
+#ifdef BUILD_TESTS
+        ,
+        bool isGenesisBucket
+#endif
+        ) override;
 
   public:
     void

@@ -311,7 +311,12 @@ LedgerManagerImpl::startNewLedger(LedgerHeader const& genesisLedger)
     CLOG_INFO(Ledger, "Root account seed: {}", skey.getStrKeySeed().value);
     auto output =
         sealLedgerTxnAndStoreInBucketsAndDB(ltx, /*ledgerCloseMeta*/ nullptr,
-                                            /*initialLedgerVers*/ 0);
+                                            /*initialLedgerVers*/ 0
+#ifdef BUILD_TESTS
+                                            ,
+                                            cfg.GENESIS_TEST_ACCOUNT_COUNT > 0
+#endif
+        );
     advanceLastClosedLedgerState(output);
 
     ltx.commit();
@@ -1766,7 +1771,12 @@ void
 LedgerManagerImpl::sealLedgerTxnAndTransferEntriesToBucketList(
     AbstractLedgerTxn& ltx,
     std::unique_ptr<LedgerCloseMetaFrame> const& ledgerCloseMeta,
-    LedgerHeader lh, uint32_t initialLedgerVers)
+    LedgerHeader lh, uint32_t initialLedgerVers
+#ifdef BUILD_TESTS
+    ,
+    bool isGenesisBucket
+#endif
+)
 {
     ZoneScoped;
     // `ledgerApplied` protects this call with a mutex
@@ -1827,7 +1837,12 @@ LedgerManagerImpl::sealLedgerTxnAndTransferEntriesToBucketList(
     if (blEnabled)
     {
         mApp.getBucketManager().addLiveBatch(mApp, lh, initEntries, liveEntries,
-                                             deadEntries);
+                                             deadEntries
+#ifdef BUILD_TESTS
+                                             ,
+                                             isGenesisBucket
+#endif
+        );
     }
 }
 
@@ -1835,7 +1850,12 @@ LedgerManagerImpl::LedgerState
 LedgerManagerImpl::sealLedgerTxnAndStoreInBucketsAndDB(
     AbstractLedgerTxn& ltx,
     std::unique_ptr<LedgerCloseMetaFrame> const& ledgerCloseMeta,
-    uint32_t initialLedgerVers)
+    uint32_t initialLedgerVers
+#ifdef BUILD_TESTS
+    ,
+    bool isGenesisBucket
+#endif
+)
 {
     ZoneScoped;
     std::lock_guard<std::recursive_mutex> guard(mLedgerStateMutex);
@@ -1867,7 +1887,12 @@ LedgerManagerImpl::sealLedgerTxnAndStoreInBucketsAndDB(
     // initial protocol version of ledger instead of the ledger version of
     // the current ltx header, which may have been modified via an upgrade.
     sealLedgerTxnAndTransferEntriesToBucketList(
-        ltx, ledgerCloseMeta, ltx.loadHeader().current(), initialLedgerVers);
+        ltx, ledgerCloseMeta, ltx.loadHeader().current(), initialLedgerVers
+#ifdef BUILD_TESTS
+        ,
+        isGenesisBucket
+#endif
+    );
     if (ledgerCloseMeta &&
         protocolVersionStartsFrom(initialLedgerVers, SOROBAN_PROTOCOL_VERSION))
     {

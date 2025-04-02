@@ -952,7 +952,12 @@ void
 BucketManager::addLiveBatch(Application& app, LedgerHeader header,
                             std::vector<LedgerEntry> const& initEntries,
                             std::vector<LedgerEntry> const& liveEntries,
-                            std::vector<LedgerKey> const& deadEntries)
+                            std::vector<LedgerKey> const& deadEntries
+#ifdef BUILD_TESTS
+                            ,
+                            bool isGenesisBucket
+#endif
+)
 {
     ZoneScoped;
     releaseAssertOrThrow(app.getConfig().MODE_ENABLES_BUCKETLIST);
@@ -965,8 +970,20 @@ BucketManager::addLiveBatch(Application& app, LedgerHeader header,
     auto timer = mBucketAddLiveBatch.TimeScope();
     mBucketLiveObjectInsertBatch.Mark(initEntries.size() + liveEntries.size() +
                                       deadEntries.size());
-    mLiveBucketList->addBatch(app, header.ledgerSeq, header.ledgerVersion,
-                              initEntries, liveEntries, deadEntries);
+
+#ifdef BUILD_TESTS
+    if (isGenesisBucket)
+    {
+        mLiveBucketList->addGenesisBatch(app, header.ledgerSeq,
+                                         header.ledgerVersion, initEntries,
+                                         liveEntries, deadEntries);
+    }
+    else
+#endif
+    {
+        mLiveBucketList->addBatch(app, header.ledgerSeq, header.ledgerVersion,
+                                  initEntries, liveEntries, deadEntries);
+    }
     mLiveBucketListSizeCounter.set_count(mLiveBucketList->getSize());
     reportBucketEntryCountMetrics();
 }

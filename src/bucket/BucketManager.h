@@ -278,7 +278,12 @@ class BucketManager : NonMovableOrCopyable
     void addLiveBatch(Application& app, LedgerHeader header,
                       std::vector<LedgerEntry> const& initEntries,
                       std::vector<LedgerEntry> const& liveEntries,
-                      std::vector<LedgerKey> const& deadEntries);
+                      std::vector<LedgerKey> const& deadEntries
+#ifdef BUILD_TESTS
+                      ,
+                      bool isGenesisBucket
+#endif
+    );
     void addHotArchiveBatch(Application& app, LedgerHeader header,
                             std::vector<LedgerEntry> const& archivedEntries,
                             std::vector<LedgerKey> const& restoredEntries,
