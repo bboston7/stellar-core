@@ -1224,9 +1224,20 @@ HerderImpl::setupTriggerNextLedger()
     auto lastBallotStart = now - seconds;
     auto lastStart = mHerderSCPDriver.getNominationAccept(lastIndex);
 
+    if (mApp.getConfig().TRIGGER_OFFSET_FOR_TESTING > 0)
+    {
+        lastStart = mHerderSCPDriver.getPrepareStart(lastIndex);
+    }
+
     if (lastStart)
     {
         lastBallotStart = *lastStart;
+        // use a guesstimate based on previous nomination value
+        if (mApp.getConfig().TRIGGER_OFFSET_FOR_TESTING > 0)
+        {
+            lastBallotStart -= std::chrono::seconds(
+                mApp.getConfig().TRIGGER_OFFSET_FOR_TESTING);
+        }
     }
     else
     {
@@ -2001,6 +2012,11 @@ void
 HerderImpl::persistSCPState(uint64 slot)
 {
     ZoneScoped;
+    if (mApp.getConfig().SKIP_SCP_PERSISTENCE_FOR_TESTING)
+    {
+        return;
+    }
+
     if (slot < mLastSlotSaved)
     {
         return;

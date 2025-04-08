@@ -798,24 +798,25 @@ TransactionQueue::removeApplied(Transactions const& appliedTxs)
                     mQueueMetrics->mSizeByAge[age]->dec();
                     age = 0;
 
-                    // update the metric for the time spent for applied
-                    // transactions using exact match
-                    if (transaction->mTx->getFullHash() ==
-                        appliedTx->getFullHash())
-                    {
-                        auto elapsed = std::chrono::duration_cast<
-                            std::chrono::milliseconds>(
-                            now - transaction->mInsertionTime);
-                        mQueueMetrics->mTransactionsDelayAccumulator.inc(
-                            elapsed.count());
-                        mQueueMetrics->mTransactionsDelayCounter.inc();
-                        if (transaction->mSubmittedFromSelf)
-                        {
-                            mQueueMetrics->mTransactionsSelfDelayAccumulator
-                                .inc(elapsed.count());
-                            mQueueMetrics->mTransactionsSelfDelayCounter.inc();
-                        }
-                    }
+                    // TODO: we re-hash here, which is kind of expensive.
+                    // // update the metric for the time spent for applied
+                    // // transactions using exact match
+                    // if (transaction->mTx->getFullHash() ==
+                    //     appliedTx->getFullHash())
+                    // {
+                    //     auto elapsed = std::chrono::duration_cast<
+                    //         std::chrono::milliseconds>(
+                    //         now - transaction->mInsertionTime);
+                    //     mQueueMetrics->mTransactionsDelayAccumulator.inc(
+                    //         elapsed.count());
+                    //     mQueueMetrics->mTransactionsDelayCounter.inc();
+                    //     if (transaction->mSubmittedFromSelf)
+                    //     {
+                    //         mQueueMetrics->mTransactionsSelfDelayAccumulator
+                    //             .inc(elapsed.count());
+                    //         mQueueMetrics->mTransactionsSelfDelayCounter.inc();
+                    //     }
+                    // }
 
                     // WARNING: stateIter and everything that references it
                     // may be invalid from this point onward and should not

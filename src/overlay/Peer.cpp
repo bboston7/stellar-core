@@ -122,10 +122,9 @@ CapacityTrackedMessage::CapacityTrackedMessage(std::weak_ptr<Peer> peer,
         }
     }
 }
-q
 
-    std::optional<Hash>
-    CapacityTrackedMessage::maybeGetHash() const
+std::optional<Hash>
+CapacityTrackedMessage::maybeGetHash() const
 {
     return mMaybeHash;
 }
