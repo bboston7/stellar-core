@@ -191,7 +191,7 @@ void
 LedgerManagerForBucketTests::sealLedgerTxnAndTransferEntriesToBucketList(
     AbstractLedgerTxn& ltx,
     std::unique_ptr<LedgerCloseMetaFrame> const& ledgerCloseMeta,
-    LedgerHeader lh, uint32_t initialLedgerVers, bool isGenesisBucket)
+    LedgerHeader lh, uint32_t initialLedgerVers)
 {
     if (mUseTestEntries)
     {
@@ -287,15 +287,14 @@ LedgerManagerForBucketTests::sealLedgerTxnAndTransferEntriesToBucketList(
         }
 
         // Use the testing values.
-        mApp.getBucketManager().addLiveBatch(mApp, lh, mTestInitEntries,
-                                             mTestLiveEntries, mTestDeadEntries,
-                                             isGenesisBucket);
+        mApp.getBucketManager().addLiveBatch(
+            mApp, lh, mTestInitEntries, mTestLiveEntries, mTestDeadEntries);
         mUseTestEntries = false;
     }
     else
     {
         LedgerManagerImpl::sealLedgerTxnAndTransferEntriesToBucketList(
-            ltx, ledgerCloseMeta, lh, initialLedgerVers, isGenesisBucket);
+            ltx, ledgerCloseMeta, lh, initialLedgerVers);
     }
 }
 

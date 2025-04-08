@@ -131,12 +131,7 @@ class LedgerManagerImpl : public LedgerManager
     LedgerState sealLedgerTxnAndStoreInBucketsAndDB(
         AbstractLedgerTxn& ltx,
         std::unique_ptr<LedgerCloseMetaFrame> const& ledgerCloseMeta,
-        uint32_t initialLedgerVers
-#ifdef BUILD_TESTS
-        ,
-        bool isGenesisBucket = false
-#endif
-    );
+        uint32_t initialLedgerVers);
 
     HistoryArchiveState
     storePersistentStateAndLedgerHeaderInDB(LedgerHeader const& header,
@@ -177,12 +172,7 @@ class LedgerManagerImpl : public LedgerManager
     virtual void sealLedgerTxnAndTransferEntriesToBucketList(
         AbstractLedgerTxn& ltx,
         std::unique_ptr<LedgerCloseMetaFrame> const& ledgerCloseMeta,
-        LedgerHeader lh, uint32_t initialLedgerVers
-#ifdef BUILD_TESTS
-        ,
-        bool isGenesisBucket
-#endif
-    );
+        LedgerHeader lh, uint32_t initialLedgerVers);
 
     // Update bucket list snapshot, and construct LedgerState return
     // value, which contains all information relevant to ledger state (HAS,

@@ -26,27 +26,6 @@ LiveBucketList::addBatch(Application& app, uint32_t currLedger,
     maybeInitializeCaches(app.getConfig());
 }
 
-#ifdef BUILD_TESTS
-void
-LiveBucketList::addGenesisBatch(Application& app, uint32_t currLedger,
-                                uint32_t currLedgerProtocol,
-                                std::vector<LedgerEntry> const& initEntries,
-                                std::vector<LedgerEntry> const& liveEntries,
-                                std::vector<LedgerKey> const& deadEntries)
-{
-    ZoneScoped;
-
-    auto b = LiveBucket::fresh(app.getBucketManager(), currLedgerProtocol,
-                               initEntries, liveEntries, deadEntries,
-                               /*countMergeEvents=*/false,
-                               app.getClock().getIOContext(), /*doFsync=*/true);
-    mLevels[LiveBucketList::kNumLevels - 1].setCurr(b);
-
-    // Initialize caches for new bucket
-    maybeInitializeCaches(app.getConfig());
-}
-#endif
-
 BucketEntryCounters
 LiveBucketList::sumBucketEntryCounters() const
 {

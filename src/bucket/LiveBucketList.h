@@ -49,14 +49,6 @@ class LiveBucketList : public BucketListBase<LiveBucket>
                   std::vector<LedgerEntry> const& liveEntries,
                   std::vector<LedgerKey> const& deadEntries);
 
-#ifdef BUILD_TESTS
-    void addGenesisBatch(Application& app, uint32_t currLedger,
-                         uint32_t currLedgerProtocol,
-                         std::vector<LedgerEntry> const& initEntries,
-                         std::vector<LedgerEntry> const& liveEntries,
-                         std::vector<LedgerKey> const& deadEntries);
-#endif
-
     BucketEntryCounters sumBucketEntryCounters() const;
 
     // Initializes any uninitialized caches in the BucketIndex. Should be called
