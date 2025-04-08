@@ -1152,11 +1152,10 @@ OverlayManagerImpl::shufflePeerList(std::vector<Peer::pointer>& peerList)
 }
 
 bool
-OverlayManagerImpl::recvFloodedMsgID(StellarMessage const& msg,
-                                     Peer::pointer peer, Hash const& msgID)
+OverlayManagerImpl::recvFloodedMsgID(Peer::pointer peer, Hash const& msgID)
 {
     ZoneScoped;
-    return mFloodGate.addRecord(msg, peer, msgID);
+    return mFloodGate.addRecord(peer, msgID);
 }
 
 bool
@@ -1185,20 +1184,16 @@ OverlayManagerImpl::checkScheduledAndCache(
 }
 
 void
-OverlayManagerImpl::recvTransaction(StellarMessage const& msg,
+OverlayManagerImpl::recvTransaction(TransactionFrameBasePtr transaction,
                                     Peer::pointer peer, Hash const& index)
 {
     ZoneScoped;
-    auto transaction = TransactionFrameBase::makeTransactionFromWire(
-        mApp.getNetworkID(), msg.transaction());
+    releaseAssert(threadIsMain());
     if (transaction)
     {
         // record that this peer sent us this transaction
         // add it to the floodmap so that this peer gets credit for it
-        recvFloodedMsgID(msg, peer, index);
-
-        // mTxDemandsManager.recordTxPullLatency(transaction->getFullHash(),
-        // peer);
+        recvFloodedMsgID(peer, index);
 
         // add it to our current set
         // and make sure it is valid

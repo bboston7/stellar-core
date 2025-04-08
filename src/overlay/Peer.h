@@ -11,6 +11,7 @@
 #include "medida/timer.h"
 #include "overlay/Hmac.h"
 #include "overlay/PeerBareAddress.h"
+#include "transactions/TransactionFrameBase.h"
 #include "util/NonCopyable.h"
 #include "util/Timer.h"
 #include "xdrpp/message.h"
@@ -288,7 +289,7 @@ class Peer : public std::enable_shared_from_this<Peer>,
     void recvGeneralizedTxSet(StellarMessage const& msg);
     void recvCompressedGeneralizedTxSet(StellarMessage const& msg);
     void recvTransaction(CapacityTrackedMessage const& msgTracker);
-    void recvTxBatch(StellarMessage const& msg);
+    void recvTxBatch(CapacityTrackedMessage const& msgTracker);
     void recvGetSCPQuorumSet(StellarMessage const& msg);
     void recvSCPQuorumSet(StellarMessage const& msg);
     void recvSCPMessage(CapacityTrackedMessage const& msgTracker);
@@ -504,11 +505,18 @@ class CapacityTrackedMessage : private NonMovableOrCopyable
     std::weak_ptr<Peer> const mWeakPeer;
     StellarMessage const mMsg;
     std::optional<Hash> mMaybeHash;
+    // xdrBlake2 -> txFrame (with pre-populated hashes)
+    std::unordered_map<Hash, TransactionFrameBasePtr> mTxsMap;
 
   public:
     CapacityTrackedMessage(std::weak_ptr<Peer> peer, StellarMessage const& msg);
     StellarMessage const& getMessage() const;
     ~CapacityTrackedMessage();
     std::optional<Hash> maybeGetHash() const;
+    std::unordered_map<Hash, TransactionFrameBasePtr>
+    getTxMap() const
+    {
+        return mTxsMap;
+    }
 };
 }

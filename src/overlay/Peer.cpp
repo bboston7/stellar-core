@@ -95,10 +95,37 @@ CapacityTrackedMessage::CapacityTrackedMessage(std::weak_ptr<Peer> peer,
     {
         mMaybeHash = xdrBlake2(msg);
     }
-}
 
-std::optional<Hash>
-CapacityTrackedMessage::maybeGetHash() const
+    if (mMsg.type() == TRANSACTION)
+    {
+        auto transaction = TransactionFrameBase::makeTransactionFromWire(
+            self->mAppConnector.getNetworkID(), mMsg.transaction());
+        StellarMessage txMsg;
+        txMsg.type(TRANSACTION);
+        txMsg.transaction() = mMsg.transaction();
+        transaction->getFullHash();
+        transaction->getContentsHash();
+        mTxsMap[*mMaybeHash] = transaction;
+    }
+    else if (mMsg.type() == TX_BATCH)
+    {
+        StellarMessage txMsg;
+        txMsg.type(TRANSACTION);
+        for (auto const& tx : mMsg.txBatch().transactions)
+        {
+            auto transaction = TransactionFrameBase::makeTransactionFromWire(
+                self->mAppConnector.getNetworkID(), tx);
+            txMsg.transaction() = tx;
+            transaction->getFullHash();
+            transaction->getContentsHash();
+            mTxsMap[xdrBlake2(txMsg)] = transaction;
+        }
+    }
+}
+q
+
+    std::optional<Hash>
+    CapacityTrackedMessage::maybeGetHash() const
 {
     return mMaybeHash;
 }
@@ -1219,7 +1246,7 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     case TX_BATCH:
     {
         auto t = mOverlayMetrics.mRecvTxBatchTimer.TimeScope();
-        recvTxBatch(stellarMsg);
+        recvTxBatch(*msgTracker);
     }
     break;
 
@@ -1307,26 +1334,24 @@ Peer::process(QueryInfo& queryInfo)
     return queryInfo.mNumQueries < QUERIES_PER_WINDOW;
 }
 
+// Next bath of changes
+// - do hashing in the background
+// - demand function cheaper
+// - disable persistent storage for certain testing modes.
+// -
+
 void
-Peer::recvTxBatch(StellarMessage const& msg)
+Peer::recvTxBatch(CapacityTrackedMessage const& msgTracker)
 {
     ZoneScoped;
     releaseAssert(threadIsMain());
-    releaseAssert(msg.type() == TX_BATCH);
+    releaseAssert(msgTracker.getMessage().type() == TX_BATCH);
 
-    // Pre-create single StellarMessage instance to reuse
-    StellarMessage txMsg;
-    txMsg.type(TRANSACTION);
-
-    for (auto const& tx : msg.txBatch().transactions)
+    for (auto [blake2Hash, tx] : msgTracker.getTxMap())
     {
         auto start = mAppConnector.now();
-
-        // Reuse the message object instead of creating a new one each time
-        txMsg.transaction() = tx;
-        auto hash = xdrBlake2(txMsg);
         mAppConnector.getOverlayManager().recvTransaction(
-            txMsg, shared_from_this(), hash);
+            tx, shared_from_this(), blake2Hash);
         mOverlayMetrics.mRecvTransactionAccumulator.inc(
             std::chrono::duration_cast<std::chrono::microseconds>(
                 mAppConnector.now() - start)
@@ -1447,8 +1472,10 @@ Peer::recvTransaction(CapacityTrackedMessage const& msg)
     ZoneScoped;
     releaseAssert(threadIsMain());
     releaseAssert(msg.maybeGetHash());
+    releaseAssert(msg.getTxMap().size() == 1);
     mAppConnector.getOverlayManager().recvTransaction(
-        msg.getMessage(), shared_from_this(), msg.maybeGetHash().value());
+        msg.getTxMap().begin()->second, shared_from_this(),
+        msg.maybeGetHash().value());
 }
 
 Hash
@@ -1586,7 +1613,7 @@ Peer::recvSCPMessage(CapacityTrackedMessage const& msg)
     // add it to the floodmap so that this peer gets credit for it
     releaseAssert(msg.maybeGetHash());
     mAppConnector.getOverlayManager().recvFloodedMsgID(
-        msg.getMessage(), shared_from_this(), msg.maybeGetHash().value());
+        shared_from_this(), msg.maybeGetHash().value());
 
     auto res = mAppConnector.getHerder().recvSCPEnvelope(envelope);
     if (res == Herder::ENVELOPE_STATUS_DISCARDED)

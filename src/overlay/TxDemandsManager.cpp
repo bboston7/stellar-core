@@ -153,11 +153,14 @@ TxDemandsManager::demand()
         }
     }
 
+    // We randomize peers here to avoid biasing demand pressure to any one
+    // particular peer
     auto peers = mApp.getOverlayManager().getRandomAuthenticatedPeers();
 
     UnorderedMap<Peer::pointer, std::pair<TxDemandVector, std::list<Hash>>>
         demandMap;
     bool anyNewDemand = false;
+    auto maxDemandSize = getMaxDemandSize();
     do
     {
         anyNewDemand = false;
@@ -168,7 +171,7 @@ TxDemandsManager::demand()
             auto& retry = demPair.second;
             bool addedNewDemand = false;
 
-            while (demand.size() < getMaxDemandSize() && peer->hasAdvert() &&
+            while (demand.size() < maxDemandSize && peer->hasAdvert() &&
                    !addedNewDemand)
             {
                 auto txHash = peer->popAdvert();
@@ -205,6 +208,7 @@ TxDemandsManager::demand()
             }
             anyNewDemand |= addedNewDemand;
         }
+        // Loop again if we added one new demand to any peer
     } while (anyNewDemand);
 
     for (auto const& peer : peers)
