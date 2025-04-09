@@ -162,6 +162,7 @@ Config::Config() : NODE_SEED(SecretKey::random())
     CATCHUP_RECENT = 0;
     BACKGROUND_OVERLAY_PROCESSING = true;
     EXPERIMENTAL_PARALLEL_LEDGER_APPLY = false;
+    EXPERIMENTAL_BACKGROUND_TX_SIG_VERIFICATION = false;
     BUCKETLIST_DB_INDEX_PAGE_SIZE_EXPONENT = 14; // 2^14 == 16 kb
     BUCKETLIST_DB_INDEX_CUTOFF = 20;             // 20 mb
     BUCKETLIST_DB_MEMORY_FOR_CACHING = 0;
@@ -1095,6 +1096,11 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                 {"EXPERIMENTAL_PARALLEL_LEDGER_APPLY",
                  [&]() {
                      EXPERIMENTAL_PARALLEL_LEDGER_APPLY = readBool(item);
+                 }},
+                {"EXPERIMENTAL_BACKGROUND_TX_SIG_VERIFICATION",
+                 [&]() {
+                     EXPERIMENTAL_BACKGROUND_TX_SIG_VERIFICATION =
+                         readBool(item);
                  }},
                 {"ARTIFICIALLY_DELAY_LEDGER_CLOSE_FOR_TESTING",
                  [&]() {

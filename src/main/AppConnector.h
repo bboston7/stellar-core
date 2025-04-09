@@ -29,6 +29,9 @@ class AppConnector
     // about accessing mApp
     Config const mConfig;
 
+    // TODO: Move this somewhere else
+    SearchableSnapshotConstPtr mOverlayThreadSnapshot;
+
   public:
     AppConnector(Application& app);
 
@@ -64,6 +67,8 @@ class AppConnector
     medida::MetricsRegistry& getMetrics() const;
     SearchableHotArchiveSnapshotConstPtr
     copySearchableHotArchiveBucketListSnapshot();
+
+    SearchableSnapshotConstPtr getOverlayThreadSnapshot();
 
     // Not thread-safe, must acquire lock first
     ZstdCompressor const& getZstdCompressor() const;

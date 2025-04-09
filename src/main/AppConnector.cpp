@@ -177,4 +177,24 @@ AppConnector::copySearchableHotArchiveBucketListSnapshot()
         .getBucketSnapshotManager()
         .copySearchableHotArchiveBucketListSnapshot();
 }
+
+SearchableSnapshotConstPtr
+AppConnector::getOverlayThreadSnapshot()
+{
+    if (mOverlayThreadSnapshot)
+    {
+        // Maybe update
+        mApp.getBucketManager().getBucketSnapshotManager().maybeCopySearchableBucketListSnapshot(
+            mOverlayThreadSnapshot);
+    }
+    else
+    {
+        // Create a new snapshot
+        mOverlayThreadSnapshot =
+            mApp.getBucketManager()
+                .getBucketSnapshotManager()
+                .copySearchableLiveBucketListSnapshot();
+    }
+    return mOverlayThreadSnapshot;
+}
 }

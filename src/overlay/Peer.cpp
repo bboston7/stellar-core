@@ -11,6 +11,7 @@
 #include "crypto/KeyUtils.h"
 #include "crypto/Random.h"
 #include "crypto/SHA.h"
+#include "crypto/SignerKey.h"
 #include "database/Database.h"
 #include "herder/Herder.h"
 #include "herder/TxSetFrame.h"
@@ -26,6 +27,8 @@
 #include "overlay/SurveyDataManager.h"
 #include "overlay/SurveyManager.h"
 #include "overlay/TxAdverts.h"
+#include "transactions/SignatureChecker.h"
+#include "transactions/TransactionBridge.h"
 #include "util/GlobalChecks.h"
 #include "util/Logging.h"
 #include "util/ProtocolVersion.h"
@@ -50,6 +53,39 @@ namespace stellar
 static std::string const AUTH_ACTION_QUEUE = "AUTH";
 using namespace std;
 using namespace soci;
+
+namespace
+{
+// TODO: Docs
+void
+checkTransactionSignature(AppConnector& app, TransactionFrameBaseConstPtr tx)
+{
+    if (!(app.getConfig().EXPERIMENTAL_BACKGROUND_TX_SIG_VERIFICATION &&
+          app.threadIsType(Application::ThreadType::OVERLAY)))
+    {
+        // Do nothing if feature is disabled and/or not running on the overlay
+        // thread
+        return;
+    }
+
+    auto const& hash = tx->getContentsHash();
+    auto const& signatures = txbridge::getSignatures(tx->getEnvelope());
+    auto const snapshot = app.getOverlayThreadSnapshot();
+    BucketSnapshotState bucketSnapshot(snapshot);
+
+    SignatureChecker signatureChecker(
+        bucketSnapshot.getLedgerHeader().current().ledgerVersion, hash,
+        signatures);
+
+    // NOTE: Use getFeeSourceID so that this works for both
+    // TransactionFrame and FeeBumpTransactionFrame
+    auto const sourceAccount = bucketSnapshot.getAccount(tx->getFeeSourceID());
+
+    tx->checkSignature(
+        signatureChecker, sourceAccount,
+        sourceAccount.current().data.account().thresholds[THRESHOLD_LOW]);
+}
+}  // namespace
 
 static constexpr VirtualClock::time_point PING_NOT_SENT =
     VirtualClock::time_point::min();
@@ -106,6 +142,7 @@ CapacityTrackedMessage::CapacityTrackedMessage(std::weak_ptr<Peer> peer,
         transaction->getFullHash();
         transaction->getContentsHash();
         mTxsMap[*mMaybeHash] = transaction;
+        checkTransactionSignature(self->mAppConnector, transaction);
     }
     else if (mMsg.type() == TX_BATCH)
     {
@@ -119,6 +156,7 @@ CapacityTrackedMessage::CapacityTrackedMessage(std::weak_ptr<Peer> peer,
             transaction->getFullHash();
             transaction->getContentsHash();
             mTxsMap[xdrBlake2(txMsg)] = transaction;
+            checkTransactionSignature(self->mAppConnector, transaction);
         }
     }
 }
@@ -905,31 +943,34 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
 {
     ZoneScoped;
     releaseAssert(!threadIsMain() || !useBackgroundThread());
-    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
-
-    if (shouldAbort(guard))
     {
-        return false;
-    }
+        RECURSIVE_LOCK_GUARD(mStateMutex, guard);
 
-    std::string errorMsg;
-    if (getState(guard) >= GOT_HELLO && msg.v0().message.type() != ERROR_MSG)
-    {
-        if (!mHmac.checkAuthenticatedMessage(msg, errorMsg))
+        if (shouldAbort(guard))
         {
-            if (!threadIsMain())
-            {
-                mAppConnector.postOnMainThread(
-                    [self = shared_from_this(), errorMsg]() {
-                        self->sendErrorAndDrop(ERR_AUTH, errorMsg);
-                    },
-                    "Peer::sendErrorAndDrop");
-            }
-            else
-            {
-                sendErrorAndDrop(ERR_AUTH, errorMsg);
-            }
             return false;
+        }
+
+        std::string errorMsg;
+        if (getState(guard) >= GOT_HELLO &&
+            msg.v0().message.type() != ERROR_MSG)
+        {
+            if (!mHmac.checkAuthenticatedMessage(msg, errorMsg))
+            {
+                if (!threadIsMain())
+                {
+                    mAppConnector.postOnMainThread(
+                        [self = shared_from_this(), errorMsg]() {
+                            self->sendErrorAndDrop(ERR_AUTH, errorMsg);
+                        },
+                        "Peer::sendErrorAndDrop");
+                }
+                else
+                {
+                    sendErrorAndDrop(ERR_AUTH, errorMsg);
+                }
+                return false;
+            }
         }
     }
 
@@ -997,6 +1038,7 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
     // processing of incoming messages during authenticated must be in-order, so
     // while not authenticated, place all messages onto AUTH_ACTION_QUEUE
     // scheduler queue
+    RECURSIVE_LOCK_GUARD(mStateMutex, guard);
     auto queueName = isAuthenticated(guard) ? cat : AUTH_ACTION_QUEUE;
     type = isAuthenticated(guard) ? type : Scheduler::ActionType::NORMAL_ACTION;
 

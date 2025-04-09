@@ -499,6 +499,9 @@ class Config : public std::enable_shared_from_this<Config>
     // Enable parallel block application (experimental)
     bool EXPERIMENTAL_PARALLEL_LEDGER_APPLY;
 
+    // TODO: Docs
+    bool EXPERIMENTAL_BACKGROUND_TX_SIG_VERIFICATION;
+
     // When set to true, BucketListDB indexes are persisted on-disk so that the
     // BucketList does not need to be reindexed on startup. Defaults to true.
     // This should only be set to false for testing purposes

@@ -122,7 +122,7 @@ class TransactionFrame : public TransactionFrameBase
                              SignerKey const& signerKey) const;
 
     bool applyOperations(SignatureChecker& checker, AppConnector& app,
-                         AbstractLedgerTxn& ltx, TransactionMetaFrame& meta,
+                        AbstractLedgerTxn& ltx, TransactionMetaFrame& meta,
                          MutableTransactionResultBase& txResult,
                          Hash const& sorobanBasePrngSeed) const;
 
@@ -203,7 +203,7 @@ class TransactionFrame : public TransactionFrameBase
 
     bool checkSignature(SignatureChecker& signatureChecker,
                         LedgerEntryWrapper const& account,
-                        int32_t neededWeight) const;
+                        int32_t neededWeight) const override;
 
     bool checkSignatureNoAccount(SignatureChecker& signatureChecker,
                                  AccountID const& accountID) const;
