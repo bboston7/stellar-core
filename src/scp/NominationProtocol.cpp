@@ -344,8 +344,14 @@ NominationProtocol::getNewValueFromNomination(SCPNomination const& nom)
     auto pickValue = [&](Value const& value) {
         ValueWrapperPtr valueToNominate;
         auto vl = validateValue(value);
-        if (vl == SCPDriver::kFullyValidatedValue)
+        if (vl >= SCPDriver::kAwaitingDownload)
         {
+            // CLOG_ERROR(SCP,
+            //            "NominationProtocol::updateRoundLeaders slot:{} "
+            //            "attempting to nominate value {} with {} status",
+            //            mSlot.getSlotIndex(),
+            //            hexAbbrev(value),
+            //            SCPDriver::validationLevelToString(vl));
             valueToNominate = mSlot.getSCPDriver().wrapValue(value);
         }
         else
@@ -388,6 +394,10 @@ SCP::EnvelopeState
 NominationProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope)
 {
     ZoneScoped;
+    // CLOG_ERROR(SCP, "NominationProtocol::processEnvelope slot:{} "
+    //            "received envelope from node:{}",
+    //            mSlot.getSlotIndex(),
+    //            mSlot.getSCP().getDriver().toShortString(envelope->getStatement().nodeID));
     auto const& st = envelope->getStatement();
     auto const& nom = st.pledges.nominate();
 
@@ -428,8 +438,15 @@ NominationProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope)
                     mLatestNominations))
             {
                 auto vl = validateValue(v);
-                if (vl == SCPDriver::kFullyValidatedValue)
+                if (vl >= SCPDriver::kAwaitingDownload)
                 {
+                    // CLOG_ERROR(
+                    //     SCP,
+                    //     "NominationProtocol::updateRoundLeaders slot:{} "
+                    //     "accepting value {} with {} status in federated accept",
+                    //     mSlot.getSlotIndex(),
+                    //     hexAbbrev(v),
+                    //     SCPDriver::validationLevelToString(vl));
                     mAccepted.emplace(vw);
                     mVotes.emplace(vw);
                     modified = true;
@@ -495,6 +512,7 @@ NominationProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope)
 
         if (newCandidates)
         {
+            // TODO: This is the call that crashes
             mLatestCompositeCandidate = mSlot.getSCPDriver().combineCandidates(
                 mSlot.getSlotIndex(), mCandidates);
 

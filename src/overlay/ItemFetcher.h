@@ -9,6 +9,7 @@
 #include "util/Timer.h"
 #include <functional>
 #include <map>
+#include <optional>
 
 namespace medida
 {
@@ -69,6 +70,18 @@ class ItemFetcher : private NonMovableOrCopyable
     std::vector<SCPEnvelope> fetchingFor(Hash const& itemHash) const;
 
     /**
+     * Return how long the fetcher has been waiting for the item identified by
+     * @p hash. Returns nullopt if the item is not being fetched.
+     */
+    // TODO: Maybe update the name of this function and doc comment. I don't
+    // like "waiting time" or "nulopt if the item is not being fetched".
+    // Technically this returns the time since the fetch was started, but if the
+    // fetch has completed it STILL returns the time since the fetch started,
+    // and so it's not necessarily all "waiting time".
+    std::optional<std::chrono::milliseconds>
+    getWaitingTime(Hash const& itemHash) const;
+
+    /**
      * Called periodically to remove old envelopes from list (with ledger id
      * below some @p slotIndex). Can also remove @see Tracker instances when
      * non needed anymore.
@@ -86,7 +99,7 @@ class ItemFetcher : private NonMovableOrCopyable
      * added before with @see fetch and the same @p itemHash will be resent
      * to Herder, matching @see Tracker will be cleaned up.
      */
-    void recv(Hash itemHash, medida::Timer& timer);
+    void recv(Hash const& itemHash, medida::Timer& timer);
 
 #ifdef BUILD_TESTS
     std::shared_ptr<Tracker> getTracker(Hash const& h);

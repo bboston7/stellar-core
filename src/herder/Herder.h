@@ -79,6 +79,9 @@ class Herder
 
     static std::chrono::minutes const TX_SET_GC_DELAY;
 
+    // TODO: Docs
+    static Hash const SKIP_LEDGER_HASH;
+
     enum State
     {
         // Starting up, no state is known

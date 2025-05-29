@@ -54,6 +54,7 @@
 #include <fmt/format.h>
 
 using namespace std;
+
 namespace stellar
 {
 
@@ -307,6 +308,9 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
 
     TxSetXDRFrameConstPtr externalizedSet =
         mPendingEnvelopes.getTxSet(value.txSetHash);
+    // TODO: Remove this?
+    // TODO: If a node doesn't have the tx set by here it will crash.
+    releaseAssert(externalizedSet != nullptr);
 
     // save the SCP messages in the database
     if (mApp.getConfig().MODE_STORES_HISTORY_MISC)
@@ -866,6 +870,9 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
         return Herder::ENVELOPE_STATUS_SKIPPED_SELF;
     }
 
+    // This call fetches everything. Will only return ENVELOPE_STATUS_READY once
+    // everything is fetched though! Will need a new status to allow it to
+    // proceed to nomination at least, I think.
     auto status = mPendingEnvelopes.recvSCPEnvelope(envelope);
     if (status == Herder::ENVELOPE_STATUS_READY)
     {
@@ -880,10 +887,40 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
     }
     else
     {
-        if (status == Herder::ENVELOPE_STATUS_FETCHING)
+        SCPStatementType type = envelope.statement.pledges.type();
+        // TODO: I gated this behind an application state check because there
+        // seem to be some bugs with catchup and `kAwaitingDownload` values
+        // making it further than they should. I don't think this state check is
+        // the right long-term solution, but for the prototype it's probably
+        // fine.  Specifically, I'm concerned about how this all works if a
+        // running node loses sync. Will there be issues with flipping the
+        // feature off and on again while running? Feels like downstream code
+        // should handle this, but I'm not sure how at the moment.
+        if (mApp.getState() == Application::State::APP_SYNCED_STATE &&
+            status == Herder::ENVELOPE_STATUS_FETCHING &&
+            (type == SCP_ST_NOMINATE || type == SCP_ST_PREPARE))
         {
             std::string txt("FETCHING");
             ZoneText(txt.c_str(), txt.size());
+
+            // If we have the quorum set, then proceed without the tx set.
+            //
+            // TODO: In the draft PR this is gated behind a check that the
+            // message is a nomination message. We definitely want to go further
+            // than that, but should there be a limit? Is there any harm to
+            // proceeding without limit?
+            auto qSetHash = Slot::getCompanionQuorumSetHashFromStatement(
+                envelope.statement);
+            auto maybeQSet = mApp.getHerder().getQSet(qSetHash);
+            if (maybeQSet)
+            {
+                // CLOG_ERROR(
+                //     Herder,
+                //     "Proceeding without txset for slot {} envelope type {}",
+                //     envelope.statement.slotIndex,
+                //     envelope.statement.pledges.type());
+                processSCPQueue();
+            }
         }
         else if (status == Herder::ENVELOPE_STATUS_PROCESSED)
         {
@@ -1079,6 +1116,7 @@ void
 HerderImpl::processSCPQueueUpToIndex(uint64 slotIndex)
 {
     ZoneScoped;
+    // CLOG_ERROR(Herder, "Processing SCP queue up to index {}", slotIndex);
     while (true)
     {
         SCPEnvelopeWrapperPtr envW = mPendingEnvelopes.pop(slotIndex);
@@ -1273,6 +1311,7 @@ HerderImpl::setupTriggerNextLedger()
 
     if (!mApp.getConfig().MANUAL_CLOSE)
     {
+        // TODO: This is what ultimately leads to nomination beginning
         mTriggerTimer.async_wait(std::bind(&HerderImpl::triggerNextLedger, this,
                                            static_cast<uint32_t>(nextIndex),
                                            true),
@@ -2604,11 +2643,28 @@ bool
 HerderImpl::verifyStellarValueSignature(StellarValue const& sv)
 {
     ZoneScoped;
-    auto [b, _] = PubKeyUtils::verifySig(
-        sv.ext.lcValueSignature().nodeID, sv.ext.lcValueSignature().signature,
-        xdr::xdr_to_opaque(mApp.getNetworkID(), ENVELOPE_TYPE_SCPVALUE,
-                           sv.txSetHash, sv.closeTime));
-    return b;
+    switch (sv.ext.v())
+    {
+    case STELLAR_VALUE_BASIC:
+        // TODO: What to do here?
+        releaseAssert(false);
+    case STELLAR_VALUE_SIGNED:
+        return PubKeyUtils::verifySig(
+            sv.ext.lcValueSignature().nodeID,
+            sv.ext.lcValueSignature().signature,
+            xdr::xdr_to_opaque(mApp.getNetworkID(), ENVELOPE_TYPE_SCPVALUE,
+                               sv.txSetHash, sv.closeTime)).valid;
+    case STELLAR_VALUE_SKIP:
+    {
+        auto const& ov = sv.ext.originalValue();
+        return PubKeyUtils::verifySig(
+            ov.lcValueSignature.nodeID, ov.lcValueSignature.signature,
+            xdr::xdr_to_opaque(mApp.getNetworkID(), ENVELOPE_TYPE_SCPVALUE,
+                               ov.txSetHash, sv.closeTime)).valid;
+    }
+    default:
+        releaseAssert(false);
+    }
 }
 
 StellarValue

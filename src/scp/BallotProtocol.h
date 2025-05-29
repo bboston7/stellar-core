@@ -27,6 +27,7 @@ typedef std::function<bool(SCPStatement const& st)> StatementPredicate;
  */
 class BallotProtocol
 {
+
     Slot& mSlot;
 
     bool mHeardFromQuorum;
@@ -211,6 +212,10 @@ class BallotProtocol
     bool setAcceptCommit(SCPBallot const& c, SCPBallot const& h);
 
     // step 7+8 from the SCP paper
+    // TODO5: Looks like this step stops nomination on success. So is nomination
+    // still going through step 6? In that case, can we just abandon this ballot
+    // in the case of not having a preimage? Won't that pull another value from
+    // nomination?
     bool attemptConfirmCommit(SCPStatement const& hint);
     bool setConfirmCommit(SCPBallot const& acceptCommitLow,
                           SCPBallot const& acceptCommitHigh);
@@ -288,6 +293,9 @@ class BallotProtocol
     // such doesn't do any validation
     // check: verifies that ballot is greater than old one
     void bumpToBallot(SCPBallot const& ballot, bool check);
+
+    // TODO: Docs
+    bool maybeReplaceValueWithSkip(Value& v) const;
 
     // switch the local node to the given ballot's value
     // with the assumption that the ballot is more recent than the one
