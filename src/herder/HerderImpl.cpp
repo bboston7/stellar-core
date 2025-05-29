@@ -867,6 +867,9 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
         return Herder::ENVELOPE_STATUS_SKIPPED_SELF;
     }
 
+    // This call fetches everything. Will only return ENVELOPE_STATUS_READY once
+    // everything is fetched though! Will need a new status to allow it to
+    // proceed to nomination at least, I think.
     auto status = mPendingEnvelopes.recvSCPEnvelope(envelope);
     if (status == Herder::ENVELOPE_STATUS_READY)
     {
@@ -885,6 +888,8 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
         {
             std::string txt("FETCHING");
             ZoneText(txt.c_str(), txt.size());
+
+            // TODO: Call into nomination directly here, just like in draft PR
         }
         else if (status == Herder::ENVELOPE_STATUS_PROCESSED)
         {
@@ -1264,6 +1269,7 @@ HerderImpl::setupTriggerNextLedger()
 
     if (!mApp.getConfig().MANUAL_CLOSE)
     {
+        // TODO: This is what ultimately leads to nomination beginning
         mTriggerTimer.async_wait(std::bind(&HerderImpl::triggerNextLedger, this,
                                            static_cast<uint32_t>(nextIndex),
                                            true),

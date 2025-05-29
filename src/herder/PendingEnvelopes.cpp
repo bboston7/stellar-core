@@ -565,6 +565,7 @@ PendingEnvelopes::isFullyFetched(SCPEnvelope const& envelope)
                        });
 }
 
+// Requests all missing tx sets in `envelope`
 void
 PendingEnvelopes::startFetch(SCPEnvelope const& envelope)
 {
