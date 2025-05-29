@@ -94,6 +94,18 @@ ItemFetcher::fetchingFor(Hash const& itemHash) const
     return result;
 }
 
+std::optional<std::chrono::milliseconds>
+ItemFetcher::getWaitingTime(Hash const& itemHash) const
+{
+    auto iter = mTrackers.find(itemHash);
+    if (iter == mTrackers.end())
+    {
+        return std::nullopt;
+    }
+
+    return iter->second->getDuration();
+}
+
 void
 ItemFetcher::stopFetchingBelow(uint64 slotIndex, uint64 slotToKeep)
 {
@@ -135,7 +147,7 @@ ItemFetcher::doesntHave(Hash const& itemHash, Peer::pointer peer)
 }
 
 void
-ItemFetcher::recv(Hash itemHash, medida::Timer& timer)
+ItemFetcher::recv(Hash const& itemHash, medida::Timer& timer)
 {
     ZoneScoped;
     const auto& iter = mTrackers.find(itemHash);
@@ -152,6 +164,8 @@ ItemFetcher::recv(Hash itemHash, medida::Timer& timer)
         timer.Update(tracker->getDuration());
         while (!tracker->empty())
         {
+            // NOTE: This calls back into herder upon receiving a tx set. Should
+            // ensure that we proceed to SCP once receiving all tx sets.
             mApp.getHerder().recvSCPEnvelope(tracker->pop());
         }
         // stop the timer, stop requesting the item as we have it

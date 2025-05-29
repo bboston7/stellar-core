@@ -76,6 +76,11 @@ class HerderSCPDriver : public SCPDriver
     std::string toShortString(NodeID const& pk) const override;
     std::string getValueString(Value const& v) const override;
 
+    Value makeSkipLedgerValueFromValue(Value const& v) const override;
+
+    // TODO: Do I even need this function?
+    bool isSkipLedgerValue(Value const& v) const override;
+
     // timer handling
     void setupTimer(uint64_t slotIndex, int timerID,
                     std::chrono::milliseconds timeout,
@@ -93,6 +98,7 @@ class HerderSCPDriver : public SCPDriver
     combineCandidates(uint64_t slotIndex,
                       ValueWrapperPtrSet const& candidates) override;
     void valueExternalized(uint64_t slotIndex, Value const& value) override;
+    void noteSkipValueReplaced(uint64_t slotIndex) override;
 
     // Submit a value to consider for slotIndex
     // previousValue is the value from slotIndex-1
@@ -119,7 +125,7 @@ class HerderSCPDriver : public SCPDriver
 
     // converts a Value into a StellarValue
     // returns false on error
-    bool toStellarValue(Value const& v, StellarValue& sv);
+    bool toStellarValue(Value const& v, StellarValue& sv) const;
 
     // validate close time as much as possible
     bool checkCloseTime(uint64_t slotIndex, uint64_t lastCloseTime,
@@ -144,6 +150,10 @@ class HerderSCPDriver : public SCPDriver
     // Begin a new interval for checking for dead nodes--set current dead nodes
     // as missing nodes from previous interval
     void startCheckForDeadNodesInterval();
+
+    std::optional<std::chrono::milliseconds>
+    getTxSetDownloadWaitTime(Value const& v) const override;
+    std::chrono::milliseconds getTxSetDownloadTimeout() const override;
 
     // Application-specific weight function. This function uses the quality
     // levels from automatic quorum set generation to determine the weight of a
@@ -197,6 +207,12 @@ class HerderSCPDriver : public SCPDriver
         // Timers tracking externalize messages
         medida::Timer& mFirstToSelfExternalizeLag;
         medida::Timer& mSelfToOthersExternalizeLag;
+
+    // Tracks how many ledgers we externalized using a skip value.
+    medida::Counter& mSkipExternalized;
+    // Counts replacements of proposed values with the synthesized skip
+    // value.
+    medida::Counter& mSkipValueReplaced;
 
         SCPMetrics(Application& app);
     };

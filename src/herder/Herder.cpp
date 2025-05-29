@@ -22,4 +22,7 @@ uint32 const Herder::SCP_EXTRA_LOOKBACK_LEDGERS = 3u;
 std::chrono::minutes const Herder::TX_SET_GC_DELAY(1);
 std::chrono::minutes const Herder::CHECK_FOR_DEAD_NODES_MINUTES(15);
 uint32 const Herder::FLOW_CONTROL_BYTES_EXTRA_BUFFER(2000);
+
+// TODO: Does this properly zero-initialize the hash?
+Hash const Herder::SKIP_LEDGER_HASH{};
 }

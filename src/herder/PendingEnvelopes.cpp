@@ -1,4 +1,4 @@
-﻿#include "PendingEnvelopes.h"
+#include "PendingEnvelopes.h"
 #include "crypto/Hex.h"
 #include "crypto/SHA.h"
 #include "herder/HerderImpl.h"
@@ -202,6 +202,26 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
 {
     // slot is only used when `touch` is set
     releaseAssert(touch || (slot == 0));
+    if (hash == Herder::SKIP_LEDGER_HASH)
+    {
+        // Special case for the skip ledger hash
+        CLOG_DEBUG(Proto, "Request for skip ledger hash {}", hexAbbrev(hash));
+        // Return an empty tx set
+        // TODO: Is it right to use the LCL header here? I'm not so sure. Here
+        // are a couple cases I'm concerned about:
+        // 1. Ballot protocol for next ledger. Technically not the "last closed
+        //    ledger" at that point. That being said, it looks like this is
+        //    kinda what Herder does in building the tx set for nomination via
+        //    `makeTxSetFromTransactions`.
+        // 2. Does this function get called for previous ledgers older than LCL?
+        //    If so, then I think it needs that header.
+        // In practice, it looks like the LCL is used only to extract the
+        // protocol version, so it probably only matters on protocol boundaries.
+        // Still important to get right, but not so much for the prototype.
+        return TxSetXDRFrame::makeEmpty(
+            mApp.getLedgerManager().getLastClosedLedgerHeader());
+    }
+
     TxSetXDRFrameConstPtr res;
     auto it = mKnownTxSets.find(hash);
     if (it != mKnownTxSets.end())
@@ -249,6 +269,22 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
         return false;
     }
 
+    // Log successful download of a previously awaited tx set
+    auto waitingTime = mTxSetFetcher.getWaitingTime(hash);
+    if (waitingTime.has_value())
+    {
+        CLOG_DEBUG(Proto,
+            "Successfully downloaded tx set {} that was kAwaitingDownload - "
+            "download took {} ms",
+            hexAbbrev(hash), waitingTime.value().count());
+    }
+    else
+    {
+        CLOG_DEBUG(Proto,
+                   "Successfully downloaded tx set {} that was requested",
+                   hexAbbrev(hash));
+    }
+
     addTxSet(hash, lastSeenSlotIndex, txset);
     return true;
 }
@@ -293,7 +329,8 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
 
     auto const& values = getStellarValues(envelope.statement);
     if (std::any_of(values.begin(), values.end(), [](auto const& value) {
-            return value.ext.v() != STELLAR_VALUE_SIGNED;
+            return value.ext.v() != STELLAR_VALUE_SIGNED &&
+                   value.ext.v() != STELLAR_VALUE_SKIP;
         }))
     {
         CLOG_TRACE(Herder, "Dropping envelope from {} (value not signed)",
@@ -318,6 +355,7 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
         auto& envs = mEnvelopes[envelope.statement.slotIndex];
         auto& fetching = envs.mFetchingEnvelopes;
         auto& processed = envs.mProcessedEnvelopes;
+        auto& partiallyReady = envs.mPartiallyReadyEnvelopes;
 
         auto fetchIt = fetching.find(envelope);
 
@@ -358,6 +396,9 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             processed.emplace(envelope);
             fetching.erase(fetchIt);
 
+            // Remove from partially ready envelopes if it was there
+            partiallyReady.erase(envelope);
+
             envelopeReady(envelope);
             updateMetrics();
             return Herder::ENVELOPE_STATUS_READY;
@@ -367,6 +408,24 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             // else just keep waiting for it to come in
             // and refresh fetchers as needed
             startFetch(envelope);
+
+            SCPStatementType type = envelope.statement.pledges.type();
+            if (isPartiallyFetched(envelope) &&
+                (type == SCP_ST_NOMINATE || type == SCP_ST_PREPARE))
+            {
+                // TODO: This comment could be better vv
+                // If the envelope is partially fetched and the type is either
+                // SCP_ST_NOMINATE or SCP_ST_PREPARE, we can add it to the
+                // mPartiallyReadyEnvelopes set, so that we can process it
+                // later when the qset is fully fetched
+                partiallyReady.insert(envelope);
+            }
+
+            // TODO: The issue is that the envelope doesn't end up in
+            // `mReadyEnvelopes` in this path, and wont until it is fetched.
+            // That's why it's still blocking. Either this needs to go into
+            // `mReadyEnvelopes`, or there needs to be a different structure
+            // with envelopes that are pending download.
         }
 
         return Herder::ENVELOPE_STATUS_FETCHING;
@@ -549,22 +608,31 @@ PendingEnvelopes::envelopeReady(SCPEnvelope const& envelope)
 }
 
 bool
+PendingEnvelopes::isPartiallyFetched(SCPEnvelope const& envelope)
+{
+    return getKnownQSet(
+               Slot::getCompanionQuorumSetHashFromStatement(envelope.statement),
+               false) != nullptr;
+}
+
+bool
 PendingEnvelopes::isFullyFetched(SCPEnvelope const& envelope)
 {
-    if (!getKnownQSet(
-            Slot::getCompanionQuorumSetHashFromStatement(envelope.statement),
-            false))
+    if (!isPartiallyFetched(envelope))
     {
         return false;
     }
 
     auto txSetHashes = getTxSetHashes(envelope);
+    // CLOG_ERROR(Herder, "txSetHashes size: {}", txSetHashes.size());
+    // CLOG_ERROR(Herder, "txSetHashes[0]: {}", hexAbbrev(txSetHashes.at(0)));
     return std::all_of(std::begin(txSetHashes), std::end(txSetHashes),
                        [&](Hash const& txSetHash) {
                            return getKnownTxSet(txSetHash, 0, false);
                        });
 }
 
+// Requests all missing tx sets in `envelope`
 void
 PendingEnvelopes::startFetch(SCPEnvelope const& envelope)
 {
@@ -582,6 +650,10 @@ PendingEnvelopes::startFetch(SCPEnvelope const& envelope)
     {
         if (!getKnownTxSet(h2, 0, false))
         {
+            // CLOG_ERROR(
+            //     Herder,
+            //     "PendingEnvelopes::startFetch: requesting missing txset {}",
+            //     hexAbbrev(h2));
             mTxSetFetcher.fetch(h2, envelope);
             needSomething = true;
         }
@@ -628,6 +700,7 @@ PendingEnvelopes::touchFetchCache(SCPEnvelope const& envelope)
 SCPEnvelopeWrapperPtr
 PendingEnvelopes::pop(uint64 slotIndex)
 {
+    // Process fully ready envelopes first
     auto it = mEnvelopes.begin();
     while (it != mEnvelopes.end() && slotIndex >= it->first)
     {
@@ -638,6 +711,19 @@ PendingEnvelopes::pop(uint64 slotIndex)
             v.pop_back();
 
             updateMetrics();
+            return ret;
+        }
+
+        // TODO: Maybe should return all fully ready envelopes from ALL slots
+        // before proceeding to partially ready ones.
+        auto& partial = it->second.mPartiallyReadyEnvelopes;
+        if (partial.size() != 0)
+        {
+            // If we have partially ready envelopes, we can return the first one
+            auto it = partial.begin();
+            SCPEnvelopeWrapperPtr ret =
+                mHerder.getHerderSCPDriver().wrapEnvelope(*it);
+            partial.erase(it);
             return ret;
         }
         it++;
@@ -752,6 +838,12 @@ PendingEnvelopes::getQSet(Hash const& hash)
         qset = putQSet(hash, *qset);
     }
     return qset;
+}
+
+std::optional<std::chrono::milliseconds>
+PendingEnvelopes::getTxSetWaitingTime(Hash const& hash) const
+{
+    return mTxSetFetcher.getWaitingTime(hash);
 }
 
 Json::Value

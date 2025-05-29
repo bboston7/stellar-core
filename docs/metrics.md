@@ -182,6 +182,8 @@ scp.pending.discarded                     | counter   | number of discarded enve
 scp.pending.fetching                      | counter   | number of incomplete envelopes
 scp.pending.processed                     | counter   | number of already processed envelopes
 scp.pending.ready                         | counter   | number of envelopes ready to process
+scp.skip.externalized                     | counter   | number of times the local node externalized a skip-ledger value
+scp.skip.value-replaced                   | counter   | number of times the ballot protocol swapped a value for a skip-ledger value
 scp.sync.lost                             | meter     | validator lost sync
 scp.timeout.nominate                      | meter     | timeouts in nomination
 scp.timeout.prepare                       | meter     | timeouts in ballot protocol

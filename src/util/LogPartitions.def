@@ -19,3 +19,6 @@ LOG_PARTITION(LoadGen)
 LOG_PARTITION(Work)
 LOG_PARTITION(Invariant)
 LOG_PARTITION(Perf)
+
+// TODO: remove vv
+LOG_PARTITION(Proto)

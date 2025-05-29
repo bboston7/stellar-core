@@ -123,6 +123,31 @@ class TestSCP : public SCPDriver
         return SCPQuorumSetPtr();
     }
 
+    std::optional<std::chrono::milliseconds>
+    getTxSetDownloadWaitTime(Value const& v) const override
+    {
+        // TODO: Implement?
+        return std::nullopt;
+    }
+
+    std::chrono::milliseconds
+    getTxSetDownloadTimeout() const override
+    {
+        return std::chrono::milliseconds(100);
+    }
+
+    Value makeSkipLedgerValueFromValue(Value const& value) const override
+    {
+        // TODO: Implement?
+        releaseAssert(false);
+    }
+
+    bool isSkipLedgerValue(Value const& v) const override
+    {
+        // TODO: Implement?
+        releaseAssert(false);
+    }
+
     void
     emitEnvelope(SCPEnvelope const& envelope) override
     {
