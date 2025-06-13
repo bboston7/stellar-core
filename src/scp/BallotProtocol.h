@@ -211,6 +211,10 @@ class BallotProtocol
     bool setAcceptCommit(SCPBallot const& c, SCPBallot const& h);
 
     // step 7+8 from the SCP paper
+    // TODO5: Looks like this step stops nomination on success. So is nomination
+    // still going through step 6? In that case, can we just abandon this ballot
+    // in the case of not having a preimage? Won't that pull another value from
+    // nomination?
     bool attemptConfirmCommit(SCPStatement const& hint);
     bool setConfirmCommit(SCPBallot const& acceptCommitLow,
                           SCPBallot const& acceptCommitHigh);

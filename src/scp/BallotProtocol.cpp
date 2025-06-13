@@ -1886,6 +1886,11 @@ BallotProtocol::advanceSlot(SCPStatement const& hint)
 
     didWork = attemptConfirmPrepared(hint) || didWork;
 
+    // TODO5: As far as I can tell, `attemptAcceptCommit` is the first attempt*
+    // function for step 4, and it's not called for any earlier steps. Moreover,
+    // `attemptConfirmCommit` is only for steps 7 and 8. Therefore, I think that
+    // if `didWork` is false at this point, we need to have the preimage by now.
+
     didWork = attemptAcceptCommit(hint) || didWork;
 
     didWork = attemptConfirmCommit(hint) || didWork;
