@@ -337,6 +337,10 @@ BallotProtocol::abandonBallot(uint32 n)
     return res;
 }
 
+// TODO: Either here or abandonBallot is where we should check if the value
+// timeout has expired. If so, then we can replace the value with `skip` while
+// we bump the counter.
+// TODO: ^^ Need to make sure this check only happens during the PREPARE phase?
 bool
 BallotProtocol::bumpState(Value const& value, bool force)
 {
