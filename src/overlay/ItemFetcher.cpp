@@ -135,7 +135,7 @@ ItemFetcher::doesntHave(Hash const& itemHash, Peer::pointer peer)
 }
 
 void
-ItemFetcher::recv(Hash itemHash, medida::Timer& timer)
+ItemFetcher::recv(Hash const& itemHash, medida::Timer& timer)
 {
     ZoneScoped;
     const auto& iter = mTrackers.find(itemHash);
