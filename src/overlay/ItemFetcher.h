@@ -70,15 +70,16 @@ class ItemFetcher : private NonMovableOrCopyable
     std::vector<SCPEnvelope> fetchingFor(Hash const& itemHash) const;
 
     /**
-     * Return how long the fetcher has been waiting for the item identified by @p hash.
-     * Returns nullopt if the item is not being fetched.
+     * Return how long the fetcher has been waiting for the item identified by
+     * @p hash. Returns nullopt if the item is not being fetched.
      */
     // TODO: Maybe update the name of this function and doc comment. I don't
     // like "waiting time" or "nulopt if the item is not being fetched".
     // Technically this returns the time since the fetch was started, but if the
     // fetch has completed it STILL returns the time since the fetch started,
     // and so it's not necessarily all "waiting time".
-    std::optional<std::chrono::milliseconds> getWaitingTime(Hash const& itemHash) const;
+    std::optional<std::chrono::milliseconds>
+    getWaitingTime(Hash const& itemHash) const;
 
     /**
      * Called periodically to remove old envelopes from list (with ledger id
