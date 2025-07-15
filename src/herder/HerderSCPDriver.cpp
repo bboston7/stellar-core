@@ -797,7 +797,7 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
 }
 
 bool
-HerderSCPDriver::toStellarValue(Value const& v, StellarValue& sv)
+HerderSCPDriver::toStellarValue(Value const& v, StellarValue& sv) const
 {
     try
     {
@@ -808,6 +808,18 @@ HerderSCPDriver::toStellarValue(Value const& v, StellarValue& sv)
         return false;
     }
     return true;
+}
+
+std::optional<std::chrono::milliseconds>
+HerderSCPDriver::getTxSetDownloadWaitTime(Value const& v) const
+{
+    StellarValue sv;
+    bool success = toStellarValue(v, sv);
+
+    // TODO: Handle error here
+    releaseAssert(success);
+
+    return mPendingEnvelopes.getTxSetWaitingTime(sv.txSetHash);
 }
 
 void

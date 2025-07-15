@@ -755,6 +755,12 @@ PendingEnvelopes::getQSet(Hash const& hash)
     return qset;
 }
 
+std::optional<std::chrono::milliseconds>
+PendingEnvelopes::getTxSetWaitingTime(Hash const& hash) const
+{
+    return mTxSetFetcher.getWaitingTime(hash);
+}
+
 Json::Value
 PendingEnvelopes::getJsonInfo(size_t limit)
 {

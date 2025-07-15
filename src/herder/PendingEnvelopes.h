@@ -196,6 +196,14 @@ class PendingEnvelopes
     TxSetXDRFrameConstPtr getTxSet(Hash const& hash);
     SCPQuorumSetPtr getQSet(Hash const& hash);
 
+    /**
+     * Return how long the transaction set fetcher has been waiting for the
+     * transaction set identified by @p hash. Returns nullopt if the transaction
+     * set is not being fetched.
+     */
+    std::optional<std::chrono::milliseconds>
+    getTxSetWaitingTime(Hash const& hash) const;
+
     // returns true if we think that the node is in the transitive quorum for
     // sure
     bool isNodeDefinitelyInQuorum(NodeID const& node);

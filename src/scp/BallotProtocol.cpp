@@ -1316,6 +1316,19 @@ BallotProtocol::setAcceptCommit(SCPBallot const& c, SCPBallot const& h)
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(c),
                mSlot.getSCP().ballotToStr(h));
 
+    // TODO: I think this is where we absolutely need the preimage
+    auto const maybeWaitTime =
+        mSlot.getSCPDriver().getTxSetDownloadWaitTime(c.value);
+    if (maybeWaitTime)
+    {
+        CLOG_ERROR(SCP, "Transaction set has been waiting for {}",
+                   maybeWaitTime->count());
+    }
+    else
+    {
+        CLOG_ERROR(SCP, "Transaction set has no wait time");
+    }
+
     bool didWork = false;
 
     // remember h's value

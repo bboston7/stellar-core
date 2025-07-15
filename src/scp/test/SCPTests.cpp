@@ -122,6 +122,13 @@ class TestSCP : public SCPDriver
         return SCPQuorumSetPtr();
     }
 
+    std::optional<std::chrono::milliseconds>
+    getTxSetDownloadWaitTime(Value const& v) const override
+    {
+        // TODO: Implement?
+        releaseAssert(false);
+    }
+
     void
     emitEnvelope(SCPEnvelope const& envelope) override
     {

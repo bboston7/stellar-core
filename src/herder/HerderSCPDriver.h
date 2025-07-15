@@ -119,7 +119,7 @@ class HerderSCPDriver : public SCPDriver
 
     // converts a Value into a StellarValue
     // returns false on error
-    bool toStellarValue(Value const& v, StellarValue& sv);
+    bool toStellarValue(Value const& v, StellarValue& sv) const;
 
     // validate close time as much as possible
     bool checkCloseTime(uint64_t slotIndex, uint64_t lastCloseTime,
@@ -136,6 +136,9 @@ class HerderSCPDriver : public SCPDriver
     double getExternalizeLag(NodeID const& id) const;
 
     Json::Value getQsetLagInfo(bool summary, bool fullKeys);
+
+    std::optional<std::chrono::milliseconds>
+    getTxSetDownloadWaitTime(Value const& v) const override;
 
     // Application-specific weight function. This function uses the quality
     // levels from automatic quorum set generation to determine the weight of a

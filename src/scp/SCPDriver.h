@@ -9,6 +9,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 
 #include "xdr/Stellar-SCP.h"
@@ -90,6 +91,12 @@ class SCPDriver
     // `nullptr` is a valid return value which cause the statement to be
     // considered invalid.
     virtual SCPQuorumSetPtr getQSet(Hash const& qSetHash) = 0;
+
+    // `getTxSetDownloadWaitTime` returns how long the fetcher has been waiting
+    // for the transaction set identified by @p hash. Returns nullopt if the
+    // transaction set is not being fetched.
+    virtual std::optional<std::chrono::milliseconds>
+    getTxSetDownloadWaitTime(Value const& hash) const = 0;
 
     // Users of the SCP library should inherit from SCPDriver and implement the
     // virtual methods which are called by the SCP implementation to
