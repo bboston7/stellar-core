@@ -1000,6 +1000,8 @@ BallotProtocol::attemptConfirmPrepared(SCPStatement const& hint)
                     std::bind(&BallotProtocol::hasPreparedBallot, ballot, _1));
                 if (ratified)
                 {
+                    // TODO: This is another place the check could go, right? We
+                    // would not set `newC` if the check fails?
                     newC = ballot;
                 }
                 else
@@ -1071,6 +1073,29 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
         if (newC.counter != 0)
         {
+            // TODO: I *think* this is the setting of `c` corresponding to step
+            // 3 in the paper, as well as that final step in PREPARE from the
+            // IETF paper. Check needs to go here, or in the caller of this
+            // function (`attemptConfirmPrepared`). Specifically, there is a
+            // comment in that function before setting `newC` that says this is
+            // step 3 from the paper.
+
+            // TODO: Temporary place for this. Might be a better one (see above)
+            // TODO: We want newC's value here, right? Not some other value?
+            // TODO: Make sure I understand where `newC` comes from. It's the
+            // confirmed prepared `ballot` from the IETF paper, right?
+            auto const maybeWaitTime =
+                mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
+            if (maybeWaitTime)
+            {
+                CLOG_ERROR(SCP, "Transaction set has been waiting for {}",
+                           maybeWaitTime->count());
+            }
+            else
+            {
+                CLOG_ERROR(SCP, "Transaction set has no wait time");
+            }
+
             dbgAssert(!mCommit);
             mCommit = makeBallot(newC);
             didWork = true;
@@ -1315,19 +1340,6 @@ BallotProtocol::setAcceptCommit(SCPBallot const& c, SCPBallot const& h)
     CLOG_TRACE(SCP, "BallotProtocol::setAcceptCommit i: {} new c: {} new h: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(c),
                mSlot.getSCP().ballotToStr(h));
-
-    // TODO: I think this is where we absolutely need the preimage
-    auto const maybeWaitTime =
-        mSlot.getSCPDriver().getTxSetDownloadWaitTime(c.value);
-    if (maybeWaitTime)
-    {
-        CLOG_ERROR(SCP, "Transaction set has been waiting for {}",
-                   maybeWaitTime->count());
-    }
-    else
-    {
-        CLOG_ERROR(SCP, "Transaction set has no wait time");
-    }
 
     bool didWork = false;
 
