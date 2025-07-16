@@ -14,14 +14,31 @@ namespace txtest
 
 void throwIf(TransactionResult const& result);
 
-class ex_txException
+// Work around macOS RTTI comparison issues by ensuring exceptions 
+// have vtables and are not optimized away
+#ifdef __APPLE__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wweak-vtables"
+#endif
+
+class __attribute__((visibility("default"))) ex_txException
 {
+public:
+    virtual ~ex_txException() = default;
+    virtual const char* what() const noexcept { return "ex_txException"; }
 };
 
 #define TEST_EXCEPTION(M) \
-    class M : public ex_txException \
+    class __attribute__((visibility("default"))) M : public ex_txException \
     { \
+    public: \
+        virtual ~M() = default; \
+        virtual const char* what() const noexcept override { return #M; } \
     };
+
+#ifdef __APPLE__
+#pragma clang diagnostic pop
+#endif
 
 TEST_EXCEPTION(ex_UNKNOWN)
 
