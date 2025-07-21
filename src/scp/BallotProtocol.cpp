@@ -1084,21 +1084,51 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             // TODO: We want newC's value here, right? Not some other value?
             // TODO: Make sure I understand where `newC` comes from. It's the
             // confirmed prepared `ballot` from the IETF paper, right?
-            auto const maybeWaitTime =
-                mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
-            if (maybeWaitTime)
+
+            // This is step 3 from the paper - voting to commit.
+            // We must ensure the transaction set value is fully validated
+            // before we can vote to commit it.
+            auto validationLevel = mSlot.getSCPDriver().validateValue(
+                mSlot.getSlotIndex(), newC.value, false);
+
+            // Debug output to see what validation level we're getting
+            CLOG_ERROR(
+                SCP,
+                "DEBUG: setConfirmPrepared validation level = {} for slot {}",
+                static_cast<int>(validationLevel), mSlot.getSlotIndex());
+
+            if (validationLevel == SCPDriver::kAwaitingDownload)
             {
-                CLOG_ERROR(SCP, "Transaction set has been waiting for {}",
-                           maybeWaitTime->count());
-            }
-            else
-            {
-                CLOG_ERROR(SCP, "Transaction set has no wait time");
+                throw std::runtime_error("TODO: Cannot vote to commit while "
+                                         "transaction set is still "
+                                         "awaiting download - need to "
+                                         "implement deferred commit voting");
             }
 
-            dbgAssert(!mCommit);
-            mCommit = makeBallot(newC);
-            didWork = true;
+            // TODO: Is this right? This allows maybe valid / invalid values
+            // through, but that's how the original code worked. I think during
+            // catchup this expects maybe valid values?
+            else
+            {
+                // TODO: This assert is useful for checking my understanding,
+                // but it's probably unnecessary. Should remove `isNodeSynced`
+                // function entirely as this is the only place it is used.
+                // TODO: I don't understand why, but it seems like values can be
+                // "maybe valid" here. Looks like this code path is exercised
+                // during catchup, but before ledger manager "knows" it's in
+                // catchup mode. So I can't just assert as below. So instead I'm
+                // just checking that it's not invalid. That should pass at
+                // least?
+                // TODO: Seems like this happens when that log message about
+                // "NOT" being fully validated is emitted. Dig into that more.
+                // releaseAssert(validationLevel ==
+                //                   SCPDriver::kFullyValidatedValue ||
+                //               !nodeSynced);
+                releaseAssert(validationLevel != SCPDriver::kInvalidValue);
+                dbgAssert(!mCommit);
+                mCommit = makeBallot(newC);
+                didWork = true;
+            }
         }
 
         if (didWork)
