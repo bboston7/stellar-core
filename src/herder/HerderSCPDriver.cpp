@@ -140,10 +140,12 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
             }
             else
             {
-                throw std::runtime_error(fmt::format(
-                    FMT_STRING("SCPHerderEnvelopeWrapper: Wrapping an unknown "
-                               "tx set {} from envelope"),
-                    hexAbbrev(txSetH)));
+                CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
+                                   "scheduled to download here?");
+                // throw std::runtime_error(fmt::format(
+                //     FMT_STRING("SCPHerderEnvelopeWrapper: Wrapping an unknown "
+                //                "tx set {} from envelope"),
+                //     hexAbbrev(txSetH)));
             }
         }
     }
@@ -197,6 +199,7 @@ HerderSCPDriver::checkCloseTime(uint64_t slotIndex, uint64_t lastCloseTime,
     return true;
 }
 
+// TODO: Does this need updating for "kAwaitingDownload"?
 SCPDriver::ValidationLevel
 HerderSCPDriver::validatePastOrFutureValue(
     uint64_t slotIndex, StellarValue const& b,
@@ -305,10 +308,19 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
 
         if (!txSet)
         {
-            CLOG_ERROR(Herder, "validateValue i:{} unknown txSet {}", slotIndex,
-                       hexAbbrev(txSetHash));
+            if (mPendingEnvelopes.getTxSetWaitingTime(txSetHash).has_value())
+            {
+                res = SCPDriver::kAwaitingDownload;
+            }
+            else
+            {
+                // TODO: Instead of returning "invalid" here, should this
+                // schedule a download?
+                CLOG_ERROR(Herder, "validateValue i:{} unknown txSet {}",
+                           slotIndex, hexAbbrev(txSetHash));
 
-            res = SCPDriver::kInvalidValue;
+                res = SCPDriver::kInvalidValue;
+            }
         }
         else if (!checkAndCacheTxSetValid(*txSet, lcl, closeTimeOffset))
         {
@@ -426,7 +438,9 @@ HerderSCPDriver::extractValidValue(uint64_t slotIndex, Value const& value)
         return nullptr;
     }
     ValueWrapperPtr res;
-    if (validateValueAgainstLocalState(slotIndex, b, true) ==
+    // TODO: Should this conditional accept "kAwaitingDownload" too? I think so,
+    // given this only seems to care about upgrades (not txset values).
+    if (validateValueAgainstLocalState(slotIndex, b, true) >=
         SCPDriver::kFullyValidatedValue)
     {
         // remove the upgrade steps we don't like
@@ -1259,10 +1273,13 @@ class SCPHerderValueWrapper : public ValueWrapper
         mTxSet = mHerder.getTxSet(sv.txSetHash);
         if (!mTxSet)
         {
-            throw std::runtime_error(fmt::format(
-                FMT_STRING(
-                    "SCPHerderValueWrapper tried to bind an unknown tx set {}"),
-                hexAbbrev(sv.txSetHash)));
+            CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
+                               "scheduled to download here?");
+            // throw std::runtime_error(fmt::format(
+            //     FMT_STRING(
+            //         "SCPHerderValueWrapper tried to bind an unknown tx set
+            //         {}"),
+            //     hexAbbrev(sv.txSetHash)));
         }
     }
 };

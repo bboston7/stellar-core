@@ -344,7 +344,7 @@ NominationProtocol::getNewValueFromNomination(SCPNomination const& nom)
     auto pickValue = [&](Value const& value) {
         ValueWrapperPtr valueToNominate;
         auto vl = validateValue(value);
-        if (vl == SCPDriver::kFullyValidatedValue)
+        if (vl >= SCPDriver::kFullyValidatedValue)
         {
             valueToNominate = mSlot.getSCPDriver().wrapValue(value);
         }
@@ -428,7 +428,7 @@ NominationProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope)
                     mLatestNominations))
             {
                 auto vl = validateValue(v);
-                if (vl == SCPDriver::kFullyValidatedValue)
+                if (vl >= SCPDriver::kFullyValidatedValue)
                 {
                     mAccepted.emplace(vw);
                     mVotes.emplace(vw);

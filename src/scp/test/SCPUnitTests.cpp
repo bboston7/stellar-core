@@ -89,7 +89,7 @@ class TestNominationSCP : public SCPDriver
     getTxSetDownloadWaitTime(Value const& v) const override
     {
         // TODO: Implement?
-        releaseAssert(false);
+        return std::nullopt;
     }
 
     std::map<Hash, SCPQuorumSetPtr> mQuorumSets;

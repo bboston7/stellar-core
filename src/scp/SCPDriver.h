@@ -124,7 +124,8 @@ class SCPDriver
     {
         kInvalidValue = 0,       // value is invalid for sure
         kMaybeValidValue = 1,    // value may be valid
-        kFullyValidatedValue = 2 // value is valid for sure
+        kAwaitingDownload = 2,   // value is being fetched
+        kFullyValidatedValue = 3 // value is valid for sure
     };
     virtual ValidationLevel
     validateValue(uint64 slotIndex, Value const& value, bool nomination)
