@@ -2003,10 +2003,14 @@ BallotProtocol::validateValues(SCPStatement const& st)
     SCPDriver::ValidationLevel res = std::accumulate(
         values.begin(), values.end(), SCPDriver::kFullyValidatedValue,
         [&](SCPDriver::ValidationLevel lv, stellar::Value const& v) {
+            // TODO: Does this comparison still hold with the new validation
+            // level?
             if (lv > SCPDriver::kInvalidValue)
             {
                 auto tr = mSlot.getSCPDriver().validateValue(
                     mSlot.getSlotIndex(), v, false);
+                // TODO: Does this `min` still make sense with the new
+                // validation level?
                 lv = std::min(tr, lv);
             }
             return lv;
