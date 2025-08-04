@@ -889,7 +889,20 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
             std::string txt("FETCHING");
             ZoneText(txt.c_str(), txt.size());
 
-            // TODO: Call into nomination directly here, just like in draft PR
+            // If we have the quorum set, then proceed without the tx set.
+            //
+            // TODO: In the draft PR this is gated behind a check that the
+            // message is a nomination message. We definitely want to go further
+            // than that, but should there be a limit? Is there any harm to
+            // proceeding without limit?
+            auto qSetHash = Slot::getCompanionQuorumSetHashFromStatement(
+                envelope.statement);
+            auto maybeQSet = mApp.getHerder().getQSet(qSetHash);
+            if (maybeQSet)
+            {
+                CLOG_ERROR(Herder, "Proceeding without txset for slot {}", envelope.statement.slotIndex);
+                processSCPQueue();
+            }
         }
         else if (status == Herder::ENVELOPE_STATUS_PROCESSED)
         {
