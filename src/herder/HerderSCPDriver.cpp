@@ -143,7 +143,8 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
                 CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
                                    "scheduled to download here?");
                 // throw std::runtime_error(fmt::format(
-                //     FMT_STRING("SCPHerderEnvelopeWrapper: Wrapping an unknown "
+                //     FMT_STRING("SCPHerderEnvelopeWrapper: Wrapping an unknown
+                //     "
                 //                "tx set {} from envelope"),
                 //     hexAbbrev(txSetH)));
             }
@@ -310,6 +311,11 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
         {
             if (mPendingEnvelopes.getTxSetWaitingTime(txSetHash).has_value())
             {
+                CLOG_ERROR(Herder,
+                           "validateValue i:{} marking txSet {} as "
+                           "kAwaitingDownload - "
+                           "tx set is being fetched",
+                           slotIndex, hexAbbrev(txSetHash));
                 res = SCPDriver::kAwaitingDownload;
             }
             else

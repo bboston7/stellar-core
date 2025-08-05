@@ -249,6 +249,22 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
         return false;
     }
 
+    // Log successful download of a previously awaited tx set
+    auto waitingTime = mTxSetFetcher.getWaitingTime(hash);
+    if (waitingTime.has_value())
+    {
+        CLOG_ERROR(Herder, 
+                   "Successfully downloaded tx set {} that was kAwaitingDownload - "
+                   "download took {} ms",
+                   hexAbbrev(hash), waitingTime.value().count());
+    }
+    else
+    {
+        CLOG_ERROR(Herder, 
+                   "Successfully downloaded tx set {} that was requested",
+                   hexAbbrev(hash));
+    }
+
     addTxSet(hash, lastSeenSlotIndex, txset);
     return true;
 }

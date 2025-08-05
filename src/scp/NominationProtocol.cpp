@@ -346,6 +346,13 @@ NominationProtocol::getNewValueFromNomination(SCPNomination const& nom)
         auto vl = validateValue(value);
         if (vl >= SCPDriver::kAwaitingDownload)
         {
+            if (vl == SCPDriver::kAwaitingDownload)
+            {
+                CLOG_ERROR(SCP, 
+                           "NominationProtocol::updateRoundLeaders slot:{} "
+                           "attempting to nominate value with kAwaitingDownload status",
+                           mSlot.getSlotIndex());
+            }
             valueToNominate = mSlot.getSCPDriver().wrapValue(value);
         }
         else
@@ -430,6 +437,13 @@ NominationProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope)
                 auto vl = validateValue(v);
                 if (vl >= SCPDriver::kAwaitingDownload)
                 {
+                    if (vl == SCPDriver::kAwaitingDownload)
+                    {
+                        CLOG_ERROR(SCP, 
+                                   "NominationProtocol::updateRoundLeaders slot:{} "
+                                   "accepting value with kAwaitingDownload status in federated accept",
+                                   mSlot.getSlotIndex());
+                    }
                     mAccepted.emplace(vw);
                     mVotes.emplace(vw);
                     modified = true;
