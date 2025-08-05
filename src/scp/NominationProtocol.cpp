@@ -348,8 +348,9 @@ NominationProtocol::getNewValueFromNomination(SCPNomination const& nom)
         {
             CLOG_ERROR(SCP,
                        "NominationProtocol::updateRoundLeaders slot:{} "
-                       "attempting to nominate value with {} status",
+                       "attempting to nominate value {} with {} status",
                        mSlot.getSlotIndex(),
+                       hexAbbrev(value),
                        SCPDriver::validationLevelToString(vl));
             valueToNominate = mSlot.getSCPDriver().wrapValue(value);
         }
@@ -438,8 +439,9 @@ NominationProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope)
                     CLOG_ERROR(
                         SCP,
                         "NominationProtocol::updateRoundLeaders slot:{} "
-                        "accepting value with {} status in federated accept",
+                        "accepting value {} with {} status in federated accept",
                         mSlot.getSlotIndex(),
+                        hexAbbrev(v),
                         SCPDriver::validationLevelToString(vl));
                     mAccepted.emplace(vw);
                     mVotes.emplace(vw);

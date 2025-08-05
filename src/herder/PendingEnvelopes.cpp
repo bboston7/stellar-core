@@ -253,14 +253,15 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
     auto waitingTime = mTxSetFetcher.getWaitingTime(hash);
     if (waitingTime.has_value())
     {
-        CLOG_ERROR(Herder, 
-                   "Successfully downloaded tx set {} that was kAwaitingDownload - "
-                   "download took {} ms",
-                   hexAbbrev(hash), waitingTime.value().count());
+        CLOG_ERROR(
+            Herder,
+            "Successfully downloaded tx set {} that was kAwaitingDownload - "
+            "download took {} ms",
+            hexAbbrev(hash), waitingTime.value().count());
     }
     else
     {
-        CLOG_ERROR(Herder, 
+        CLOG_ERROR(Herder,
                    "Successfully downloaded tx set {} that was requested",
                    hexAbbrev(hash));
     }
@@ -599,6 +600,10 @@ PendingEnvelopes::startFetch(SCPEnvelope const& envelope)
     {
         if (!getKnownTxSet(h2, 0, false))
         {
+            CLOG_ERROR(
+                Herder,
+                "PendingEnvelopes::startFetch: requesting missing txset {}",
+                hexAbbrev(h2));
             mTxSetFetcher.fetch(h2, envelope);
             needSomething = true;
         }
