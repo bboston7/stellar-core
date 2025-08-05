@@ -187,15 +187,13 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
 
     auto validationRes = validateValues(statement);
 
-    // Log validation results for kAwaitingDownload values
-    if (validationRes == SCPDriver::kAwaitingDownload)
-    {
-        CLOG_ERROR(SCP, 
-                   "BallotProtocol::processEnvelope slot:{} "
-                   "received statement with kAwaitingDownload value from node:{}",
-                   mSlot.getSlotIndex(), 
-                   mSlot.getSCP().getDriver().toShortString(statement.nodeID));
-    }
+    // Log validation results
+    CLOG_ERROR(SCP,
+                "BallotProtocol::processEnvelope slot:{} "
+                "received statement with {} value from node:{}",
+                mSlot.getSlotIndex(),
+                SCPDriver::validationLevelToString(validationRes),
+                mSlot.getSCP().getDriver().toShortString(statement.nodeID));
 
     // If the value is not valid, we just ignore it.
     if (validationRes == SCPDriver::kInvalidValue)

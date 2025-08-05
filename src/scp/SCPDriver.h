@@ -133,6 +133,9 @@ class SCPDriver
         return kMaybeValidValue;
     }
 
+    // TODO: Remove this function?
+    static std::string validationLevelToString(ValidationLevel level);
+
     // `extractValidValue` transforms the value, if possible to a different
     // value that the local node would agree to (fully validated).
     // This is used during nomination when encountering an invalid value (ie

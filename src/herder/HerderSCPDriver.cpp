@@ -311,6 +311,7 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
         {
             if (mPendingEnvelopes.getTxSetWaitingTime(txSetHash).has_value())
             {
+                // TODO: I have yet to see this one fire vv, which is weird.
                 CLOG_ERROR(Herder,
                            "validateValue i:{} marking txSet {} as "
                            "kAwaitingDownload - "
