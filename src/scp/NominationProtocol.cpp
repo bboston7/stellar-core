@@ -394,6 +394,10 @@ SCP::EnvelopeState
 NominationProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope)
 {
     ZoneScoped;
+    CLOG_ERROR(SCP, "NominationProtocol::processEnvelope slot:{} "
+               "received envelope from node:{}",
+               mSlot.getSlotIndex(),
+               mSlot.getSCP().getDriver().toShortString(envelope->getStatement().nodeID));
     auto const& st = envelope->getStatement();
     auto const& nom = st.pledges.nominate();
 
