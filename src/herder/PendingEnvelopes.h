@@ -32,6 +32,9 @@ struct SlotEnvelopes
     // envelopes we are fetching right now
     std::map<SCPEnvelope, VirtualClock::time_point> mFetchingEnvelopes;
 
+    // TODO: This needs a better name and descriptor
+    std::set<SCPEnvelope> mPartiallyReadyEnvelopes;
+
     // list of ready envelopes that haven't been sent to SCP yet
     std::vector<SCPEnvelopeWrapperPtr> mReadyEnvelopes;
 
@@ -95,6 +98,8 @@ class PendingEnvelopes
     void envelopeReady(SCPEnvelope const& envelope);
     void discardSCPEnvelope(SCPEnvelope const& envelope);
     bool isFullyFetched(SCPEnvelope const& envelope);
+    // TODO: Docs and maybe better name (like qsetIsFetched)
+    bool isPartiallyFetched(SCPEnvelope const& envelope);
     void startFetch(SCPEnvelope const& envelope);
     void stopFetch(SCPEnvelope const& envelope);
     void touchFetchCache(SCPEnvelope const& envelope);

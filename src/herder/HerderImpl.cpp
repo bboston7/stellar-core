@@ -299,6 +299,9 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
 
     TxSetXDRFrameConstPtr externalizedSet =
         mPendingEnvelopes.getTxSet(value.txSetHash);
+    // TODO: Remove this?
+    // TODO: If a node doesn't have the tx set by here it will crash.
+    releaseAssert(externalizedSet != nullptr);
 
     // save the SCP messages in the database
     if (mApp.getConfig().MODE_STORES_HISTORY_MISC)
@@ -884,7 +887,9 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
     }
     else
     {
-        if (status == Herder::ENVELOPE_STATUS_FETCHING)
+        SCPStatementType type = envelope.statement.pledges.type();
+        if (status == Herder::ENVELOPE_STATUS_FETCHING &&
+            (type == SCP_ST_NOMINATE || type == SCP_ST_PREPARE))
         {
             std::string txt("FETCHING");
             ZoneText(txt.c_str(), txt.size());

@@ -335,6 +335,7 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
         auto& envs = mEnvelopes[envelope.statement.slotIndex];
         auto& fetching = envs.mFetchingEnvelopes;
         auto& processed = envs.mProcessedEnvelopes;
+        auto& partiallyReady = envs.mPartiallyReadyEnvelopes;
 
         auto fetchIt = fetching.find(envelope);
 
@@ -375,6 +376,9 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             processed.emplace(envelope);
             fetching.erase(fetchIt);
 
+            // Remove from partially ready envelopes if it was there
+            partiallyReady.erase(envelope);
+
             envelopeReady(envelope);
             updateMetrics();
             return Herder::ENVELOPE_STATUS_READY;
@@ -384,6 +388,18 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             // else just keep waiting for it to come in
             // and refresh fetchers as needed
             startFetch(envelope);
+
+            SCPStatementType type = envelope.statement.pledges.type();
+            if (isPartiallyFetched(envelope) &&
+                (type == SCP_ST_NOMINATE || type == SCP_ST_PREPARE))
+            {
+                // TODO: This comment could be better vv
+                // If the envelope is partially fetched and the type is either
+                // SCP_ST_NOMINATE or SCP_ST_PREPARE, we can add it to the
+                // mPartiallyReadyEnvelopes set, so that we can process it
+                // later when the qset is fully fetched
+                partiallyReady.insert(envelope);
+            }
 
             // TODO: The issue is that the envelope doesn't end up in
             // `mReadyEnvelopes` in this path, and wont until it is fetched.
@@ -572,11 +588,17 @@ PendingEnvelopes::envelopeReady(SCPEnvelope const& envelope)
 }
 
 bool
+PendingEnvelopes::isPartiallyFetched(SCPEnvelope const& envelope)
+{
+    return getKnownQSet(
+               Slot::getCompanionQuorumSetHashFromStatement(envelope.statement),
+               false) != nullptr;
+}
+
+bool
 PendingEnvelopes::isFullyFetched(SCPEnvelope const& envelope)
 {
-    if (!getKnownQSet(
-            Slot::getCompanionQuorumSetHashFromStatement(envelope.statement),
-            false))
+    if (!isPartiallyFetched(envelope))
     {
         return false;
     }
@@ -656,6 +678,7 @@ PendingEnvelopes::touchFetchCache(SCPEnvelope const& envelope)
 SCPEnvelopeWrapperPtr
 PendingEnvelopes::pop(uint64 slotIndex)
 {
+    // Process fully ready envelopes first
     auto it = mEnvelopes.begin();
     while (it != mEnvelopes.end() && slotIndex >= it->first)
     {
@@ -666,6 +689,19 @@ PendingEnvelopes::pop(uint64 slotIndex)
             v.pop_back();
 
             updateMetrics();
+            return ret;
+        }
+
+        // TODO: Maybe should return all fully ready envelopes from ALL slots
+        // before proceeding to partially ready ones.
+        auto& partial = it->second.mPartiallyReadyEnvelopes;
+        if (partial.size() != 0)
+        {
+            // If we have partially ready envelopes, we can return the first one
+            auto it = partial.begin();
+            SCPEnvelopeWrapperPtr ret =
+                mHerder.getHerderSCPDriver().wrapEnvelope(*it);
+            partial.erase(it);
             return ret;
         }
         it++;
