@@ -384,6 +384,12 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             // else just keep waiting for it to come in
             // and refresh fetchers as needed
             startFetch(envelope);
+
+            // TODO: The issue is that the envelope doesn't end up in
+            // `mReadyEnvelopes` in this path, and wont until it is fetched.
+            // That's why it's still blocking. Either this needs to go into
+            // `mReadyEnvelopes`, or there needs to be a different structure
+            // with envelopes that are pending download.
         }
 
         return Herder::ENVELOPE_STATUS_FETCHING;
