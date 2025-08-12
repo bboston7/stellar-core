@@ -632,12 +632,32 @@ HerderSCPDriver::computeTimeout(uint32 roundNumber, bool isNomination)
 // returns true if l < r
 // lh, rh are the hashes of l,h
 static bool
-compareTxSets(ApplicableTxSetFrame const& l, ApplicableTxSetFrame const& r,
-              Hash const& lh, Hash const& rh, size_t lEncodedSize,
-              size_t rEncodedSize, LedgerHeader const& header, Hash const& s)
+compareTxSets(ApplicableTxSetFrameConstPtr const& l,
+              ApplicableTxSetFrameConstPtr const& r, Hash const& lh,
+              Hash const& rh, std::optional<size_t> lEncodedSize,
+              std::optional<size_t> rEncodedSize, LedgerHeader const& header,
+              Hash const& s)
 {
-    auto lSize = l.size(header);
-    auto rSize = r.size(header);
+    if (!l && !r)
+    {
+        CLOG_ERROR(Herder, "Comparing tx sets but both are null");
+        // Do not have either tx set. Compare hashes
+        return lessThanXored(lh, rh, s);
+    }
+
+    if (!l || !r)
+    {
+        CLOG_ERROR(
+            Herder,
+            "Comparing tx sets but one is null: l: {}, r: {}, lh: {}, rh: {}",
+            l ? "exists" : "null", r ? "exists" : "null", hexAbbrev(lh),
+            hexAbbrev(rh));
+        // If one exists, choose it
+        return !l;
+    }
+
+    auto lSize = l->size(header);
+    auto rSize = r->size(header);
     if (lSize != rSize)
     {
         return lSize < rSize;
@@ -645,8 +665,8 @@ compareTxSets(ApplicableTxSetFrame const& l, ApplicableTxSetFrame const& r,
     if (protocolVersionStartsFrom(header.ledgerVersion,
                                   SOROBAN_PROTOCOL_VERSION))
     {
-        auto lBids = l.getTotalInclusionFees();
-        auto rBids = r.getTotalInclusionFees();
+        auto lBids = l->getTotalInclusionFees();
+        auto rBids = r->getTotalInclusionFees();
         if (lBids != rBids)
         {
             return lBids < rBids;
@@ -654,8 +674,8 @@ compareTxSets(ApplicableTxSetFrame const& l, ApplicableTxSetFrame const& r,
     }
     if (protocolVersionStartsFrom(header.ledgerVersion, ProtocolVersion::V_11))
     {
-        auto lFee = l.getTotalFees(header);
-        auto rFee = r.getTotalFees(header);
+        auto lFee = l->getTotalFees(header);
+        auto rFee = r->getTotalFees(header);
         if (lFee != rFee)
         {
             return lFee < rFee;
@@ -664,10 +684,11 @@ compareTxSets(ApplicableTxSetFrame const& l, ApplicableTxSetFrame const& r,
     if (protocolVersionStartsFrom(header.ledgerVersion,
                                   SOROBAN_PROTOCOL_VERSION))
     {
-        if (lEncodedSize != rEncodedSize)
+        // TODO: Error handling check that encoded sizes have a values?
+        if (lEncodedSize.value() != rEncodedSize.value())
         {
             // Look for the smallest encoded size.
-            return lEncodedSize > rEncodedSize;
+            return lEncodedSize.value() > rEncodedSize.value();
         }
     }
     return lessThanXored(lh, rh, s);
@@ -779,19 +800,37 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
         {
             auto const& sv = *it;
             auto cTxSet = mPendingEnvelopes.getTxSet(sv.txSetHash);
-            releaseAssert(cTxSet);
+            // TODO: I've changed this function to combine as follows:
+            // * If both `highestTxSet` and `cApplicableTxSet` exist, choose the
+            //   largest one (like today)
+            // * If only one exists, choose the one that exists
+            // * If neither exists, choose the one with the highest hash
+            // Add this to the design doc and solicit feedback on it ^^
+            // releaseAssert(cTxSet);
             // Only valid applicable tx sets should be combined.
-            auto cApplicableTxSet = cTxSet->prepareForApply(mApp, lcl.header);
-            releaseAssert(cApplicableTxSet);
-            if (cTxSet->previousLedgerHash() == lcl.hash)
+            auto cApplicableTxSet =
+                cTxSet ? cTxSet->prepareForApply(mApp, lcl.header) : nullptr;
+            // releaseAssert(cApplicableTxSet);
+            // TODO: I added the `!cTxSet` check here to allow this to proceed
+            // without a tx set, but it seems important that `previousLedgerHash
+            // == lcl.hash`. Is that checked later during validation? Should
+            // write a test that causes `combineCandidates` to use a tx set with
+            // a bad previous ledger hash (can do this easily by ensuring that
+            // the node doesn't have any candidates, and making all candidates
+            // "bad") to check that it gets caught later.
+            if (!cTxSet || cTxSet->previousLedgerHash() == lcl.hash)
             {
 
-                if (!highestTxSet ||
-                    compareTxSets(*highestApplicableTxSet, *cApplicableTxSet,
-                                  highest->txSetHash, sv.txSetHash,
-                                  highestTxSet->encodedSize(),
-                                  cTxSet->encodedSize(), lcl.header,
-                                  candidatesHash))
+                if (highest == candidateValues.cend() ||
+                    compareTxSets(
+                        highestApplicableTxSet, cApplicableTxSet,
+                        highest->txSetHash, sv.txSetHash,
+                        highestTxSet
+                            ? std::make_optional(highestTxSet->encodedSize())
+                            : std::nullopt,
+                        cTxSet ? std::make_optional(cTxSet->encodedSize())
+                               : std::nullopt,
+                        lcl.header, candidatesHash))
                 {
                     highest = it;
                     highestTxSet = cTxSet;

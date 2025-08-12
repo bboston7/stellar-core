@@ -512,6 +512,7 @@ NominationProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope)
 
         if (newCandidates)
         {
+            // TODO: This is the call that crashes
             mLatestCompositeCandidate = mSlot.getSCPDriver().combineCandidates(
                 mSlot.getSlotIndex(), mCandidates);
 
