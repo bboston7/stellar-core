@@ -5674,6 +5674,72 @@ TEST_CASE("SCP message capture from previous ledger", "[herder]")
     REQUIRE(checkSCPHistoryEntries(C, 2, expectedTypes));
 }
 
+// TODO: Does this belong in SCP tests instead?
+TEST_CASE("Parallel tx set downloading", "[herder]")
+{
+    int constexpr simSize = 3;
+    int constexpr threshold = 2;
+    auto const networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    auto simulation =
+        std::make_shared<Simulation>(Simulation::OVER_LOOPBACK, networkID);
+
+    std::array<Config, simSize> configs;
+    std::array<PublicKey, simSize> pubkeys;
+    SCPQuorumSet qset;
+    qset.threshold = threshold;
+    for (int i = 0; i < simSize; ++i)
+    {
+        auto const& cfg = configs.at(i) = simulation->newConfig();
+        auto const& pubkey = cfg.NODE_SEED.getPublicKey();
+        pubkeys.at(i) = pubkey;
+        qset.validators.push_back(pubkey);
+    }
+
+    // Add nodes to simulation
+    for (int i = 0; i < simSize; ++i)
+    {
+        auto const& cfg = configs.at(i);
+        simulation->addNode(cfg.NODE_SEED, qset, &cfg);
+    }
+
+    // Connect nodes and start simulation
+    simulation->addPendingConnection(pubkeys.at(0), pubkeys.at(1));
+    simulation->addPendingConnection(pubkeys.at(1), pubkeys.at(2));
+    simulation->startAllNodes();
+
+    // TODO: Is this necessary? vv
+    // wait for ledgers to close so nodes get the updated transitive quorum
+    simulation->crankUntil(
+        [&simulation]() { return simulation->haveAllExternalized(3, 1); },
+        10 * simulation->getExpectedLedgerCloseTime(), false);
+
+    // Disconnect node 0
+    simulation->dropConnection(pubkeys.at(0), pubkeys.at(1));
+
+    auto& node1 = *simulation->getNode(pubkeys.at(1));
+    auto lclNum = node1.getLedgerManager().getLastClosedLedgerNum();
+
+    // Let remaining nodes externalize
+    simulation->crankUntil(
+        [&simulation, &pubkeys, lclNum]() {
+            for (int i = 1; i < simSize; ++i)
+            {
+                auto const& node = simulation->getNode(pubkeys.at(i));
+                if (node->getLedgerManager().getLastClosedLedgerNum() <= lclNum)
+                {
+                    return false;
+                }
+            }
+            return true;
+        },
+        10 * simulation->getExpectedLedgerCloseTime(), false);
+
+    // Node 0 should be behind
+    auto& node0 = *simulation->getNode(pubkeys.at(0));
+    lclNum = node1.getLedgerManager().getLastClosedLedgerNum();
+    REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() < lclNum);
+}
+
 using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;
 
 // Generate a Topology with a single org containing 3 validators of HIGH quality
