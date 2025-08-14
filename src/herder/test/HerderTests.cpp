@@ -5674,6 +5674,45 @@ TEST_CASE("SCP message capture from previous ledger", "[herder]")
     REQUIRE(checkSCPHistoryEntries(C, 2, expectedTypes));
 }
 
+// Helper function to feed SCP messages from one node to another for a specific
+// slot
+static void
+feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
+                       uint64 slotIndex)
+{
+    // Get the herder and SCP from the source node
+    auto& sourceHerder = dynamic_cast<HerderImpl&>(sourceNode.getHerder());
+    auto& sourceSCP = sourceHerder.getSCP();
+
+    // Get the slot from the source node
+    auto sourceSlot = sourceSCP.getSlotForTesting(slotIndex);
+    REQUIRE(sourceSlot != nullptr);
+
+    // Get the historical statements from the source slot
+    auto const& historicalStatements =
+        sourceSlot->getHistoricalStatementsForTesting();
+    REQUIRE(!historicalStatements.empty());
+
+    // Get the target herder
+    auto& targetHerder = dynamic_cast<HerderImpl&>(targetNode.getHerder());
+
+    // Feed each historical statement to the target node
+    for (auto const& histStmt : historicalStatements)
+    {
+        // Create an envelope from the statement
+        SCPEnvelope envelope = sourceSlot->createEnvelope(histStmt.mStatement);
+
+        // Feed the envelope to the target node
+        auto status = targetHerder.recvSCPEnvelope(envelope);
+
+        // Log for debugging
+        CLOG_ERROR(
+            Herder,
+            "Fed historical SCP message to target node for slot {}, status: {}",
+            slotIndex, static_cast<int>(status));
+    }
+}
+
 // TODO: Does this belong in SCP tests instead?
 TEST_CASE("Parallel tx set downloading", "[herder]")
 {
@@ -5751,48 +5790,26 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     lclNum = node1.getLedgerManager().getLastClosedLedgerNum();
     REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() <= lclNum - 2);
 
-    // Get the slot from node 1 for the ledger that node 0 missed
-    auto& herder1 = dynamic_cast<HerderImpl&>(node1.getHerder());
-    auto& scp1 = herder1.getSCP();
+    // Store initial LCL for node0 to verify progress
+    auto node0InitialLcl = node0.getLedgerManager().getLastClosedLedgerNum();
 
-    // The slot index we want is the one that node 0 is missing
-    uint64 missedSlotIndex =
+    // Feed SCP messages for the first missed slot
+    uint64 firstMissedSlot =
         node0.getLedgerManager().getLastClosedLedgerNum() + 1;
-    auto slot1 = scp1.getSlotForTesting(missedSlotIndex);
-    REQUIRE(slot1 != nullptr);
+    feedSCPMessagesForSlot(node1, node0, firstMissedSlot);
 
-    // Get the historical statements from node 1's slot
-    auto const& historicalStatements =
-        slot1->getHistoricalStatementsForTesting();
-    REQUIRE(!historicalStatements.empty());
-
-    // Now feed these messages to node 0
-    auto& herder0 = dynamic_cast<HerderImpl&>(node0.getHerder());
-
-    // Create envelopes from the historical statements and feed them to node
-    // 0
-    auto node0LclNum = node0.getLedgerManager().getLastClosedLedgerNum();
-    for (auto const& histStmt : historicalStatements)
-    {
-        // Create an envelope from the statement
-        SCPEnvelope envelope = slot1->createEnvelope(histStmt.mStatement);
-
-        // Feed the envelope to node 0
-        auto status = herder0.recvSCPEnvelope(envelope);
-
-        // TODO: Only true for now
-        // REQUIRE(status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING);
-
-        // TODO: Remove this log line vv?
-        // Log for debugging
-        CLOG_ERROR(Herder, "Fed historical SCP message to node 0, status: {}",
-                   static_cast<int>(status));
-    }
+    // Verify node0 advanced by one ledger
     REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
-            node0LclNum + 1);
-    // TODO: Unfortunately the first ledger after starting loadgen is often
-    // empty, so node0 "already has it". Should manually process that one, then
-    // do the actual test with lcl+2.
+            node0InitialLcl + 1);
+
+    // Feed SCP messages for the second missed slot
+    uint64 secondMissedSlot =
+        node0.getLedgerManager().getLastClosedLedgerNum() + 1;
+    feedSCPMessagesForSlot(node1, node0, secondMissedSlot);
+
+    // Verify node0 has now caught up by 2 ledgers total
+    REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
+            node0InitialLcl + 2);
 
     // TODO: I don't think it's necessary to crank here. This should have all
     // happened synchronously (for now).
