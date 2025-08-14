@@ -5678,7 +5678,7 @@ TEST_CASE("SCP message capture from previous ledger", "[herder]")
 // slot
 static void
 feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
-                       uint64 slotIndex)
+                       uint64 slotIndex, bool checkRecvStatus)
 {
     // Get the herder and SCP from the source node
     auto& sourceHerder = dynamic_cast<HerderImpl&>(sourceNode.getHerder());
@@ -5704,6 +5704,9 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
 
         // Feed the envelope to the target node
         auto status = targetHerder.recvSCPEnvelope(envelope);
+
+        REQUIRE((!checkRecvStatus ||
+                status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING));
 
         // Log for debugging
         CLOG_ERROR(
@@ -5793,19 +5796,21 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     // Store initial LCL for node0 to verify progress
     auto node0InitialLcl = node0.getLedgerManager().getLastClosedLedgerNum();
 
-    // Feed SCP messages for the first missed slot
+    // Feed SCP messages for the first missed slot. Due to disconnect timing,
+    // `node0` might already have the txset for this one, so we'll skip
+    // checking.
     uint64 firstMissedSlot =
         node0.getLedgerManager().getLastClosedLedgerNum() + 1;
-    feedSCPMessagesForSlot(node1, node0, firstMissedSlot);
+    feedSCPMessagesForSlot(node1, node0, firstMissedSlot, false);
 
-    // Verify node0 advanced by one ledger
+    // Verify node0 advanced by one ledger.
     REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
             node0InitialLcl + 1);
 
     // Feed SCP messages for the second missed slot
     uint64 secondMissedSlot =
         node0.getLedgerManager().getLastClosedLedgerNum() + 1;
-    feedSCPMessagesForSlot(node1, node0, secondMissedSlot);
+    feedSCPMessagesForSlot(node1, node0, secondMissedSlot, true);
 
     // Verify node0 has now caught up by 2 ledgers total
     REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
