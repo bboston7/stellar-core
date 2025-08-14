@@ -5738,6 +5738,57 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     auto& node0 = *simulation->getNode(pubkeys.at(0));
     lclNum = node1.getLedgerManager().getLastClosedLedgerNum();
     REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() < lclNum);
+
+    // Get the slot from node 1 for the ledger that node 0 missed
+    auto& herder1 = dynamic_cast<HerderImpl&>(node1.getHerder());
+    auto& scp1 = herder1.getSCP();
+
+    // The slot index we want is the one that node 0 is missing
+    uint64 missedSlotIndex =
+        node0.getLedgerManager().getLastClosedLedgerNum() + 1;
+    auto slot1 = scp1.getSlotForTesting(missedSlotIndex);
+    REQUIRE(slot1 != nullptr);
+
+    // Get the historical statements from node 1's slot
+    auto const& historicalStatements =
+        slot1->getHistoricalStatementsForTesting();
+    REQUIRE(!historicalStatements.empty());
+
+    // Now feed these messages to node 0
+    auto& herder0 = dynamic_cast<HerderImpl&>(node0.getHerder());
+
+    // Create envelopes from the historical statements and feed them to node
+    // 0
+    for (auto const& histStmt : historicalStatements)
+    {
+        // Create an envelope from the statement
+        SCPEnvelope envelope = slot1->createEnvelope(histStmt.mStatement);
+
+        // Feed the envelope to node 0
+        auto status = herder0.recvSCPEnvelope(envelope);
+
+        // TODO: Only true for now
+        REQUIRE(status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING);
+
+        // TODO: Remove this log line vv?
+        // Log for debugging
+        CLOG_ERROR(Herder, "Fed historical SCP message to node 0, status: {}",
+                   static_cast<int>(status));
+    }
+
+    // TODO: I don't think it's necessary to crank here. This should have all
+    // happened synchronously (for now).
+    // // Give node 0 some time to process the messages
+    // simulation->crankForAtMost(std::chrono::seconds(5), false);
+
+    // // Check if node 0 caught up
+    // auto node0LCL = node0.getLedgerManager().getLastClosedLedgerNum();
+    // CLOG_INFO(Herder, "Node 0 LCL after feeding messages: {}, Node 1 LCL: {}",
+    //           node0LCL, lclNum);
+
+    // // Node 0 might not fully catch up just from SCP messages alone
+    // // but it should have made progress
+    // REQUIRE(node0LCL >= node0.getLedgerManager().getLastClosedLedgerNum());
 }
 
 using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;
