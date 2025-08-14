@@ -5716,16 +5716,28 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     // Disconnect node 0
     simulation->dropConnection(pubkeys.at(0), pubkeys.at(1));
 
+    // Generate account creation load from node 1 that will last for at least 5
+    // ledgers
+    auto& node1LoadGen = simulation->getNode(pubkeys.at(1))->getLoadGenerator();
+    auto loadConfig = GeneratedLoadConfig::createAccountsLoad(1000, 2);
+    node1LoadGen.generateLoad(loadConfig);
+
+    // // Run for a few more ledgers
+    // simulation->crankUntil(
+    //     [&simulation]() { return simulation->haveAllExternalized(6, 1); },
+    //     10 * simulation->getExpectedLedgerCloseTime(), false);
+
     auto& node1 = *simulation->getNode(pubkeys.at(1));
     auto lclNum = node1.getLedgerManager().getLastClosedLedgerNum();
 
-    // Let remaining nodes externalize
+    // Let remaining nodes externalize a couple blocks
     simulation->crankUntil(
         [&simulation, &pubkeys, lclNum]() {
             for (int i = 1; i < simSize; ++i)
             {
                 auto const& node = simulation->getNode(pubkeys.at(i));
-                if (node->getLedgerManager().getLastClosedLedgerNum() <= lclNum)
+                if (node->getLedgerManager().getLastClosedLedgerNum() <
+                    lclNum + 2)
                 {
                     return false;
                 }
@@ -5734,10 +5746,10 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
         },
         10 * simulation->getExpectedLedgerCloseTime(), false);
 
-    // Node 0 should be behind
+    // Node 0 should be behind by at least a couple ledgers
     auto& node0 = *simulation->getNode(pubkeys.at(0));
     lclNum = node1.getLedgerManager().getLastClosedLedgerNum();
-    REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() < lclNum);
+    REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() <= lclNum - 2);
 
     // Get the slot from node 1 for the ledger that node 0 missed
     auto& herder1 = dynamic_cast<HerderImpl&>(node1.getHerder());
@@ -5759,6 +5771,7 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
 
     // Create envelopes from the historical statements and feed them to node
     // 0
+    auto node0LclNum = node0.getLedgerManager().getLastClosedLedgerNum();
     for (auto const& histStmt : historicalStatements)
     {
         // Create an envelope from the statement
@@ -5768,13 +5781,18 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
         auto status = herder0.recvSCPEnvelope(envelope);
 
         // TODO: Only true for now
-        REQUIRE(status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING);
+        // REQUIRE(status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING);
 
         // TODO: Remove this log line vv?
         // Log for debugging
         CLOG_ERROR(Herder, "Fed historical SCP message to node 0, status: {}",
                    static_cast<int>(status));
     }
+    REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
+            node0LclNum + 1);
+    // TODO: Unfortunately the first ledger after starting loadgen is often
+    // empty, so node0 "already has it". Should manually process that one, then
+    // do the actual test with lcl+2.
 
     // TODO: I don't think it's necessary to crank here. This should have all
     // happened synchronously (for now).
@@ -5783,7 +5801,8 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
 
     // // Check if node 0 caught up
     // auto node0LCL = node0.getLedgerManager().getLastClosedLedgerNum();
-    // CLOG_INFO(Herder, "Node 0 LCL after feeding messages: {}, Node 1 LCL: {}",
+    // CLOG_INFO(Herder, "Node 0 LCL after feeding messages: {}, Node 1 LCL:
+    // {}",
     //           node0LCL, lclNum);
 
     // // Node 0 might not fully catch up just from SCP messages alone
