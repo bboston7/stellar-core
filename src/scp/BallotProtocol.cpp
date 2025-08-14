@@ -1107,13 +1107,15 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
             if (validationLevel == SCPDriver::kAwaitingDownload)
             {
-                CLOG_ERROR(SCP, 
-                           "BallotProtocol::setConfirmPrepared slot:{} "
-                           "attempting to vote to commit with kAwaitingDownload value - "
-                           "ballot counter:{} value:{}",
-                           mSlot.getSlotIndex(), 
-                           newC.counter, mSlot.getSCP().getDriver().getValueString(newC.value));
-                
+                CLOG_ERROR(
+                    SCP,
+                    "BallotProtocol::setConfirmPrepared slot:{} "
+                    "attempting to vote to commit with kAwaitingDownload value "
+                    "- "
+                    "ballot counter:{} value:{}",
+                    mSlot.getSlotIndex(), newC.counter,
+                    mSlot.getSCP().getDriver().getValueString(newC.value));
+
                 throw std::runtime_error("TODO: Cannot vote to commit while "
                                          "transaction set is still "
                                          "awaiting download - need to "
@@ -2054,15 +2056,15 @@ BallotProtocol::validateValues(SCPStatement const& st)
             {
                 auto tr = mSlot.getSCPDriver().validateValue(
                     mSlot.getSlotIndex(), v, false);
-                
+
                 if (tr == SCPDriver::kAwaitingDownload)
                 {
-                    CLOG_ERROR(SCP, 
+                    CLOG_ERROR(SCP,
                                "BallotProtocol::validateValues slot:{} "
                                "found kAwaitingDownload value in statement",
                                mSlot.getSlotIndex());
                 }
-                
+
                 // TODO: Does this `min` still make sense with the new
                 // validation level?
                 lv = std::min(tr, lv);
