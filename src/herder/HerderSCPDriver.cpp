@@ -140,8 +140,8 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
             }
             else
             {
-                CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
-                                   "scheduled to download here?");
+                // CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
+                //                    "scheduled to download here?");
                 // throw std::runtime_error(fmt::format(
                 //     FMT_STRING("SCPHerderEnvelopeWrapper: Wrapping an unknown
                 //     "
@@ -312,19 +312,19 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             if (mPendingEnvelopes.getTxSetWaitingTime(txSetHash).has_value())
             {
                 // TODO: I have yet to see this one fire vv, which is weird.
-                CLOG_ERROR(Herder,
-                           "validateValue i:{} marking txSet {} as "
-                           "kAwaitingDownload - "
-                           "tx set is being fetched",
-                           slotIndex, hexAbbrev(txSetHash));
+                // CLOG_ERROR(Herder,
+                //            "validateValue i:{} marking txSet {} as "
+                //            "kAwaitingDownload - "
+                //            "tx set is being fetched",
+                //            slotIndex, hexAbbrev(txSetHash));
                 res = SCPDriver::kAwaitingDownload;
             }
             else
             {
                 // TODO: Instead of returning "invalid" here, should this
                 // schedule a download?
-                CLOG_ERROR(Herder, "validateValue i:{} unknown txSet {}",
-                           slotIndex, hexAbbrev(txSetHash));
+                // CLOG_ERROR(Herder, "validateValue i:{} unknown txSet {}",
+                //            slotIndex, hexAbbrev(txSetHash));
 
                 res = SCPDriver::kInvalidValue;
             }
@@ -640,18 +640,18 @@ compareTxSets(ApplicableTxSetFrameConstPtr const& l,
 {
     if (!l && !r)
     {
-        CLOG_ERROR(Herder, "Comparing tx sets but both are null");
+        // CLOG_ERROR(Herder, "Comparing tx sets but both are null");
         // Do not have either tx set. Compare hashes
         return lessThanXored(lh, rh, s);
     }
 
     if (!l || !r)
     {
-        CLOG_ERROR(
-            Herder,
-            "Comparing tx sets but one is null: l: {}, r: {}, lh: {}, rh: {}",
-            l ? "exists" : "null", r ? "exists" : "null", hexAbbrev(lh),
-            hexAbbrev(rh));
+        // CLOG_ERROR(
+        //     Herder,
+        //     "Comparing tx sets but one is null: l: {}, r: {}, lh: {}, rh: {}",
+        //     l ? "exists" : "null", r ? "exists" : "null", hexAbbrev(lh),
+        //     hexAbbrev(rh));
         // If one exists, choose it
         return !l;
     }
@@ -1319,8 +1319,8 @@ class SCPHerderValueWrapper : public ValueWrapper
         mTxSet = mHerder.getTxSet(sv.txSetHash);
         if (!mTxSet)
         {
-            CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
-                               "scheduled to download here?");
+            // CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
+            //                    "scheduled to download here?");
             // throw std::runtime_error(fmt::format(
             //     FMT_STRING(
             //         "SCPHerderValueWrapper tried to bind an unknown tx set

@@ -5680,6 +5680,15 @@ static void
 feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
                        uint64 slotIndex, bool checkRecvStatus)
 {
+    if (checkRecvStatus)
+    {
+        // TODO: Add a REQUIRE check here that the tx set corresponding to
+        // `slotIndex` has a nonzero number of transactions in it. Use
+        // `targetNode`'s `Application` instance to perform this check.
+    }
+
+    REQUIRE(slotIndex ==
+            targetNode.getLedgerManager().getLastClosedLedgerNum() + 1);
     // Get the herder and SCP from the source node
     auto& sourceHerder = dynamic_cast<HerderImpl&>(sourceNode.getHerder());
     auto& sourceSCP = sourceHerder.getSCP();
@@ -5699,20 +5708,24 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
     // Feed each historical statement to the target node
     for (auto const& histStmt : historicalStatements)
     {
+        // Node must be synced for background tx set downloading to activate
+        // TODO: This might change ^^. Remove the assert below if it does.
+        REQUIRE(targetNode.getState() == Application::State::APP_SYNCED_STATE);
+
         // Create an envelope from the statement
         SCPEnvelope envelope = sourceSlot->createEnvelope(histStmt.mStatement);
 
         // Feed the envelope to the target node
         auto status = targetHerder.recvSCPEnvelope(envelope);
 
-        REQUIRE((!checkRecvStatus ||
-                status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING));
-
         // Log for debugging
         CLOG_ERROR(
             Herder,
             "Fed historical SCP message to target node for slot {}, status: {}",
             slotIndex, static_cast<int>(status));
+
+        REQUIRE((!checkRecvStatus ||
+                 status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING));
     }
 }
 
@@ -5756,7 +5769,10 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
         10 * simulation->getExpectedLedgerCloseTime(), false);
 
     // Disconnect node 0
+    auto& node0 = *simulation->getNode(pubkeys.at(0));
+    REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 1);
     simulation->dropConnection(pubkeys.at(0), pubkeys.at(1));
+    REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
 
     // Generate account creation load from node 1 that will last for at least 5
     // ledgers
@@ -5773,6 +5789,7 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     auto lclNum = node1.getLedgerManager().getLastClosedLedgerNum();
 
     // Let remaining nodes externalize a couple blocks
+    REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
     simulation->crankUntil(
         [&simulation, &pubkeys, lclNum]() {
             for (int i = 1; i < simSize; ++i)
@@ -5787,9 +5804,9 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
             return true;
         },
         10 * simulation->getExpectedLedgerCloseTime(), false);
+    REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
 
     // Node 0 should be behind by at least a couple ledgers
-    auto& node0 = *simulation->getNode(pubkeys.at(0));
     lclNum = node1.getLedgerManager().getLastClosedLedgerNum();
     REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() <= lclNum - 2);
 
@@ -5806,6 +5823,12 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     // Verify node0 advanced by one ledger.
     REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
             node0InitialLcl + 1);
+
+    // Trigger next ledger
+    //node0.getHerder().triggerNextLedger(node0InitialLcl + 2, false);
+    REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
+    simulation->crankForAtLeast(std::chrono::seconds(10), false);
+    REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
 
     // Feed SCP messages for the second missed slot
     uint64 secondMissedSlot =

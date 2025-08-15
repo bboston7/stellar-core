@@ -1950,7 +1950,7 @@ BallotProtocol::advanceSlot(SCPStatement const& hint)
 {
     ZoneScoped;
     mCurrentMessageLevel++;
-    CLOG_TRACE(SCP, "BallotProtocol::advanceSlot {} {}", mCurrentMessageLevel,
+    CLOG_ERROR(SCP, "BallotProtocol::advanceSlot {} {}", mCurrentMessageLevel,
                getLocalState());
 
     if (mCurrentMessageLevel >= MAX_ADVANCE_SLOT_RECURSION)
@@ -1969,6 +1969,11 @@ BallotProtocol::advanceSlot(SCPStatement const& hint)
     bool didWork = false;
 
     didWork = attemptAcceptPrepared(hint) || didWork;
+
+    if (didWork)
+    {
+        CLOG_ERROR(SCP, "attemptAcceptPrepared did work");
+    }
 
     didWork = attemptConfirmPrepared(hint) || didWork;
 

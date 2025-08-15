@@ -604,8 +604,8 @@ PendingEnvelopes::isFullyFetched(SCPEnvelope const& envelope)
     }
 
     auto txSetHashes = getTxSetHashes(envelope);
-    CLOG_ERROR(Herder, "txSetHashes size: {}", txSetHashes.size());
-    CLOG_ERROR(Herder, "txSetHashes[0]: {}", hexAbbrev(txSetHashes.at(0)));
+    // CLOG_ERROR(Herder, "txSetHashes size: {}", txSetHashes.size());
+    // CLOG_ERROR(Herder, "txSetHashes[0]: {}", hexAbbrev(txSetHashes.at(0)));
     return std::all_of(std::begin(txSetHashes), std::end(txSetHashes),
                        [&](Hash const& txSetHash) {
                            return getKnownTxSet(txSetHash, 0, false);
@@ -630,10 +630,10 @@ PendingEnvelopes::startFetch(SCPEnvelope const& envelope)
     {
         if (!getKnownTxSet(h2, 0, false))
         {
-            CLOG_ERROR(
-                Herder,
-                "PendingEnvelopes::startFetch: requesting missing txset {}",
-                hexAbbrev(h2));
+            // CLOG_ERROR(
+            //     Herder,
+            //     "PendingEnvelopes::startFetch: requesting missing txset {}",
+            //     hexAbbrev(h2));
             mTxSetFetcher.fetch(h2, envelope);
             needSomething = true;
         }

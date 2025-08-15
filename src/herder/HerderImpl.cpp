@@ -914,11 +914,11 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
             auto maybeQSet = mApp.getHerder().getQSet(qSetHash);
             if (maybeQSet)
             {
-                CLOG_ERROR(
-                    Herder,
-                    "Proceeding without txset for slot {} envelope type {}",
-                    envelope.statement.slotIndex,
-                    envelope.statement.pledges.type());
+                // CLOG_ERROR(
+                //     Herder,
+                //     "Proceeding without txset for slot {} envelope type {}",
+                //     envelope.statement.slotIndex,
+                //     envelope.statement.pledges.type());
                 processSCPQueue();
             }
         }
@@ -1112,7 +1112,7 @@ void
 HerderImpl::processSCPQueueUpToIndex(uint64 slotIndex)
 {
     ZoneScoped;
-    CLOG_ERROR(Herder, "Processing SCP queue up to index {}", slotIndex);
+    //CLOG_ERROR(Herder, "Processing SCP queue up to index {}", slotIndex);
     while (true)
     {
         SCPEnvelopeWrapperPtr envW = mPendingEnvelopes.pop(slotIndex);
