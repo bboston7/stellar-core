@@ -888,7 +888,16 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
     else
     {
         SCPStatementType type = envelope.statement.pledges.type();
-        if (status == Herder::ENVELOPE_STATUS_FETCHING &&
+        // TODO: I gated this behind an application state check because there
+        // seem to be some bugs with catchup and `kAwaitingDownload` values
+        // making it further than they should. I don't think this state check is
+        // the right long-term solution, but for the prototype it's probably
+        // fine.  Specifically, I'm concerned about how this all works if a
+        // running node loses sync. Will there be issues with flipping the
+        // feature off and on again while running? Feels like downstream code
+        // should handle this, but I'm not sure how at the moment.
+        if (mApp.getState() == Application::State::APP_SYNCED_STATE &&
+            status == Herder::ENVELOPE_STATUS_FETCHING &&
             (type == SCP_ST_NOMINATE || type == SCP_ST_PREPARE))
         {
             std::string txt("FETCHING");

@@ -215,6 +215,8 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
     {
         if (validationRes == SCPDriver::kMaybeValidValue)
         {
+            // TODO: Should we also enter this branch if validationRes ==
+            // kAwaitingDownload?
             mSlot.setFullyValidated(false);
         }
 
@@ -1107,6 +1109,14 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
             if (validationLevel == SCPDriver::kAwaitingDownload)
             {
+                // TODO: I think this check has weird issues. It might need to
+                // be validationLevel == kFullyValidated, but weirdly enough
+                // partial values also need to get through here during catchup
+                // (double check that)? Not sure how to handle this properly.
+                // Perhaps if SCP is not synced then parallel downloading should
+                // be disabled (at least for the prototype). The crash in
+                // weird-crash.txt happened during catchup, and I think I'm
+                // missing some code flows there.
                 CLOG_ERROR(
                     SCP,
                     "BallotProtocol::setConfirmPrepared slot:{} "
