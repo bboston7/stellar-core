@@ -5697,7 +5697,8 @@ feedTxSetFromStatement(Application& sourceNode, Application& targetNode,
 }
 
 static void
-feedTxSetsFromSlot(Application& sourceNode, Application& targetNode, uint64 slotIndex)
+feedTxSetsFromSlot(Application& sourceNode, Application& targetNode,
+                   uint64 slotIndex)
 {
     REQUIRE(slotIndex ==
             targetNode.getLedgerManager().getLastClosedLedgerNum() + 1);
@@ -5728,15 +5729,9 @@ feedTxSetsFromSlot(Application& sourceNode, Application& targetNode, uint64 slot
 // slot
 static void
 feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
-                       uint64 slotIndex, bool checkRecvStatus)
+                       uint64 slotIndex, bool doTest, 
+                       size_t injectionPoint = 0)
 {
-    if (checkRecvStatus)
-    {
-        // TODO: Add a REQUIRE check here that the tx set corresponding to
-        // `slotIndex` has a nonzero number of transactions in it. Use
-        // `targetNode`'s `Application` instance to perform this check.
-    }
-
     REQUIRE(slotIndex ==
             targetNode.getLedgerManager().getLastClosedLedgerNum() + 1);
     // Get the herder and SCP from the source node
@@ -5755,16 +5750,20 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
     // Get the target herder
     auto& targetHerder = dynamic_cast<HerderImpl&>(targetNode.getHerder());
 
-    bool fedSlots = false;
-    // Feed each historical statement to the target node
-    for (auto const& histStmt : historicalStatements)
+    CLOG_ERROR(Herder, "Do test {} Injection point {}", doTest, injectionPoint);
+    for (size_t i = 0; i < historicalStatements.size(); ++i)
     {
-        // Node must be synced for background tx set downloading to activate
-        // TODO: This might change ^^. Remove the assert below if it does.
-        REQUIRE(targetNode.getState() == Application::State::APP_SYNCED_STATE);
+        auto const& histStmt = historicalStatements.at(i);
+        // Node must be synced for background tx set downloading to
+        // activate
+        // TODO: This might change ^^. Remove the assert below if it
+        // does.
+        REQUIRE(targetNode.getState() ==
+                Application::State::APP_SYNCED_STATE);
 
         // Create an envelope from the statement
-        SCPEnvelope envelope = sourceSlot->createEnvelope(histStmt.mStatement);
+        SCPEnvelope envelope =
+            sourceSlot->createEnvelope(histStmt.mStatement);
 
         // Feed the envelope to the target node
         auto status = targetHerder.recvSCPEnvelope(envelope);
@@ -5772,22 +5771,40 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
         // Log for debugging
         CLOG_ERROR(
             Herder,
-            "Fed historical SCP message to target node for slot {}, status: {}",
+            "Fed historical SCP message to target node for slot {}, "
+            "status: {}",
             slotIndex, static_cast<int>(status));
 
         // TODO: I figure either of these statuses is OK, but does this
-        // prototype ever report PROCESSED for messages where it doesn't have
-        // the tx set? Should it?
-        // REQUIRE((!checkRecvStatus ||
-        //          status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING ||
-        //          status == Herder::EnvelopeStatus::ENVELOPE_STATUS_PROCESSED));
+        // prototype ever report PROCESSED for messages where it doesn't
+        // have the tx set? Should it?
+        REQUIRE(
+            (!doTest || i > injectionPoint ||
+             status ==
+                 Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING ||
+             status ==
+                 Herder::EnvelopeStatus::ENVELOPE_STATUS_PROCESSED));
 
-        if (checkRecvStatus && !fedSlots)
+        if (doTest && i == injectionPoint)
         {
+            // Inject tx sets
             feedTxSetsFromSlot(sourceNode, targetNode, slotIndex);
-            fedSlots = true;
         }
     }
+}
+
+// Helper function to get the number of injection points for a slot
+static size_t
+getInjectionPointsForSlot(Application& sourceNode, uint64 slotIndex)
+{
+    auto& sourceHerder = dynamic_cast<HerderImpl&>(sourceNode.getHerder());
+    auto& sourceSCP = sourceHerder.getSCP();
+    auto sourceSlot = sourceSCP.getSlotForTesting(slotIndex);
+    REQUIRE(sourceSlot != nullptr);
+    auto const& historicalStatements =
+        sourceSlot->getHistoricalStatementsForTesting();
+    REQUIRE(!historicalStatements.empty());
+    return historicalStatements.size() - 1;
 }
 
 // TODO: Does this belong in SCP tests instead?
@@ -5876,31 +5893,45 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     // Store initial LCL for node0 to verify progress
     auto node0InitialLcl = node0.getLedgerManager().getLastClosedLedgerNum();
 
-    // Feed SCP messages for the first missed slot. Due to disconnect timing,
-    // `node0` might already have the txset for this one, so we'll skip
-    // checking.
-    uint64 firstMissedSlot =
-        node0.getLedgerManager().getLastClosedLedgerNum() + 1;
-    feedSCPMessagesForSlot(node1, node0, firstMissedSlot, false);
+    // Calculate slot indices
+    uint64 firstMissedSlot = node0InitialLcl + 1;
+    uint64 secondMissedSlot = node0InitialLcl + 2;
 
-    // Verify node0 advanced by one ledger.
-    REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
-            node0InitialLcl + 1);
+    // Get the number of injection points for the second slot to test all
+    // possible interleavings
+    size_t numInjectionPoints = getInjectionPointsForSlot(node1, secondMissedSlot);
 
-    // Trigger next ledger
-    // node0.getHerder().triggerNextLedger(node0InitialLcl + 2, false);
-    REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
-    simulation->crankForAtLeast(std::chrono::seconds(10), false);
-    REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
+    // Test all possible interleavings where tx set downloads complete at
+    // different points relative to SCP statements
+    for (size_t injectionPoint = 0; injectionPoint < numInjectionPoints; 
+         ++injectionPoint)
+    {
+        DYNAMIC_SECTION("Injection point " << injectionPoint)
+        {
+            // Feed SCP messages for the first missed slot. Due to disconnect timing,
+            // `node0` might already have the txset for this one, so we'll skip
+            // checking.
+            feedSCPMessagesForSlot(node1, node0, firstMissedSlot, false);
 
-    // Feed SCP messages for the second missed slot
-    uint64 secondMissedSlot =
-        node0.getLedgerManager().getLastClosedLedgerNum() + 1;
-    feedSCPMessagesForSlot(node1, node0, secondMissedSlot, true);
+            // Verify node0 advanced by one ledger.
+            REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
+                    node0InitialLcl + 1);
 
-    // Verify node0 has now caught up by 2 ledgers total
-    REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
-            node0InitialLcl + 2);
+            // Trigger next ledger
+            // node0.getHerder().triggerNextLedger(node0InitialLcl + 2, false);
+            REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
+            simulation->crankForAtLeast(std::chrono::seconds(10), false);
+            REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
+
+            // Feed SCP messages for the second missed slot, testing the specific
+            // injection point for this iteration
+            feedSCPMessagesForSlot(node1, node0, secondMissedSlot, true, injectionPoint);
+
+            // Verify node0 has now caught up by 2 ledgers total
+            REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
+                    node0InitialLcl + 2);
+        }
+    }
 
     // TODO: I don't think it's necessary to crank here. This should have all
     // happened synchronously (for now).
