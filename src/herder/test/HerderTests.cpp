@@ -5691,6 +5691,7 @@ feedTxSetFromStatement(Application& sourceNode, Application& targetNode,
 
         auto txSet = sourceHerder.getTxSet(sv.txSetHash);
         REQUIRE(txSet);
+        REQUIRE(txSet->sizeTxTotal() > 0);
         targetHerder.recvTxSet(txSet->getContentsHash(), txSet);
     }
 }
@@ -5754,11 +5755,7 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
     // Get the target herder
     auto& targetHerder = dynamic_cast<HerderImpl&>(targetNode.getHerder());
 
-    if (checkRecvStatus)
-    {
-        feedTxSetsFromSlot(sourceNode, targetNode, slotIndex);
-    }
-
+    bool fedSlots = false;
     // Feed each historical statement to the target node
     for (auto const& histStmt : historicalStatements)
     {
@@ -5784,6 +5781,12 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
         // REQUIRE((!checkRecvStatus ||
         //          status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING ||
         //          status == Herder::EnvelopeStatus::ENVELOPE_STATUS_PROCESSED));
+
+        if (checkRecvStatus && !fedSlots)
+        {
+            feedTxSetsFromSlot(sourceNode, targetNode, slotIndex);
+            fedSlots = true;
+        }
     }
 }
 
