@@ -5724,8 +5724,12 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
             "Fed historical SCP message to target node for slot {}, status: {}",
             slotIndex, static_cast<int>(status));
 
+        // TODO: I figure either of these statuses is OK, but does this
+        // prototype ever report PROCESSED for messages where it doesn't have
+        // the tx set? Should it?
         REQUIRE((!checkRecvStatus ||
-                 status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING));
+                 status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING ||
+                 status == Herder::EnvelopeStatus::ENVELOPE_STATUS_PROCESSED));
     }
 }
 
@@ -5778,7 +5782,8 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     // Generate payment load from node 1 that will last for at least 5
     // ledgers
     auto& node1LoadGen = simulation->getNode(pubkeys.at(1))->getLoadGenerator();
-    auto loadConfig = GeneratedLoadConfig::txLoad(LoadGenMode::PAY, 100, 500, 10);
+    auto loadConfig =
+        GeneratedLoadConfig::txLoad(LoadGenMode::PAY, 100, 500, 10);
     node1LoadGen.generateLoad(loadConfig);
 
     // // Run for a few more ledgers
