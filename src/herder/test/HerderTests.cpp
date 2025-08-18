@@ -5674,6 +5674,27 @@ TEST_CASE("SCP message capture from previous ledger", "[herder]")
     REQUIRE(checkSCPHistoryEntries(C, 2, expectedTypes));
 }
 
+// Helper function to feed a transaction set from target node to source node
+// based on a HistoricalStatement
+static void
+feedTxSetFromStatement(Application::pointer sourceNode, 
+                      Application::pointer targetNode,
+                      SCPStatement const& statement)
+{
+    auto stellarValues = getStellarValues(statement);
+    auto& sourceHerder = static_cast<HerderImpl&>(sourceNode->getHerder());
+    auto& targetHerder = static_cast<HerderImpl&>(targetNode->getHerder());
+    
+    for (auto const& sv : stellarValues)
+    {
+        auto txSet = targetHerder.getTxSet(sv.txSetHash);
+        if (txSet)
+        {
+            sourceHerder.recvTxSet(txSet->getContentsHash(), txSet);
+        }
+    }
+}
+
 // Helper function to feed SCP messages from one node to another for a specific
 // slot
 static void
