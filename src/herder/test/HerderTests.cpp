@@ -5744,7 +5744,8 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     qset.threshold = threshold;
     for (int i = 0; i < simSize; ++i)
     {
-        auto const& cfg = configs.at(i) = simulation->newConfig();
+        auto& cfg = configs.at(i) = simulation->newConfig();
+        cfg.GENESIS_TEST_ACCOUNT_COUNT = 100;
         auto const& pubkey = cfg.NODE_SEED.getPublicKey();
         pubkeys.at(i) = pubkey;
         qset.validators.push_back(pubkey);
@@ -5774,10 +5775,10 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     simulation->dropConnection(pubkeys.at(0), pubkeys.at(1));
     REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
 
-    // Generate account creation load from node 1 that will last for at least 5
+    // Generate payment load from node 1 that will last for at least 5
     // ledgers
     auto& node1LoadGen = simulation->getNode(pubkeys.at(1))->getLoadGenerator();
-    auto loadConfig = GeneratedLoadConfig::createAccountsLoad(1000, 2);
+    auto loadConfig = GeneratedLoadConfig::txLoad(LoadGenMode::PAY, 100, 500, 10);
     node1LoadGen.generateLoad(loadConfig);
 
     // // Run for a few more ledgers
