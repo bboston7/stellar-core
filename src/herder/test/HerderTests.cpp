@@ -5677,21 +5677,19 @@ TEST_CASE("SCP message capture from previous ledger", "[herder]")
 // Helper function to feed a transaction set from target node to source node
 // based on a HistoricalStatement
 static void
-feedTxSetFromStatement(Application::pointer sourceNode, 
-                      Application::pointer targetNode,
-                      SCPStatement const& statement)
+feedTxSetFromStatement(Application::pointer sourceNode,
+                       Application::pointer targetNode,
+                       SCPStatement const& statement)
 {
     auto stellarValues = getStellarValues(statement);
-    auto& sourceHerder = static_cast<HerderImpl&>(sourceNode->getHerder());
-    auto& targetHerder = static_cast<HerderImpl&>(targetNode->getHerder());
-    
+    auto& sourceHerder = dynamic_cast<HerderImpl&>(sourceNode->getHerder());
+    auto& targetHerder = dynamic_cast<HerderImpl&>(targetNode->getHerder());
+
     for (auto const& sv : stellarValues)
     {
         auto txSet = targetHerder.getTxSet(sv.txSetHash);
-        if (txSet)
-        {
-            sourceHerder.recvTxSet(txSet->getContentsHash(), txSet);
-        }
+        REQUIRE(txSet);
+        sourceHerder.recvTxSet(txSet->getContentsHash(), txSet);
     }
 }
 
@@ -5852,7 +5850,7 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
             node0InitialLcl + 1);
 
     // Trigger next ledger
-    //node0.getHerder().triggerNextLedger(node0InitialLcl + 2, false);
+    // node0.getHerder().triggerNextLedger(node0InitialLcl + 2, false);
     REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
     simulation->crankForAtLeast(std::chrono::seconds(10), false);
     REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
