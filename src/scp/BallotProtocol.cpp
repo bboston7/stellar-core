@@ -18,6 +18,10 @@
 #include <numeric>
 #include <sstream>
 
+// TODO: Should make sure that any subsequent stages to vote-to-commit also
+// require the tx set. Do not externalize without the tx set. Test these cases
+// too.
+
 namespace stellar
 {
 using namespace std::placeholders;
