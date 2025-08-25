@@ -437,6 +437,7 @@ FlowControl::addMsgAndMaybeTrimQueue(std::shared_ptr<StellarMessage const> msg)
         // won't be properly flooded anyways
         if (bytes > mAppConnector.getHerder().getMaxTxSize())
         {
+            // Getting 2025-08-25T23:11:04.242 GD77X [Tx ERROR] Transaction exceeds max size of: 102400
             CLOG_ERROR(Tx, "Transaction exceeds max size of: {}",
                        mAppConnector.getHerder().getMaxTxSize());
             return;
