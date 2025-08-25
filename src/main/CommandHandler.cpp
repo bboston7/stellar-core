@@ -981,6 +981,7 @@ void
 CommandHandler::tx(std::string const& params, std::string& retStr)
 {
     ZoneScoped;
+    CLOG_ERROR(Tx, "hit tx endpoint");
     Json::Value root;
 
     std::map<std::string, std::string> paramMap;
@@ -1010,6 +1011,8 @@ CommandHandler::tx(std::string const& params, std::string& retStr)
             // Add it to our current set and make sure it is valid.
             auto addResult =
                 mApp.getHerder().recvTransaction(transaction, true);
+            CLOG_ERROR(Tx, "recvTransaction returned {}",
+                       TX_STATUS_STRING[static_cast<int>(addResult.code)]);
 
             root["status"] = TX_STATUS_STRING[static_cast<int>(addResult.code)];
             if (addResult.code ==
