@@ -1121,54 +1121,19 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 // be disabled (at least for the prototype). The crash in
                 // weird-crash.txt happened during catchup, and I think I'm
                 // missing some code flows there.
-
-                // Check how long we've been waiting for the transaction set
-                auto waitingTime =
-                    mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
-
-                // TODO: Need to think more about what to do if waitingTime is
-                // nullopt (e.g., transaction set not being fetched, or some
-                // other edge case)
-
                 CLOG_ERROR(
                     SCP,
                     "BallotProtocol::setConfirmPrepared slot:{} "
                     "attempting to vote to commit with kAwaitingDownload value "
                     "- "
-                    "ballot counter:{} value:{} waiting_time:{}ms",
+                    "ballot counter:{} value:{}",
                     mSlot.getSlotIndex(), newC.counter,
-                    mSlot.getSCP().getDriver().getValueString(newC.value),
-                    waitingTime.has_value() ? waitingTime.value().count() : -1);
+                    mSlot.getSCP().getDriver().getValueString(newC.value));
 
-                // Only throw exception if we've been waiting for more than 5
-                // seconds
-                if (waitingTime.has_value() &&
-                    waitingTime.value() >= std::chrono::milliseconds(5000))
-                {
-                    throw std::runtime_error(
-                        "TODO: Cannot vote to commit while "
-                        "transaction set is still "
-                        "awaiting download - need to "
-                        "implement deferred commit voting");
-                }
-                else
-                {
-                    // Stall balloting - return false to indicate no work was
-                    // done
-                    CLOG_TRACE(
-                        SCP,
-                        "BallotProtocol::setConfirmPrepared slot:{} "
-                        "stalling balloting - waiting {}ms for transaction set",
-                        mSlot.getSlotIndex(),
-                        waitingTime.has_value() ? waitingTime.value().count()
-                                                : 0);
-                    // TODO: Is this right? Is returning `false` here enough?
-                    // `advanceSlot` will continue onwards. Do we need another
-                    // mechanism to stop it? Or perhaps the later steps need to
-                    // check for the tx set first and exit early (return
-                    // `false`) themselves if it doesn't exist?
-                    return false;
-                }
+                throw std::runtime_error("TODO: Cannot vote to commit while "
+                                         "transaction set is still "
+                                         "awaiting download - need to "
+                                         "implement deferred commit voting");
             }
 
             // TODO: Is this right? This allows maybe valid / invalid values
