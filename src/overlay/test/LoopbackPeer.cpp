@@ -333,6 +333,15 @@ LoopbackPeer::deliverOne()
             return;
         }
 
+        // Possibly filter out the message.
+        if (!mOutgoingMessageFilter(msg))
+        {
+            CLOG_INFO(Overlay, "LoopbackPeer filtered out message");
+            // TODO: Should this be its own metric? messagesFiltered?
+            mStats.messagesDropped++;
+            return;
+        }
+
         size_t nBytes = msg.mMessage->raw_size();
         mStats.bytesDelivered += nBytes;
 
@@ -538,6 +547,13 @@ LoopbackPeer::setReorderProbability(double d)
 {
     checkProbRange(d);
     mReorderProb = bernoulli_distribution(d);
+}
+
+void
+LoopbackPeer::setOutgoingMessageFilter(
+    std::function<bool(TimestampedMessage const& msg)> f)
+{
+    mOutgoingMessageFilter = std::move(f);
 }
 
 LoopbackPeerConnection::LoopbackPeerConnection(Application& initiator,
