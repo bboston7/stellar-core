@@ -5676,13 +5676,14 @@ TEST_CASE("SCP message capture from previous ledger", "[herder]")
 
 // Helper function to feed a transaction set from source node to target node
 // based on a HistoricalStatement
-static void
+static bool
 feedTxSetFromStatement(Application& sourceNode, Application& targetNode,
                        SCPStatement const& statement)
 {
     auto stellarValues = getStellarValues(statement);
     auto& sourceHerder = dynamic_cast<HerderImpl&>(sourceNode.getHerder());
     auto& targetHerder = dynamic_cast<HerderImpl&>(targetNode.getHerder());
+    bool fedNonEmptySet = false;
 
     for (auto const& sv : stellarValues)
     {
@@ -5691,13 +5692,14 @@ feedTxSetFromStatement(Application& sourceNode, Application& targetNode,
 
         auto txSet = sourceHerder.getTxSet(sv.txSetHash);
         REQUIRE(txSet);
-        REQUIRE(txSet->sizeTxTotal() > 0);
+        fedNonEmptySet |= txSet->sizeTxTotal() > 0;
         targetHerder.recvTxSet(txSet->getContentsHash(), txSet);
         CLOG_ERROR(Herder, "Fed value {}", hexAbbrev(txSet->getContentsHash()));
     }
+    return fedNonEmptySet;
 }
 
-static void
+static bool
 feedTxSetsFromSlot(Application& sourceNode, Application& targetNode,
                    uint64 slotIndex)
 {
@@ -5718,17 +5720,20 @@ feedTxSetsFromSlot(Application& sourceNode, Application& targetNode,
     auto& targetHerder = dynamic_cast<HerderImpl&>(targetNode.getHerder());
 
     // Feed each tx set to the target node
+    bool fedNonEmptySet = false;
     for (auto const& histStmt : historicalStatements)
     {
-        feedTxSetFromStatement(sourceNode, targetNode, histStmt.mStatement);
+        fedNonEmptySet |=
+            feedTxSetFromStatement(sourceNode, targetNode, histStmt.mStatement);
     }
+    return fedNonEmptySet;
 }
 
 // Helper function to feed SCP messages from one node to another for a specific
 // slot
-static void
+static bool
 feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
-                       uint64 slotIndex, bool doTest, size_t injectionPoint = 0)
+                       uint64 slotIndex, size_t injectionPoint)
 {
     REQUIRE(slotIndex ==
             targetNode.getLedgerManager().getLastClosedLedgerNum() + 1);
@@ -5748,7 +5753,8 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
     // Get the target herder
     auto& targetHerder = dynamic_cast<HerderImpl&>(targetNode.getHerder());
 
-    CLOG_ERROR(Herder, "Do test {} Injection point {}", doTest, injectionPoint);
+    CLOG_ERROR(Herder, "Injection point {}", injectionPoint);
+    bool doTest = false;
     for (size_t i = 0; i < historicalStatements.size(); ++i)
     {
         auto const& histStmt = historicalStatements.at(i);
@@ -5773,6 +5779,10 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
         // TODO: I figure either of these statuses is OK, but does this
         // prototype ever report PROCESSED for messages where it doesn't
         // have the tx set? Should it?
+        // TODO: I think technically it's possible that with the FIRST time
+        // around, there's a nonempty tx set that node0 already has, so this
+        // *could* return READY here in that case. Should probably have a more
+        // clever check here.
         REQUIRE((!doTest || i > injectionPoint ||
                  status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING ||
                  status == Herder::EnvelopeStatus::ENVELOPE_STATUS_PROCESSED));
@@ -5784,12 +5794,13 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
         // requesting it, but it would be better to only send each tx set once
         // (rather than spamming it), and also support tx sets that come in
         // *after* the injection point.
-        if (doTest && i >= injectionPoint)
+        if (i >= injectionPoint)
         {
             // Inject tx sets
-            feedTxSetsFromSlot(sourceNode, targetNode, slotIndex);
+            doTest |= feedTxSetsFromSlot(sourceNode, targetNode, slotIndex);
         }
     }
+    return doTest;
 }
 
 // Helper function to get the number of injection points for a slot
@@ -5911,28 +5922,40 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
             // Feed SCP messages for the first missed slot. Due to disconnect
             // timing, `node0` might already have the txset for this one, so
             // we'll skip checking.
-            feedSCPMessagesForSlot(node1, node0, firstMissedSlot, false);
+            bool ranTest = feedSCPMessagesForSlot(node1, node0, firstMissedSlot,
+                                                  injectionPoint);
 
             // Verify node0 advanced by one ledger.
             REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
                     node0InitialLcl + 1);
 
-            // Trigger next ledger
-            // node0.getHerder().triggerNextLedger(node0InitialLcl + 2, false);
-            REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() ==
+            if (!ranTest)
+            {
+                // Due to disconnect timing, `node0` might already have had the
+                // txset for the first slot (or it may have been empty), so do
+                // another slot.
+
+                // Trigger next ledger
+                // node0.getHerder().triggerNextLedger(node0InitialLcl + 2,
+                // false);
+                REQUIRE(
+                    node0.getOverlayManager().getAuthenticatedPeersCount() ==
                     0);
-            simulation->crankForAtLeast(std::chrono::seconds(10), false);
-            REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() ==
+                simulation->crankForAtLeast(std::chrono::seconds(10), false);
+                REQUIRE(
+                    node0.getOverlayManager().getAuthenticatedPeersCount() ==
                     0);
 
-            // Feed SCP messages for the second missed slot, testing the
-            // specific injection point for this iteration
-            feedSCPMessagesForSlot(node1, node0, secondMissedSlot, true,
-                                   injectionPoint);
+                // Feed SCP messages for the second missed slot, testing the
+                // specific injection point for this iteration
+                ranTest = feedSCPMessagesForSlot(node1, node0, secondMissedSlot,
+                                                 injectionPoint);
+                REQUIRE(ranTest);
 
-            // Verify node0 has now caught up by 2 ledgers total
-            REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
-                    node0InitialLcl + 2);
+                // Verify node0 has now caught up by 2 ledgers total
+                REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
+                        node0InitialLcl + 2);
+            }
         }
     }
 
