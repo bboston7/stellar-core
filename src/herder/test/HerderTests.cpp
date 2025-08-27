@@ -5693,6 +5693,7 @@ feedTxSetFromStatement(Application& sourceNode, Application& targetNode,
         REQUIRE(txSet);
         REQUIRE(txSet->sizeTxTotal() > 0);
         targetHerder.recvTxSet(txSet->getContentsHash(), txSet);
+        CLOG_ERROR(Herder, "Fed value {}", hexAbbrev(txSet->getContentsHash()));
     }
 }
 
@@ -5700,8 +5701,6 @@ static void
 feedTxSetsFromSlot(Application& sourceNode, Application& targetNode,
                    uint64 slotIndex)
 {
-    REQUIRE(slotIndex ==
-            targetNode.getLedgerManager().getLastClosedLedgerNum() + 1);
     // Get the herder and SCP from the source node
     auto& sourceHerder = dynamic_cast<HerderImpl&>(sourceNode.getHerder());
     auto& sourceSCP = sourceHerder.getSCP();
@@ -5729,8 +5728,7 @@ feedTxSetsFromSlot(Application& sourceNode, Application& targetNode,
 // slot
 static void
 feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
-                       uint64 slotIndex, bool doTest, 
-                       size_t injectionPoint = 0)
+                       uint64 slotIndex, bool doTest, size_t injectionPoint = 0)
 {
     REQUIRE(slotIndex ==
             targetNode.getLedgerManager().getLastClosedLedgerNum() + 1);
@@ -5758,34 +5756,35 @@ feedSCPMessagesForSlot(Application& sourceNode, Application& targetNode,
         // activate
         // TODO: This might change ^^. Remove the assert below if it
         // does.
-        REQUIRE(targetNode.getState() ==
-                Application::State::APP_SYNCED_STATE);
+        REQUIRE(targetNode.getState() == Application::State::APP_SYNCED_STATE);
 
         // Create an envelope from the statement
-        SCPEnvelope envelope =
-            sourceSlot->createEnvelope(histStmt.mStatement);
+        SCPEnvelope envelope = sourceSlot->createEnvelope(histStmt.mStatement);
 
         // Feed the envelope to the target node
         auto status = targetHerder.recvSCPEnvelope(envelope);
 
         // Log for debugging
-        CLOG_ERROR(
-            Herder,
-            "Fed historical SCP message to target node for slot {}, "
-            "status: {}",
-            slotIndex, static_cast<int>(status));
+        CLOG_ERROR(Herder,
+                   "Fed historical SCP message to target node for slot {}, "
+                   "status: {}",
+                   slotIndex, static_cast<int>(status));
 
         // TODO: I figure either of these statuses is OK, but does this
         // prototype ever report PROCESSED for messages where it doesn't
         // have the tx set? Should it?
-        REQUIRE(
-            (!doTest || i > injectionPoint ||
-             status ==
-                 Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING ||
-             status ==
-                 Herder::EnvelopeStatus::ENVELOPE_STATUS_PROCESSED));
+        REQUIRE((!doTest || i > injectionPoint ||
+                 status == Herder::EnvelopeStatus::ENVELOPE_STATUS_FETCHING ||
+                 status == Herder::EnvelopeStatus::ENVELOPE_STATUS_PROCESSED));
 
-        if (doTest && i == injectionPoint)
+        // TODO: This spams the tx sets at the injection point and beyond
+        // because if a later vote changes the tx set, the target will have
+        // ignored the earlier tx sets (as it never requested them). This is a
+        // hack to ensure the target always gets the tx set immediately after
+        // requesting it, but it would be better to only send each tx set once
+        // (rather than spamming it), and also support tx sets that come in
+        // *after* the injection point.
+        if (doTest && i >= injectionPoint)
         {
             // Inject tx sets
             feedTxSetsFromSlot(sourceNode, targetNode, slotIndex);
@@ -5899,18 +5898,19 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
 
     // Get the number of injection points for the second slot to test all
     // possible interleavings
-    size_t numInjectionPoints = getInjectionPointsForSlot(node1, secondMissedSlot);
+    size_t numInjectionPoints =
+        getInjectionPointsForSlot(node1, secondMissedSlot);
 
     // Test all possible interleavings where tx set downloads complete at
     // different points relative to SCP statements
-    for (size_t injectionPoint = 0; injectionPoint < numInjectionPoints; 
+    for (size_t injectionPoint = 0; injectionPoint < numInjectionPoints;
          ++injectionPoint)
     {
         DYNAMIC_SECTION("Injection point " << injectionPoint)
         {
-            // Feed SCP messages for the first missed slot. Due to disconnect timing,
-            // `node0` might already have the txset for this one, so we'll skip
-            // checking.
+            // Feed SCP messages for the first missed slot. Due to disconnect
+            // timing, `node0` might already have the txset for this one, so
+            // we'll skip checking.
             feedSCPMessagesForSlot(node1, node0, firstMissedSlot, false);
 
             // Verify node0 advanced by one ledger.
@@ -5919,13 +5919,16 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
 
             // Trigger next ledger
             // node0.getHerder().triggerNextLedger(node0InitialLcl + 2, false);
-            REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
+            REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() ==
+                    0);
             simulation->crankForAtLeast(std::chrono::seconds(10), false);
-            REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() == 0);
+            REQUIRE(node0.getOverlayManager().getAuthenticatedPeersCount() ==
+                    0);
 
-            // Feed SCP messages for the second missed slot, testing the specific
-            // injection point for this iteration
-            feedSCPMessagesForSlot(node1, node0, secondMissedSlot, true, injectionPoint);
+            // Feed SCP messages for the second missed slot, testing the
+            // specific injection point for this iteration
+            feedSCPMessagesForSlot(node1, node0, secondMissedSlot, true,
+                                   injectionPoint);
 
             // Verify node0 has now caught up by 2 ledgers total
             REQUIRE(node0.getLedgerManager().getLastClosedLedgerNum() ==
