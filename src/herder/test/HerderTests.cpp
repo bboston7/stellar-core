@@ -5975,6 +5975,61 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     // REQUIRE(node0LCL >= node0.getLedgerManager().getLastClosedLedgerNum());
 }
 
+// TODO: Does this belong in SCP tests instead?
+// TODO: Better test name
+TEST_CASE("Skip ledger", "[herder]")
+{
+    int constexpr simSize = 3;
+    int constexpr threshold = 2;
+    auto const networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    auto simulation =
+        std::make_shared<Simulation>(Simulation::OVER_LOOPBACK, networkID);
+
+    std::array<Config, simSize> configs;
+    std::array<PublicKey, simSize> pubkeys;
+    SCPQuorumSet qset;
+    qset.threshold = threshold;
+    for (int i = 0; i < simSize; ++i)
+    {
+        auto& cfg = configs.at(i) = simulation->newConfig();
+        cfg.GENESIS_TEST_ACCOUNT_COUNT = 100;
+        auto const& pubkey = cfg.NODE_SEED.getPublicKey();
+        pubkeys.at(i) = pubkey;
+        qset.validators.push_back(pubkey);
+    }
+
+    // Add nodes to simulation
+    for (int i = 0; i < simSize; ++i)
+    {
+        auto const& cfg = configs.at(i);
+        simulation->addNode(cfg.NODE_SEED, qset, &cfg);
+    }
+
+    // Connect nodes and start simulation
+    simulation->addPendingConnection(pubkeys.at(0), pubkeys.at(1));
+    simulation->addPendingConnection(pubkeys.at(1), pubkeys.at(2));
+    simulation->startAllNodes();
+
+    // TODO: Is this necessary? vv
+    // wait for ledgers to close so nodes get the updated transitive quorum
+    simulation->crankUntil(
+        [&simulation]() { return simulation->haveAllExternalized(3, 1); },
+        10 * simulation->getExpectedLedgerCloseTime(), false);
+
+    // Generate payment load from node 1 that will last for at least 5
+    // ledgers
+    auto& node1LoadGen = simulation->getNode(pubkeys.at(1))->getLoadGenerator();
+    auto loadConfig =
+        GeneratedLoadConfig::txLoad(LoadGenMode::PAY, 100, 500, 10);
+    node1LoadGen.generateLoad(loadConfig);
+
+    // TODO: Disconnect all nodes. Manually feed SCP messages between the nodes.
+    // Do not exchange any other messages. Do this in an infinite loop. Each
+    // iteration should step the simulation a small amount, exchange messages,
+    // then repeat.
+}
+
+
 using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;
 
 // Generate a Topology with a single org containing 3 validators of HIGH quality
