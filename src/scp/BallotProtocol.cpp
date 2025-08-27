@@ -1140,6 +1140,12 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     mSlot.getSCP().getDriver().getValueString(newC.value),
                     waitingTime.has_value() ? waitingTime.value().count() : -1);
 
+                // TODO: Remove to re-enable timeout vv
+                throw std::runtime_error("TODO: Cannot vote to commit while "
+                                         "transaction set is still "
+                                         "awaiting download - need to "
+                                         "implement deferred commit voting");
+
                 // Only throw exception if we've been waiting for more than 5
                 // seconds
                 if (waitingTime.has_value() &&

@@ -333,15 +333,6 @@ LoopbackPeer::deliverOne()
             return;
         }
 
-        // Possibly filter out the message.
-        if (!mOutgoingMessageFilter(msg))
-        {
-            CLOG_INFO(Overlay, "LoopbackPeer filtered out message");
-            // TODO: Should this be its own metric? messagesFiltered?
-            mStats.messagesDropped++;
-            return;
-        }
-
         size_t nBytes = msg.mMessage->raw_size();
         mStats.bytesDelivered += nBytes;
 
@@ -551,7 +542,7 @@ LoopbackPeer::setReorderProbability(double d)
 
 void
 LoopbackPeer::setOutgoingMessageFilter(
-    std::function<bool(TimestampedMessage const& msg)> f)
+    std::function<bool(StellarMessage const& msg)> f)
 {
     mOutgoingMessageFilter = std::move(f);
 }
@@ -593,5 +584,19 @@ LoopbackPeer::checkCapacity(std::shared_ptr<LoopbackPeer> otherPeer) const
            otherPeer->mAppConnector.getOverlayManager()
                    .getFlowControlBytesTotal() ==
                getFlowControl()->getCapacityBytes().getOutboundCapacity();
+}
+
+void
+LoopbackPeer::sendMessage(std::shared_ptr<StellarMessage const> msg,
+                          bool log)
+{
+    // TODO: Drop here so that we don't run into issues with authenticated MAC
+    // counters. This is hacky and not great. Probably want a boolean in peer1's
+    // Herder called something like "ignoreTxSetRequestsForTesting" or something
+    // that just ignores any inbound requests for tx sets.
+    if (mOutgoingMessageFilter(*msg))
+    {
+        Peer::sendMessage(msg, log);
+    }
 }
 }

@@ -5989,10 +5989,11 @@ TEST_CASE("Skip ledger", "[herder]")
     std::array<PublicKey, simSize> pubkeys;
     SCPQuorumSet qset;
     qset.threshold = threshold;
+    constexpr int numAccounts = 30000;
     for (int i = 0; i < simSize; ++i)
     {
         auto& cfg = configs.at(i) = simulation->newConfig();
-        cfg.GENESIS_TEST_ACCOUNT_COUNT = 100;
+        cfg.GENESIS_TEST_ACCOUNT_COUNT = numAccounts;
         auto const& pubkey = cfg.NODE_SEED.getPublicKey();
         pubkeys.at(i) = pubkey;
         qset.validators.push_back(pubkey);
@@ -6020,15 +6021,39 @@ TEST_CASE("Skip ledger", "[herder]")
     // ledgers
     auto& node1LoadGen = simulation->getNode(pubkeys.at(1))->getLoadGenerator();
     auto loadConfig =
-        GeneratedLoadConfig::txLoad(LoadGenMode::PAY, 100, 500, 10);
+        GeneratedLoadConfig::txLoad(LoadGenMode::PAY, numAccounts, 5000, 5);
     node1LoadGen.generateLoad(loadConfig);
 
-    // TODO: Disconnect all nodes. Manually feed SCP messages between the nodes.
-    // Do not exchange any other messages. Do this in an infinite loop. Each
-    // iteration should step the simulation a small amount, exchange messages,
-    // then repeat.
-}
+    // Set up message filters to drop TX set related messages
+    for (size_t i = 0; i < pubkeys.size(); ++i)
+    {
+        for (size_t j = 0; j < pubkeys.size(); ++j)
+        {
+            if (i != j)
+            {
+                auto conn =
+                    simulation->getLoopbackConnection(pubkeys[i], pubkeys[j]);
+                if (conn)
+                {
+                    auto filter = [](StellarMessage const& msg) {
+                        auto msgType = msg.type();
+                        return msgType != GET_TX_SET && msgType != TX_SET &&
+                               msgType != GENERALIZED_TX_SET;
+                        return true;
+                    };
 
+                    conn->getInitiator()->setOutgoingMessageFilter(filter);
+                    conn->getAcceptor()->setOutgoingMessageFilter(filter);
+                }
+            }
+        }
+    }
+
+    CLOG_ERROR(Herder, "There's a disconnect here");
+
+    // Run simulation for a while
+    simulation->crankForAtLeast(std::chrono::minutes(5), false);
+}
 
 using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;
 

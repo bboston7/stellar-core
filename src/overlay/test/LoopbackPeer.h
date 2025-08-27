@@ -42,8 +42,8 @@ class LoopbackPeer : public Peer
     std::bernoulli_distribution mDamageProb{0.0};
     std::bernoulli_distribution mDropProb{0.0};
 
-    std::function<bool(TimestampedMessage const& msg)> mOutgoingMessageFilter =
-        [](TimestampedMessage const& msg) { return true; };
+    std::function<bool(StellarMessage const& msg)> mOutgoingMessageFilter =
+        [](StellarMessage const& msg) { return true; };
 
     struct Stats
     {
@@ -119,7 +119,7 @@ class LoopbackPeer : public Peer
 
     // TODO: Docs
     void setOutgoingMessageFilter(
-        std::function<bool(TimestampedMessage const& msg)> f);
+        std::function<bool(StellarMessage const& msg)> f);
 
     void clearInAndOutQueues();
 
@@ -163,11 +163,8 @@ class LoopbackPeer : public Peer
     using Peer::sendMessage;
     using Peer::sendPeers;
 
-    // Helper methods for manual SCP message exchange testing
-    std::vector<TimestampedMessage> getSCPMessagesFromQueue() const;
-    bool deliverOneSCPMessage();
-    void clearNonSCPMessages();
-    size_t getSCPMessageCount() const;
+    void sendMessage(std::shared_ptr<StellarMessage const> msg,
+                             bool log = true) override;
 
     friend class LoopbackPeerConnection;
 };
