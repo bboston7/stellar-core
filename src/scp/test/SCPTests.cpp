@@ -129,6 +129,12 @@ class TestSCP : public SCPDriver
         return std::nullopt;
     }
 
+    Value makeSkipLedgerValueFromValue(Value const& value) const override
+    {
+        // TODO: Implement?
+        releaseAssert(false);
+    }
+
     void
     emitEnvelope(SCPEnvelope const& envelope) override
     {

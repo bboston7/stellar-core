@@ -92,6 +92,12 @@ class TestNominationSCP : public SCPDriver
         return std::nullopt;
     }
 
+    Value makeSkipLedgerValueFromValue(Value const& value) const override
+    {
+        // TODO: Implement?
+        releaseAssert(false);
+    }
+
     std::map<Hash, SCPQuorumSetPtr> mQuorumSets;
 
     Value const&

@@ -35,7 +35,8 @@
 
 namespace
 {
-Hash const SKIP_LEDGER_HASH{0};
+// TODO: Does this work to zero-initialize the hash?
+Hash const SKIP_LEDGER_HASH{};
 }
 
 namespace stellar
