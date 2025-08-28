@@ -397,7 +397,8 @@ BallotProtocol::maybeReplaceValueWithSkip(SCPBallot& ballot) const
     }
 
     // We've waited too long for this value. Replace with a `skip`.
-    ballot.value = SKIP_LEDGER_VALUE;
+    ballot.value =
+        mSlot.getSCPDriver().makeSkipLedgerValueFromValue(ballot.value);
     CLOG_ERROR(Herder, "Voting to skip slot {}", mSlot.getSlotIndex());
 }
 

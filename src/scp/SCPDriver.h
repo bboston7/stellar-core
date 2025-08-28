@@ -147,6 +147,9 @@ class SCPDriver
         return nullptr;
     }
 
+    // Helper function to craft a skip ledger value from a Value.
+    virtual Value makeSkipLedgerValueFromValue(Value const& v) const = 0;
+
     // `getValueString` is used for debugging
     // default implementation is the hash of the value
     virtual std::string getValueString(Value const& v) const;

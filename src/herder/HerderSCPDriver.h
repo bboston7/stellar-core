@@ -76,6 +76,8 @@ class HerderSCPDriver : public SCPDriver
     std::string toShortString(NodeID const& pk) const override;
     std::string getValueString(Value const& v) const override;
 
+    Value makeSkipLedgerValueFromValue(Value const& v) const override;
+
     // timer handling
     void setupTimer(uint64_t slotIndex, int timerID,
                     std::chrono::milliseconds timeout,

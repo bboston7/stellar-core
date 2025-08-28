@@ -21,9 +21,6 @@ class Slot;
 // used to filter statements
 typedef std::function<bool(SCPStatement const& st)> StatementPredicate;
 
-// TODO: Move this?
-const static Value SKIP_LEDGER_VALUE = {0};
-
 /**
  * The BallotProtocol object implements and maintains the relevant state for the
  * ballot protocol.

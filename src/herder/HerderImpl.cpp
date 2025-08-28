@@ -51,6 +51,7 @@
 #include <fmt/format.h>
 
 using namespace std;
+
 namespace stellar
 {
 
@@ -1112,7 +1113,7 @@ void
 HerderImpl::processSCPQueueUpToIndex(uint64 slotIndex)
 {
     ZoneScoped;
-    //CLOG_ERROR(Herder, "Processing SCP queue up to index {}", slotIndex);
+    // CLOG_ERROR(Herder, "Processing SCP queue up to index {}", slotIndex);
     while (true)
     {
         SCPEnvelopeWrapperPtr envW = mPendingEnvelopes.pop(slotIndex);

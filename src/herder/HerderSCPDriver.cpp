@@ -33,6 +33,11 @@
 #include <stdexcept>
 #include <xdrpp/marshal.h>
 
+namespace
+{
+Hash const SKIP_LEDGER_HASH{0};
+}
+
 namespace stellar
 {
 
@@ -140,7 +145,8 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
             }
             else
             {
-                // CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
+                // CLOG_ERROR(Herder, "TODO: Should we be checking that tx set
+                // is "
                 //                    "scheduled to download here?");
                 // throw std::runtime_error(fmt::format(
                 //     FMT_STRING("SCPHerderEnvelopeWrapper: Wrapping an unknown
@@ -499,6 +505,21 @@ HerderSCPDriver::getValueString(Value const& v) const
     }
 }
 
+Value
+HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
+{
+    ZoneScoped;
+    StellarValue sv;
+    bool success = toStellarValue(v, sv);
+    // TODO: Handle failure
+    releaseAssert(success);
+
+    StellarValue skipValue =
+        mHerder.makeStellarValue(SKIP_LEDGER_HASH, sv.closeTime, sv.upgrades,
+                                 mApp.getConfig().NODE_SEED);
+    return xdr::xdr_to_opaque(skipValue);
+}
+
 // timer handling
 void
 HerderSCPDriver::timerCallbackWrapper(uint64_t slotIndex, int timerID,
@@ -649,8 +670,8 @@ compareTxSets(ApplicableTxSetFrameConstPtr const& l,
     {
         // CLOG_ERROR(
         //     Herder,
-        //     "Comparing tx sets but one is null: l: {}, r: {}, lh: {}, rh: {}",
-        //     l ? "exists" : "null", r ? "exists" : "null", hexAbbrev(lh),
+        //     "Comparing tx sets but one is null: l: {}, r: {}, lh: {}, rh:
+        //     {}", l ? "exists" : "null", r ? "exists" : "null", hexAbbrev(lh),
         //     hexAbbrev(rh));
         // If one exists, choose it
         return !l;
