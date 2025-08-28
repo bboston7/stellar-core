@@ -373,6 +373,7 @@ bool
 BallotProtocol::bumpState(Value const& value, uint32 n)
 {
     ZoneScoped;
+    CLOG_ERROR(Herder, "Bump state!");
     if (mPhase != SCP_PHASE_PREPARE && mPhase != SCP_PHASE_CONFIRM)
     {
         return false;
@@ -392,6 +393,7 @@ BallotProtocol::bumpState(Value const& value, uint32 n)
     {
         newb.value = value;
     }
+
 
     CLOG_TRACE(SCP, "BallotProtocol::bumpState i: {} v: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(newb));
@@ -525,6 +527,9 @@ BallotProtocol::startBallotProtocolTimer()
 void
 BallotProtocol::stopBallotProtocolTimer()
 {
+    // TODO: Maybe the issue is that the ballot protocol stops too early?
+    CLOG_ERROR(Herder, "Stopping ballot protocol timer for slot {}",
+               mSlot.getSlotIndex());
     std::shared_ptr<Slot> slot = mSlot.shared_from_this();
     mSlot.getSCPDriver().setupTimer(mSlot.getSlotIndex(),
                                     Slot::BALLOT_PROTOCOL_TIMER,
@@ -1140,16 +1145,19 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     mSlot.getSCP().getDriver().getValueString(newC.value),
                     waitingTime.has_value() ? waitingTime.value().count() : -1);
 
-                // TODO: Remove to re-enable timeout vv
-                throw std::runtime_error("TODO: Cannot vote to commit while "
-                                         "transaction set is still "
-                                         "awaiting download - need to "
-                                         "implement deferred commit voting");
+                CLOG_ERROR(Herder, "Waiting time: {}",
+                           waitingTime.has_value()
+                               ? std::to_string(waitingTime.value().count())
+                               : "nullopt");
 
                 // Only throw exception if we've been waiting for more than 5
                 // seconds
+                // TODO: Skip ledger time needs to be configurable. This is low
+                // for unit testing because of the way virtual clock works
+                // (jumps to next event). This needs to trigger *before* the
+                // heartbeat, but it won't
                 if (waitingTime.has_value() &&
-                    waitingTime.value() >= std::chrono::milliseconds(5000))
+                    waitingTime.value() >= std::chrono::milliseconds(100))
                 {
                     throw std::runtime_error(
                         "TODO: Cannot vote to commit while "
