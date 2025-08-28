@@ -21,12 +21,16 @@ class Slot;
 // used to filter statements
 typedef std::function<bool(SCPStatement const& st)> StatementPredicate;
 
+// TODO: Move this?
+const static Value SKIP_LEDGER_VALUE = {0};
+
 /**
  * The BallotProtocol object implements and maintains the relevant state for the
  * ballot protocol.
  */
 class BallotProtocol
 {
+
     Slot& mSlot;
 
     bool mHeardFromQuorum;
@@ -292,6 +296,9 @@ class BallotProtocol
     // such doesn't do any validation
     // check: verifies that ballot is greater than old one
     void bumpToBallot(SCPBallot const& ballot, bool check);
+
+    // TODO: Docs
+    void maybeReplaceValueWithSkip(SCPBallot& ballot) const;
 
     // switch the local node to the given ballot's value
     // with the assumption that the ballot is more recent than the one

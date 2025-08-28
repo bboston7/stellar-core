@@ -21,6 +21,18 @@
 // TODO: Should make sure that any subsequent stages to vote-to-commit also
 // require the tx set. Do not externalize without the tx set. Test these cases
 // too.
+using namespace std::chrono_literals;
+
+namespace
+{
+// TODO: Skip ledger time needs to be configurable. This is low
+// for unit testing because of the way virtual clock works
+// (jumps to next event). This needs to trigger *before* the
+// heartbeat, but it won't for some reason. Not sure if that's a `Simulation`
+// thing, or if SCP has difficulty with check itself in the absence of new
+// external messages.
+constexpr std::chrono::milliseconds TX_SET_DOWNLOAD_TIMEOUT = 100ms;
+}
 
 namespace stellar
 {
@@ -351,6 +363,44 @@ BallotProtocol::abandonBallot(uint32 n)
     return res;
 }
 
+void
+BallotProtocol::maybeReplaceValueWithSkip(SCPBallot& ballot) const
+{
+    // Check validation value
+    auto validationLevel = mSlot.getSCPDriver().validateValue(
+        mSlot.getSlotIndex(), ballot.value, false);
+    if (validationLevel != SCPDriver::kAwaitingDownload)
+    {
+        // Not a value currently being downloaded. No need to replace.
+        return;
+    }
+
+    // Check how long we've been waiting
+    auto waitingTime =
+        mSlot.getSCPDriver().getTxSetDownloadWaitTime(ballot.value);
+
+    CLOG_ERROR(Herder, "Waiting time: {}",
+               waitingTime.has_value()
+                   ? std::to_string(waitingTime.value().count())
+                   : "nullopt");
+
+    // TODO: What do we do in this case? Maybe have some way to feed back into
+    // Herder to start a timer? I really don't think this should be possible,
+    // but if this DOES happen we should probably log an error and start the
+    // timer rather than crash.
+    releaseAssert(waitingTime.has_value());
+
+    if (waitingTime.value() < TX_SET_DOWNLOAD_TIMEOUT)
+    {
+        // Haven't timed out yet. Keep waiting.
+        return;
+    }
+
+    // We've waited too long for this value. Replace with a `skip`.
+    ballot.value = SKIP_LEDGER_VALUE;
+    CLOG_ERROR(Herder, "Voting to skip slot {}", mSlot.getSlotIndex());
+}
+
 // TODO: Either here or abandonBallot is where we should check if the value
 // timeout has expired. If so, then we can replace the value with `skip` while
 // we bump the counter.
@@ -394,6 +444,7 @@ BallotProtocol::bumpState(Value const& value, uint32 n)
         newb.value = value;
     }
 
+    maybeReplaceValueWithSkip(newb);
 
     CLOG_TRACE(SCP, "BallotProtocol::bumpState i: {} v: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(newb));
@@ -1145,46 +1196,9 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     mSlot.getSCP().getDriver().getValueString(newC.value),
                     waitingTime.has_value() ? waitingTime.value().count() : -1);
 
-                CLOG_ERROR(Herder, "Waiting time: {}",
-                           waitingTime.has_value()
-                               ? std::to_string(waitingTime.value().count())
-                               : "nullopt");
-
-                // Only throw exception if we've been waiting for more than 5
-                // seconds
-                // TODO: Skip ledger time needs to be configurable. This is low
-                // for unit testing because of the way virtual clock works
-                // (jumps to next event). This needs to trigger *before* the
-                // heartbeat, but it won't
-                if (waitingTime.has_value() &&
-                    waitingTime.value() >= std::chrono::milliseconds(100))
-                {
-                    throw std::runtime_error(
-                        "TODO: Cannot vote to commit while "
-                        "transaction set is still "
-                        "awaiting download - need to "
-                        "implement deferred commit voting");
-                }
-                else
-                {
-                    // Stall balloting - return false to indicate no work was
-                    // done
-                    CLOG_TRACE(
-                        SCP,
-                        "BallotProtocol::setConfirmPrepared slot:{} "
-                        "stalling balloting - waiting {}ms for transaction set",
-                        mSlot.getSlotIndex(),
-                        waitingTime.has_value() ? waitingTime.value().count()
-                                                : 0);
-                    // TODO: Is this right? Is returning `false` here enough?
-                    // `advanceSlot` will continue onwards. Do we need another
-                    // mechanism to stop it? Or perhaps the later steps need to
-                    // check for the tx set first and exit early (return
-                    // `false`) themselves if it doesn't exist?
-                    return false;
-                }
+                // Stall balloting. Return false to indicate no work was done.
+                return false;
             }
-
             // TODO: Is this right? This allows maybe valid / invalid values
             // through, but that's how the original code worked. I think during
             // catchup this expects maybe valid values?
