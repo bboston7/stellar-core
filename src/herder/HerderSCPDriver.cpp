@@ -33,12 +33,6 @@
 #include <stdexcept>
 #include <xdrpp/marshal.h>
 
-namespace
-{
-// TODO: Does this work to zero-initialize the hash?
-Hash const SKIP_LEDGER_HASH{};
-}
-
 namespace stellar
 {
 
@@ -516,8 +510,8 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
     releaseAssert(success);
 
     StellarValue skipValue =
-        mHerder.makeStellarValue(SKIP_LEDGER_HASH, sv.closeTime, sv.upgrades,
-                                 mApp.getConfig().NODE_SEED);
+        mHerder.makeStellarValue(Herder::SKIP_LEDGER_HASH, sv.closeTime,
+                                 sv.upgrades, mApp.getConfig().NODE_SEED);
     return xdr::xdr_to_opaque(skipValue);
 }
 
@@ -531,8 +525,8 @@ HerderSCPDriver::isSkipLedgerValue(Value const& v) const
     {
         return false;
     }
-    
-    return sv.txSetHash == SKIP_LEDGER_HASH;
+
+    return sv.txSetHash == Herder::SKIP_LEDGER_HASH;
 }
 
 // timer handling

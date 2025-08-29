@@ -1,4 +1,4 @@
-﻿#include "PendingEnvelopes.h"
+#include "PendingEnvelopes.h"
 #include "crypto/Hex.h"
 #include "crypto/SHA.h"
 #include "herder/HerderImpl.h"
@@ -202,6 +202,26 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
 {
     // slot is only used when `touch` is set
     releaseAssert(touch || (slot == 0));
+    if (hash == Herder::SKIP_LEDGER_HASH)
+    {
+        // Special case for the skip ledger hash
+        CLOG_ERROR(Herder, "Request for skip ledger hash {}", hexAbbrev(hash));
+        // Return an empty tx set
+        // TODO: Is it right to use the LCL header here? I'm not so sure. Here
+        // are a couple cases I'm concerned about:
+        // 1. Ballot protocol for next ledger. Technically not the "last closed
+        //    ledger" at that point. That being said, it looks like this is
+        //    kinda what Herder does in building the tx set for nomination via
+        //    `makeTxSetFromTransactions`.
+        // 2. Does this function get called for previous ledgers older than LCL?
+        //    If so, then I think it needs that header.
+        // In practice, it looks like the LCL is used only to extract the
+        // protocol version, so it probably only matters on protocol boundaries.
+        // Still important to get right, but not so much for the prototype.
+        return TxSetXDRFrame::makeEmpty(
+            mApp.getLedgerManager().getLastClosedLedgerHeader());
+    }
+
     TxSetXDRFrameConstPtr res;
     auto it = mKnownTxSets.find(hash);
     if (it != mKnownTxSets.end())
