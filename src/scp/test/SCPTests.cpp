@@ -135,6 +135,12 @@ class TestSCP : public SCPDriver
         releaseAssert(false);
     }
 
+    bool isSkipLedgerValue(Value const& v) const override
+    {
+        // TODO: Implement?
+        releaseAssert(false);
+    }
+
     void
     emitEnvelope(SCPEnvelope const& envelope) override
     {
