@@ -78,6 +78,9 @@ class HerderSCPDriver : public SCPDriver
 
     Value makeSkipLedgerValueFromValue(Value const& v) const override;
 
+    // TODO: Do I even need this function?
+    bool isSkipLedgerValue(Value const& v) const override;
+
     // timer handling
     void setupTimer(uint64_t slotIndex, int timerID,
                     std::chrono::milliseconds timeout,

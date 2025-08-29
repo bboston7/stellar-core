@@ -521,6 +521,20 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
     return xdr::xdr_to_opaque(skipValue);
 }
 
+bool
+HerderSCPDriver::isSkipLedgerValue(Value const& v) const
+{
+    ZoneScoped;
+    StellarValue sv;
+    bool success = toStellarValue(v, sv);
+    if (!success)
+    {
+        return false;
+    }
+    
+    return sv.txSetHash == SKIP_LEDGER_HASH;
+}
+
 // timer handling
 void
 HerderSCPDriver::timerCallbackWrapper(uint64_t slotIndex, int timerID,

@@ -2126,6 +2126,9 @@ BallotProtocol::validateValues(SCPStatement const& st)
 
     if (values.empty())
     {
+        CLOG_ERROR(SCP, "BallotProtocol::validateValues slot:{} "
+                        "found empty value set in statement",
+                   mSlot.getSlotIndex());
         // This shouldn't happen
         return SCPDriver::kInvalidValue;
     }
@@ -2154,6 +2157,13 @@ BallotProtocol::validateValues(SCPStatement const& st)
             }
             return lv;
         });
+
+    if (res == SCPDriver::kInvalidValue)
+    {
+        CLOG_ERROR(SCP, "BallotProtocol::validateValues slot:{} found "
+                        "kInvalidValue value in statement",
+                   mSlot.getSlotIndex());
+    }
 
     return res;
 }
