@@ -250,8 +250,8 @@ FeeBumpTransactionFrame::performAllSignatureChecks(SignatureChecker& signatureCh
         return !forApply;
     }
     
-    return checkSignature(signatureChecker, *feeSourceAccount,
-                         feeSourceAccount->current().data.account().thresholds[THRESHOLD_LOW]);
+    return checkSignature(signatureChecker, feeSourceAccount,
+                         feeSourceAccount.current().data.account().thresholds[THRESHOLD_LOW]);
 }
 
 MutableTxResultPtr

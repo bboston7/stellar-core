@@ -389,8 +389,8 @@ TransactionFrame::performAllSignatureChecks(SignatureChecker& signatureChecker,
         return !forApply;
     }
     
-    if (!checkSignature(signatureChecker, *sourceAccount,
-                       sourceAccount->current().data.account().thresholds[THRESHOLD_LOW]))
+    if (!checkSignature(signatureChecker, sourceAccount,
+                       sourceAccount.current().data.account().thresholds[THRESHOLD_LOW]))
     {
         return false;
     }

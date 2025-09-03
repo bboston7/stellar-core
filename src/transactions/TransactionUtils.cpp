@@ -2240,7 +2240,9 @@ checkTransactionSignature(SignatureChecker& signatureChecker,
     std::vector<Signer> signers;
     if (acc.thresholds[0])
     {
-        auto signerKey = KeyUtils::convertKey<SignerKey>(acc.accountID);
+        SignerKey signerKey;
+        signerKey.type(SIGNER_KEY_TYPE_ED25519);
+        signerKey.ed25519() = acc.accountID.ed25519();
         signers.push_back(Signer(signerKey, acc.thresholds[0]));
     }
     signers.insert(signers.end(), acc.signers.begin(), acc.signers.end());
