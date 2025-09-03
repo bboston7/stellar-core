@@ -230,16 +230,7 @@ FeeBumpTransactionFrame::checkSignature(SignatureChecker& signatureChecker,
                                         LedgerEntryWrapper const& account,
                                         int32_t neededWeight) const
 {
-    auto& acc = account.current().data.account();
-    std::vector<Signer> signers;
-    if (acc.thresholds[0])
-    {
-        auto signerKey = KeyUtils::convertKey<SignerKey>(acc.accountID);
-        signers.push_back(Signer(signerKey, acc.thresholds[0]));
-    }
-    signers.insert(signers.end(), acc.signers.begin(), acc.signers.end());
-
-    return signatureChecker.checkSignature(signers, neededWeight);
+    return checkTransactionSignature(signatureChecker, account, neededWeight);
 }
 
 MutableTxResultPtr

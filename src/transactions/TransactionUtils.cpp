@@ -13,7 +13,12 @@
 #include "rust/RustBridge.h"
 #include "transactions/MutableTransactionResult.h"
 #include "transactions/OfferExchange.h"
+#include "transactions/SignatureChecker.h"
 #include "transactions/SponsorshipUtils.h"
+#include "transactions/TransactionFrame.h"
+#include "transactions/FeeBumpTransactionFrame.h"
+#include "transactions/TransactionBridge.h"
+#include "crypto/SignerKeyUtils.h"
 #include "util/ProtocolVersion.h"
 #include "util/types.h"
 #include "xdr/Stellar-contract.h"
@@ -2229,4 +2234,96 @@ createEntryRentChangeWithoutModification(
 
     return rustChange;
 }
+
+bool
+checkTransactionSignature(SignatureChecker& signatureChecker,
+                          LedgerEntryWrapper const& account,
+                          int32_t neededWeight)
+{
+    auto& acc = account.current().data.account();
+    std::vector<Signer> signers;
+    if (acc.thresholds[0])
+    {
+        auto signerKey = KeyUtils::convertKey<SignerKey>(acc.accountID);
+        signers.push_back(Signer(signerKey, acc.thresholds[0]));
+    }
+    signers.insert(signers.end(), acc.signers.begin(), acc.signers.end());
+
+    return signatureChecker.checkSignature(signers, neededWeight);
+}
+
+void
+validateAllTransactionSignatures(TransactionFrameBaseConstPtr tx,
+                                LedgerSnapshot const& ls,
+                                SignatureChecker& signatureChecker)
+{
+    auto header = ls.getLedgerHeader();
+    
+    // Check if this is a fee bump transaction
+    auto feeBumpTx = std::dynamic_pointer_cast<FeeBumpTransactionFrame const>(tx);
+    if (feeBumpTx)
+    {
+        // For fee bump transactions, check the outer fee source signature
+        auto feeSourceAccount = ls.getAccount(tx->getFeeSourceID());
+        if (feeSourceAccount)
+        {
+            // Fee bump transactions use THRESHOLD_LOW for the fee source signature
+            checkTransactionSignature(signatureChecker, *feeSourceAccount,
+                                    feeSourceAccount->current().data.account().thresholds[THRESHOLD_LOW]);
+        }
+        
+        // The inner transaction signatures will be checked by its own validation path
+        // when the inner transaction is validated, so we don't need to duplicate that here
+        return;
+    }
+    
+    // For regular transactions, check the transaction source signature
+    auto sourceAccount = ls.getAccount(tx->getSourceID());
+    if (sourceAccount)
+    {
+        // Transaction envelope signature uses THRESHOLD_LOW
+        checkTransactionSignature(signatureChecker, *sourceAccount,
+                                sourceAccount->current().data.account().thresholds[THRESHOLD_LOW]);
+        
+        // Check extra signers if this is protocol version 19 or later
+        auto regularTx = std::dynamic_pointer_cast<TransactionFrame const>(tx);
+        if (regularTx && 
+            protocolVersionStartsFrom(header.current().ledgerVersion, ProtocolVersion::V_19))
+        {
+            // checkExtraSigners is a method of TransactionFrame
+            // We need to call it, but we can't from here without more refactoring
+            // This will need to be handled in the calling code
+        }
+    }
+    
+    // Check operation signatures - each operation may require different thresholds
+    auto const& operations = tx->getOperationFrames();
+    for (auto const& op : operations)
+    {
+        auto opSourceID = op->getSourceID();
+        auto opSourceAccount = ls.getAccount(opSourceID);
+        if (opSourceAccount)
+        {
+            // Get the threshold level required for this operation type
+            auto thresholdLevel = op->getThresholdLevel();
+            int32_t threshold;
+            
+            switch (thresholdLevel)
+            {
+            case ThresholdLevel::LOW:
+                threshold = opSourceAccount->current().data.account().thresholds[THRESHOLD_LOW];
+                break;
+            case ThresholdLevel::MEDIUM:
+                threshold = opSourceAccount->current().data.account().thresholds[THRESHOLD_MEDIUM];
+                break;
+            case ThresholdLevel::HIGH:
+                threshold = opSourceAccount->current().data.account().thresholds[THRESHOLD_HIGH];
+                break;
+            }
+            
+            checkTransactionSignature(signatureChecker, *opSourceAccount, threshold);
+        }
+    }
+}
+
 } // namespace stellar

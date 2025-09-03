@@ -28,6 +28,11 @@
 #include "overlay/TxAdverts.h"
 #include "transactions/SignatureChecker.h"
 #include "transactions/TransactionBridge.h"
+#include "transactions/TransactionFrame.h"
+#include "transactions/FeeBumpTransactionFrame.h"
+#include "transactions/OperationFrame.h"
+#include "util/ProtocolVersion.h"
+#include "xdr/Stellar-ledger-entries.h"
 #include "util/GlobalChecks.h"
 #include "util/Logging.h"
 #include "util/ProtocolVersion.h"
@@ -66,39 +71,65 @@ populateSignatureCache(AppConnector& app, TransactionFrameBaseConstPtr tx)
     releaseAssert(app.getConfig().EXPERIMENTAL_BACKGROUND_TX_SIG_VERIFICATION &&
                   app.threadIsType(Application::ThreadType::OVERLAY));
 
-    auto const& hash = tx->getContentsHash();
-    auto const& signatures = txbridge::getSignatures(tx->getEnvelope());
     auto& snapshot = app.getOverlayThreadSnapshot();
     app.maybeCopySearchableBucketListSnapshot(snapshot);
     LedgerSnapshot ledgerSnapshot(snapshot);
 
+    auto const& hash = tx->getContentsHash();
+    auto const& signatures = txbridge::getSignatures(tx->getEnvelope());
+    
     SignatureChecker signatureChecker(
         ledgerSnapshot.getLedgerHeader().current().ledgerVersion, hash,
         signatures);
 
-    // NOTE: Use getFeeSourceID so that this works for both TransactionFrame and
-    // FeeBumpTransactionFrame
-    auto const sourceAccount = ledgerSnapshot.getAccount(tx->getFeeSourceID());
-
-    if (sourceAccount)
+    // Check if this is a fee bump transaction
+    if (std::dynamic_pointer_cast<FeeBumpTransactionFrame const>(tx))
     {
-        // Check signature, which will add the result to the signature cache.
-        // This is safe to do here (pre-validation) because:
-        // 1. The signatures themselves are fixed and cannot change, and
-        // 2. In the unlikely case that the account's signers or thresholds have
-        //    changed (and we haven't heard of it yet), the validation and apply
-        //    functions still contain `checkSignature` calls, which will cause a
-        //    cache miss in that case and force a recheck of the signatures with
-        //    up-to-date signers/thresholds.
-        //
-        // Note that we always use a threshold of HIGH for the signatures to
-        // ensure we check all signatures for any possible operation that may be
-        // in the transaction. Performance analysis has shown that the overlay
-        // thread contains significant extra capacity and can handle this extra
-        // load.
-        tx->checkSignature(
-            signatureChecker, sourceAccount,
-            sourceAccount.current().data.account().thresholds[THRESHOLD_HIGH]);
+        // For fee bump transactions, check the outer fee source signature
+        // The inner transaction signatures will be checked when the inner 
+        // transaction is separately validated via checkValidWithOptionallyChargedFee
+        auto const feeSourceAccount = ledgerSnapshot.getAccount(tx->getFeeSourceID());
+        if (feeSourceAccount)
+        {
+            // Fee bump transaction signature uses THRESHOLD_LOW
+            tx->checkSignature(
+                signatureChecker, feeSourceAccount,
+                feeSourceAccount.current().data.account().thresholds[THRESHOLD_LOW]);
+        }
+    }
+    else
+    {
+        // For regular transactions, check all signatures that will be validated
+        
+        // Check transaction envelope signature
+        auto const sourceAccount = ledgerSnapshot.getAccount(tx->getSourceID());
+        if (sourceAccount)
+        {
+            // Transaction envelope signature uses THRESHOLD_LOW
+            tx->checkSignature(
+                signatureChecker, sourceAccount,
+                sourceAccount.current().data.account().thresholds[THRESHOLD_LOW]);
+        }
+        
+        // Check extra signers if applicable (V19+)
+        if (auto regularTx = std::dynamic_pointer_cast<TransactionFrame const>(tx))
+        {
+            if (protocolVersionStartsFrom(ledgerSnapshot.getLedgerHeader().current().ledgerVersion, 
+                                        ProtocolVersion::V_19))
+            {
+                regularTx->checkExtraSigners(signatureChecker);
+            }
+        }
+        
+        // Check all operation signatures with their appropriate thresholds
+        // We use a dummy OperationResult since we're only interested in the signature checking
+        auto const& operations = tx->getOperationFrames();
+        for (auto const& op : operations)
+        {
+            OperationResult dummyResult;
+            // This will check the operation's signature with the correct threshold for that operation type
+            op->checkSignature(signatureChecker, ledgerSnapshot, dummyResult, false);
+        }
     }
 }
 } // namespace

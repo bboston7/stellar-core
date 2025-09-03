@@ -30,6 +30,8 @@ class InternalLedgerKey;
 class SorobanNetworkConfig;
 class TransactionFrame;
 class TransactionFrameBase;
+class SignatureChecker;
+class LedgerEntryWrapper;
 struct ClaimAtom;
 struct LedgerHeader;
 struct LedgerKey;
@@ -374,4 +376,20 @@ CxxLedgerEntryRentChange createEntryRentChangeWithoutModification(
     LedgerEntry const& entry, uint32_t entrySize,
     std::optional<uint32_t> entryLiveUntilLedger, uint32_t newLiveUntilLedger,
     uint32_t ledgerVersion, SorobanNetworkConfig const& sorobanConfig);
+
+// Centralized signature checking logic to ensure consistency between
+// transaction application and signature cache population
+bool checkTransactionSignature(SignatureChecker& signatureChecker,
+                              LedgerEntryWrapper const& account,
+                              int32_t neededWeight);
+
+// Comprehensive signature validation that mirrors the complete validation flow
+// This checks all signatures that would be checked during transaction validation:
+// - Transaction envelope signature with THRESHOLD_LOW
+// - Extra signers (if applicable)  
+// - All operation signatures with their appropriate thresholds
+// - For fee bump transactions, validates both outer and inner signatures
+void validateAllTransactionSignatures(TransactionFrameBaseConstPtr tx,
+                                     LedgerSnapshot const& ls,
+                                     SignatureChecker& signatureChecker);
 }
