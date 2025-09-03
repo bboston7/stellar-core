@@ -373,6 +373,51 @@ TransactionFrame::checkSignature(SignatureChecker& signatureChecker,
 }
 
 bool
+TransactionFrame::performAllSignatureChecks(SignatureChecker& signatureChecker,
+                                           LedgerSnapshot const& ls,
+                                           uint32_t ledgerVersion,
+                                           bool forApply) const
+{
+    ZoneScoped;
+    
+    // Check transaction envelope signature with THRESHOLD_LOW
+    auto sourceAccount = ls.getAccount(getSourceID());
+    if (!sourceAccount)
+    {
+        // For pre-validation (cache population), missing account is ok
+        // For actual apply, this would be an error
+        return !forApply;
+    }
+    
+    if (!checkSignature(signatureChecker, *sourceAccount,
+                       sourceAccount->current().data.account().thresholds[THRESHOLD_LOW]))
+    {
+        return false;
+    }
+    
+    // Check extra signers for V19+
+    if (protocolVersionStartsFrom(ledgerVersion, ProtocolVersion::V_19))
+    {
+        if (!checkExtraSigners(signatureChecker))
+        {
+            return false;
+        }
+    }
+    
+    // Check all operation signatures with their appropriate thresholds
+    for (auto const& op : mOperations)
+    {
+        OperationResult dummyResult;
+        if (!op->checkSignature(signatureChecker, ls, dummyResult, forApply))
+        {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+bool
 TransactionFrame::checkSignatureNoAccount(SignatureChecker& signatureChecker,
                                           AccountID const& accountID) const
 {

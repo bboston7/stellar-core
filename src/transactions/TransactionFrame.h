@@ -217,6 +217,11 @@ class TransactionFrame : public TransactionFrameBase
     bool checkSignature(SignatureChecker& signatureChecker,
                         LedgerEntryWrapper const& account,
                         int32_t neededWeight) const override;
+    
+    bool performAllSignatureChecks(SignatureChecker& signatureChecker,
+                                  LedgerSnapshot const& ls,
+                                  uint32_t ledgerVersion,
+                                  bool forApply = false) const override;
 
     bool checkSignatureNoAccount(SignatureChecker& signatureChecker,
                                  AccountID const& accountID) const;

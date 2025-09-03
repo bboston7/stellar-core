@@ -28,11 +28,6 @@
 #include "overlay/TxAdverts.h"
 #include "transactions/SignatureChecker.h"
 #include "transactions/TransactionBridge.h"
-#include "transactions/TransactionFrame.h"
-#include "transactions/FeeBumpTransactionFrame.h"
-#include "transactions/OperationFrame.h"
-#include "util/ProtocolVersion.h"
-#include "xdr/Stellar-ledger-entries.h"
 #include "util/GlobalChecks.h"
 #include "util/Logging.h"
 #include "util/ProtocolVersion.h"
@@ -82,55 +77,15 @@ populateSignatureCache(AppConnector& app, TransactionFrameBaseConstPtr tx)
         ledgerSnapshot.getLedgerHeader().current().ledgerVersion, hash,
         signatures);
 
-    // Check if this is a fee bump transaction
-    if (std::dynamic_pointer_cast<FeeBumpTransactionFrame const>(tx))
-    {
-        // For fee bump transactions, check the outer fee source signature
-        // The inner transaction signatures will be checked when the inner 
-        // transaction is separately validated via checkValidWithOptionallyChargedFee
-        auto const feeSourceAccount = ledgerSnapshot.getAccount(tx->getFeeSourceID());
-        if (feeSourceAccount)
-        {
-            // Fee bump transaction signature uses THRESHOLD_LOW
-            tx->checkSignature(
-                signatureChecker, feeSourceAccount,
-                feeSourceAccount.current().data.account().thresholds[THRESHOLD_LOW]);
-        }
-    }
-    else
-    {
-        // For regular transactions, check all signatures that will be validated
-        
-        // Check transaction envelope signature
-        auto const sourceAccount = ledgerSnapshot.getAccount(tx->getSourceID());
-        if (sourceAccount)
-        {
-            // Transaction envelope signature uses THRESHOLD_LOW
-            tx->checkSignature(
-                signatureChecker, sourceAccount,
-                sourceAccount.current().data.account().thresholds[THRESHOLD_LOW]);
-        }
-        
-        // Check extra signers if applicable (V19+)
-        if (auto regularTx = std::dynamic_pointer_cast<TransactionFrame const>(tx))
-        {
-            if (protocolVersionStartsFrom(ledgerSnapshot.getLedgerHeader().current().ledgerVersion, 
-                                        ProtocolVersion::V_19))
-            {
-                regularTx->checkExtraSigners(signatureChecker);
-            }
-        }
-        
-        // Check all operation signatures with their appropriate thresholds
-        // We use a dummy OperationResult since we're only interested in the signature checking
-        auto const& operations = tx->getOperationFrames();
-        for (auto const& op : operations)
-        {
-            OperationResult dummyResult;
-            // This will check the operation's signature with the correct threshold for that operation type
-            op->checkSignature(signatureChecker, ledgerSnapshot, dummyResult, false);
-        }
-    }
+    // Use the unified signature checking method!
+    // This performs all signature checks that would be done during validation:
+    // - For regular transactions: envelope signature, extra signers, operation signatures
+    // - For fee bump transactions: fee source signature only
+    tx->performAllSignatureChecks(
+        signatureChecker,
+        ledgerSnapshot,
+        ledgerSnapshot.getLedgerHeader().current().ledgerVersion,
+        false); // false = not for apply, just populating cache
 }
 } // namespace
 

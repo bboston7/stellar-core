@@ -233,6 +233,27 @@ FeeBumpTransactionFrame::checkSignature(SignatureChecker& signatureChecker,
     return checkTransactionSignature(signatureChecker, account, neededWeight);
 }
 
+bool
+FeeBumpTransactionFrame::performAllSignatureChecks(SignatureChecker& signatureChecker,
+                                                  LedgerSnapshot const& ls,
+                                                  uint32_t ledgerVersion,
+                                                  bool forApply) const
+{
+    // For fee bump transactions, only check the fee source signature
+    // The inner transaction signatures are checked separately when the inner
+    // transaction is validated via checkValidWithOptionallyChargedFee
+    auto feeSourceAccount = ls.getAccount(getFeeSourceID());
+    if (!feeSourceAccount)
+    {
+        // For pre-validation (cache population), missing account is ok
+        // For actual apply, this would be an error
+        return !forApply;
+    }
+    
+    return checkSignature(signatureChecker, *feeSourceAccount,
+                         feeSourceAccount->current().data.account().thresholds[THRESHOLD_LOW]);
+}
+
 MutableTxResultPtr
 FeeBumpTransactionFrame::checkValid(
     AppConnector& app, LedgerSnapshot const& ls, SequenceNumber current,

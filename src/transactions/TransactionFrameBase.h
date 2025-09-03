@@ -31,6 +31,7 @@ class SignatureChecker;
 class ParallelLedgerInfo;
 class TxEffects;
 class ThreadParallelApplyLedgerState;
+class LedgerSnapshot;
 
 class MutableTransactionResultBase;
 using MutableTxResultPtr = std::unique_ptr<MutableTransactionResultBase>;
@@ -172,6 +173,14 @@ class TransactionFrameBase
     virtual bool checkSignature(SignatureChecker& signatureChecker,
                                 LedgerEntryWrapper const& account,
                                 int32_t neededWeight) const = 0;
+    
+    // Performs all signature checks for this transaction type.
+    // This includes envelope signature, extra signers (if applicable),
+    // and operation signatures. Used by both validation and cache population.
+    virtual bool performAllSignatureChecks(SignatureChecker& signatureChecker,
+                                          LedgerSnapshot const& ls,
+                                          uint32_t ledgerVersion,
+                                          bool forApply = false) const = 0;
 
 #ifdef BUILD_TESTS
     virtual TransactionEnvelope& getMutableEnvelope() const = 0;

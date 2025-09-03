@@ -32,6 +32,7 @@ class TransactionFrame;
 class TransactionFrameBase;
 class SignatureChecker;
 class LedgerEntryWrapper;
+class LedgerSnapshot;
 struct ClaimAtom;
 struct LedgerHeader;
 struct LedgerKey;
@@ -382,14 +383,4 @@ CxxLedgerEntryRentChange createEntryRentChangeWithoutModification(
 bool checkTransactionSignature(SignatureChecker& signatureChecker,
                               LedgerEntryWrapper const& account,
                               int32_t neededWeight);
-
-// Comprehensive signature validation that mirrors the complete validation flow
-// This checks all signatures that would be checked during transaction validation:
-// - Transaction envelope signature with THRESHOLD_LOW
-// - Extra signers (if applicable)  
-// - All operation signatures with their appropriate thresholds
-// - For fee bump transactions, validates both outer and inner signatures
-void validateAllTransactionSignatures(TransactionFrameBaseConstPtr tx,
-                                     LedgerSnapshot const& ls,
-                                     SignatureChecker& signatureChecker);
 }

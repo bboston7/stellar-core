@@ -116,6 +116,11 @@ class FeeBumpTransactionFrame : public TransactionFrameBase
     MutableTxResultPtr createValidationSuccessResult() const override;
 
     TransactionEnvelope const& getEnvelope() const override;
+    
+    bool performAllSignatureChecks(SignatureChecker& signatureChecker,
+                                  LedgerSnapshot const& ls,
+                                  uint32_t ledgerVersion,
+                                  bool forApply = false) const override;
 
     bool validateSorobanMemoForFlooding() const override;
 
