@@ -107,6 +107,11 @@ class TransactionTestFrame : public TransactionFrameBase
                         LedgerEntryWrapper const& account,
                         int32_t neededWeight) const override;
 
+    bool performAllSignatureChecks(SignatureChecker& signatureChecker,
+                                  LedgerSnapshot const& ls,
+                                  uint32_t ledgerVersion,
+                                  bool forApply = false) const override;
+
     Hash const& getContentsHash() const override;
     Hash const& getFullHash() const override;
 

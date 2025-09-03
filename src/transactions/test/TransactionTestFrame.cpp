@@ -215,6 +215,16 @@ TransactionTestFrame::checkSignature(SignatureChecker& signatureChecker,
                                              neededWeight);
 }
 
+bool
+TransactionTestFrame::performAllSignatureChecks(SignatureChecker& signatureChecker,
+                                               LedgerSnapshot const& ls,
+                                               uint32_t ledgerVersion,
+                                               bool forApply) const
+{
+    return mTransactionFrame->performAllSignatureChecks(signatureChecker, ls,
+                                                       ledgerVersion, forApply);
+}
+
 Hash const&
 TransactionTestFrame::getContentsHash() const
 {
