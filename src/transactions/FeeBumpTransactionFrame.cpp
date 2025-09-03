@@ -400,17 +400,16 @@ FeeBumpTransactionFrame::commonValid(
         return res;
     }
 
-    if (!checkSignature(
-            signatureChecker, *feeSource,
-            feeSource->current().data.account().thresholds[THRESHOLD_LOW]))
+    auto header = ls.getLedgerHeader();
+    // Check fee source signature using centralized signature checking
+    if (!performAllSignatureChecks(signatureChecker, ls,
+                                  header.current().ledgerVersion, applying))
     {
         txResult.setError(txBAD_AUTH);
         return res;
     }
 
     res = ValidationType::kInvalidPostAuth;
-
-    auto header = ls.getLedgerHeader();
     // if we are in applying mode fee was already deduced from signing account
     // balance, if not, we need to check if after that deduction this account
     // will still have minimum balance

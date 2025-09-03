@@ -2240,6 +2240,9 @@ checkTransactionSignature(SignatureChecker& signatureChecker,
     std::vector<Signer> signers;
     if (acc.thresholds[0])
     {
+        // TODO: Maybe replace this with the old version from
+        // TransactionFrame::checkSignature? Also check that the old version is
+        // compatible with FeeBumpTransactionFrame::checkSignature.
         SignerKey signerKey;
         signerKey.type(SIGNER_KEY_TYPE_ED25519);
         signerKey.ed25519() = acc.accountID.ed25519();

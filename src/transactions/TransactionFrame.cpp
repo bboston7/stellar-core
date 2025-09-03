@@ -1373,32 +1373,9 @@ TransactionFrame::processSignatures(
         return false;
     }
 
-    bool allOpsValid = true;
-    // From protocol 10-13, there's a dangling reference bug where we check op
-    // signatures even if no OperationResult object exists. This check ensures
-    // opResult actually exists.
-    if (auto code = txResult.getInnermostResultCode();
-        code == txSUCCESS || code == txFAILED)
-    {
-        LedgerSnapshot ls(ltxOuter);
-        for (size_t i = 0; i < mOperations.size(); ++i)
-        {
-            auto const& op = mOperations[i];
-            auto& opResult = txResult.getOpResultAt(i);
-            if (!op->checkSignature(signatureChecker, ls, opResult, false))
-            {
-                allOpsValid = false;
-            }
-        }
-    }
-
+    // Signature checking is now done in performAllSignatureChecks() during commonValid
+    // We only need to handle one-time signer removal here
     removeOneTimeSignerFromAllSourceAccounts(ltxOuter);
-
-    if (!allOpsValid)
-    {
-        txResult.setInnermostError(txFAILED);
-        return false;
-    }
 
     if (!signatureChecker.checkAllSignaturesUsed())
     {
@@ -1503,18 +1480,9 @@ TransactionFrame::commonValid(AppConnector& app,
             return;
         }
 
-        if (!checkSignature(signatureChecker, *sourceAccount,
-                            sourceAccount->current()
-                                .data.account()
-                                .thresholds[THRESHOLD_LOW]))
-        {
-            txResult.setInnermostError(txBAD_AUTH);
-            return;
-        }
-
-        if (protocolVersionStartsFrom(header.current().ledgerVersion,
-                                      ProtocolVersion::V_19) &&
-            !checkExtraSigners(signatureChecker))
+        // Check all signatures (envelope, extra signers, and operations) in one place
+        if (!performAllSignatureChecks(signatureChecker, ls, 
+                                      header.current().ledgerVersion, applying))
         {
             txResult.setInnermostError(txBAD_AUTH);
             return;
