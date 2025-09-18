@@ -1240,6 +1240,10 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     waitingTime.has_value() ? waitingTime.value().count() : -1);
 
                 // Stall balloting. Return false to indicate no work was done.
+                // TODO: Is it right to early return here? If so, should we
+                // return `didWork`? We may have set `mHighBallot` above.
+                // Additionally, should we proceed so that
+                // `updateCurrentIfNeeded` is called below?
                 return false;
             }
             // TODO: Is this right? This allows maybe valid / invalid values
