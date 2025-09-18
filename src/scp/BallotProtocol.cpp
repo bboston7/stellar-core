@@ -353,24 +353,26 @@ BallotProtocol::abandonBallot(uint32 n)
     }
     if (v && !v->getValue().empty())
     {
+        Value value = v->getValue();
+        maybeReplaceValueWithSkip(value);
         if (n == 0)
         {
-            res = bumpState(v->getValue(), true);
+            res = bumpState(value, true);
         }
         else
         {
-            res = bumpState(v->getValue(), n);
+            res = bumpState(value, n);
         }
     }
     return res;
 }
 
 bool
-BallotProtocol::maybeReplaceValueWithSkip(SCPBallot& ballot) const
+BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 {
     // Check validation value
-    auto validationLevel = mSlot.getSCPDriver().validateValue(
-        mSlot.getSlotIndex(), ballot.value, false);
+    auto validationLevel =
+        mSlot.getSCPDriver().validateValue(mSlot.getSlotIndex(), v, false);
     if (validationLevel != SCPDriver::kAwaitingDownload)
     {
         // Not a value currently being downloaded. No need to replace.
@@ -378,10 +380,9 @@ BallotProtocol::maybeReplaceValueWithSkip(SCPBallot& ballot) const
     }
 
     // Check how long we've been waiting
-    auto waitingTime =
-        mSlot.getSCPDriver().getTxSetDownloadWaitTime(ballot.value);
+    auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
 
-    CLOG_ERROR(Herder, "Waiting time for {}: {}", hexAbbrev(ballot.value),
+    CLOG_ERROR(Herder, "Waiting time for {}: {}", hexAbbrev(v),
                waitingTime.has_value()
                    ? std::to_string(waitingTime.value().count())
                    : "nullopt");
@@ -403,29 +404,28 @@ BallotProtocol::maybeReplaceValueWithSkip(SCPBallot& ballot) const
     // First, check for other `skip` votes we've received and pick the highest
     // if available.
     std::optional<Value> highestSkip;
-    for (auto const& [_, env] : mLatestEnvelopes)
-    {
-        auto const& p = env->getStatement().pledges;
-        if (p.type() != SCPStatementType::SCP_ST_PREPARE)
-        {
-            continue;
-        }
+    // for (auto const& [_, env] : mLatestEnvelopes)
+    // {
+    //     auto const& p = env->getStatement().pledges;
+    //     if (p.type() != SCPStatementType::SCP_ST_PREPARE)
+    //     {
+    //         continue;
+    //     }
 
-        Value const& v = p.prepare().ballot.value;
-        if (mSlot.getSCPDriver().isSkipLedgerValue(v))
-        {
-            if (!highestSkip.has_value() || v > highestSkip.value())
-            {
-                highestSkip = v;
-            }
-        }
-    }
+    //     Value const& v = p.prepare().ballot.value;
+    //     if (mSlot.getSCPDriver().isSkipLedgerValue(v))
+    //     {
+    //         if (!highestSkip.has_value() || v > highestSkip.value())
+    //         {
+    //             highestSkip = v;
+    //         }
+    //     }
+    // }
 
     // Choose highest seen skip value, or create one if no such values exist.
-    ballot.value =
-        highestSkip.has_value()
+    v = highestSkip.has_value()
             ? highestSkip.value()
-            : mSlot.getSCPDriver().makeSkipLedgerValueFromValue(ballot.value);
+            : mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
     CLOG_ERROR(Herder, "Voting to skip slot {}", mSlot.getSlotIndex());
 
     return true;
@@ -474,7 +474,7 @@ BallotProtocol::bumpState(Value const& value, uint32 n)
         newb.value = value;
     }
 
-    bool replacedWithSkip = maybeReplaceValueWithSkip(newb);
+    bool replacedWithSkip = maybeReplaceValueWithSkip(newb.value);
 
     CLOG_TRACE(SCP, "BallotProtocol::bumpState i: {} v: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(newb));

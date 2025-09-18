@@ -295,7 +295,7 @@ class BallotProtocol
     void bumpToBallot(SCPBallot const& ballot, bool check);
 
     // TODO: Docs
-    bool maybeReplaceValueWithSkip(SCPBallot& ballot) const;
+    bool maybeReplaceValueWithSkip(Value& v) const;
 
     // switch the local node to the given ballot's value
     // with the assumption that the ballot is more recent than the one
