@@ -1,6 +1,7 @@
 ﻿#include "util/asio.h"
 #include "LedgerCloseData.h"
 #include "crypto/Hex.h"
+#include "herder/Herder.h"
 #include "herder/Upgrades.h"
 #include "main/Application.h"
 #include "util/GlobalChecks.h"
@@ -23,7 +24,9 @@ LedgerCloseData::LedgerCloseData(uint32_t ledgerSeq,
     , mValue(v)
     , mExpectedLedgerHash(expectedLedgerHash)
 {
-    releaseAssert(txSet->getContentsHash() == mValue.txSetHash);
+    Hash const& valueTxHash = mValue.txSetHash;
+    releaseAssert(valueTxHash == Herder::SKIP_LEDGER_HASH ||
+                  txSet->getContentsHash() == valueTxHash);
 }
 
 #ifdef BUILD_TESTS
@@ -37,7 +40,9 @@ LedgerCloseData::LedgerCloseData(
     , mExpectedLedgerHash(expectedLedgerHash)
     , mExpectedResults(expectedResults)
 {
-    releaseAssert(txSet->getContentsHash() == mValue.txSetHash);
+    Hash const& valueTxHash = mValue.txSetHash;
+    releaseAssert(valueTxHash == Herder::SKIP_LEDGER_HASH ||
+                  txSet->getContentsHash() == valueTxHash);
 }
 #endif // BUILD_TESTS
 
