@@ -353,7 +353,7 @@ BallotProtocol::abandonBallot(uint32 n)
     }
     if (v && !v->getValue().empty())
     {
-        // TODO: This is handling v_3. Need something similar for v_2.
+        // NOTE: This is handling v_3.
         Value value = v->getValue();
         maybeReplaceValueWithSkip(value);
         if (n == 0)
@@ -482,17 +482,10 @@ BallotProtocol::bumpState(Value const& value, uint32 n)
         newb.value = value;
     }
 
-    //bool replacedWithSkip = maybeReplaceValueWithSkip(newb.value);
-
     CLOG_TRACE(SCP, "BallotProtocol::bumpState i: {} v: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(newb));
 
     bool updated = updateCurrentValue(newb);
-
-    // if (replacedWithSkip)
-    // {
-    //     releaseAssert(updated);
-    // }
 
     if (updated)
     {
@@ -1201,11 +1194,6 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             // comment in that function before setting `newC` that says this is
             // step 3 from the paper.
 
-            // TODO: Temporary place for this. Might be a better one (see above)
-            // TODO: We want newC's value here, right? Not some other value?
-            // TODO: Make sure I understand where `newC` comes from. It's the
-            // confirmed prepared `ballot` from the IETF paper, right?
-
             // This is step 3 from the paper - voting to commit.
             // We must ensure the transaction set value is fully validated
             // before we can vote to commit it.
@@ -1220,15 +1208,6 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
             if (validationLevel == SCPDriver::kAwaitingDownload)
             {
-                // TODO: I think this check has weird issues. It might need to
-                // be validationLevel == kFullyValidated, but weirdly enough
-                // partial values also need to get through here during catchup
-                // (double check that)? Not sure how to handle this properly.
-                // Perhaps if SCP is not synced then parallel downloading should
-                // be disabled (at least for the prototype). The crash in
-                // weird-crash.txt happened during catchup, and I think I'm
-                // missing some code flows there.
-
                 // Check how long we've been waiting for the transaction set
                 auto waitingTime =
                     mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
@@ -1260,9 +1239,6 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             // catchup this expects maybe valid values?
             else
             {
-                // TODO: This assert is useful for checking my understanding,
-                // but it's probably unnecessary. Should remove `isNodeSynced`
-                // function entirely as this is the only place it is used.
                 // TODO: I don't understand why, but it seems like values can be
                 // "maybe valid" here. Looks like this code path is exercised
                 // during catchup, but before ledger manager "knows" it's in
