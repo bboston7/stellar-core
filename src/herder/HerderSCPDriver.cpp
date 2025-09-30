@@ -371,11 +371,11 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
         return SCPDriver::kInvalidValue;
     }
 
-    if (b.ext.v() != STELLAR_VALUE_SIGNED)
+    if (b.ext.v() != STELLAR_VALUE_SIGNED && b.ext.v() != STELLAR_VALUE_SKIP)
     {
         CLOG_TRACE(Herder,
                    "HerderSCPDriver::validateValue i: {} invalid value type - "
-                   "expected SIGNED",
+                   "expected SIGNED or SKIP",
                    slotIndex);
         return SCPDriver::kInvalidValue;
     }

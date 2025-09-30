@@ -330,7 +330,8 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
 
     auto const& values = getStellarValues(envelope.statement);
     if (std::any_of(values.begin(), values.end(), [](auto const& value) {
-            return value.ext.v() != STELLAR_VALUE_SIGNED;
+            return value.ext.v() != STELLAR_VALUE_SIGNED &&
+                   value.ext.v() != STELLAR_VALUE_SKIP;
         }))
     {
         CLOG_TRACE(Herder, "Dropping envelope from {} (value not signed)",
