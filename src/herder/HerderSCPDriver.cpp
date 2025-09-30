@@ -371,6 +371,7 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
         return SCPDriver::kInvalidValue;
     }
 
+    // TODO: Grep for signature checks and update them for SKIP values
     if (b.ext.v() != STELLAR_VALUE_SIGNED && b.ext.v() != STELLAR_VALUE_SKIP)
     {
         CLOG_TRACE(Herder,
