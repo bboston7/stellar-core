@@ -2581,11 +2581,28 @@ bool
 HerderImpl::verifyStellarValueSignature(StellarValue const& sv)
 {
     ZoneScoped;
-    auto b = PubKeyUtils::verifySig(
-        sv.ext.lcValueSignature().nodeID, sv.ext.lcValueSignature().signature,
-        xdr::xdr_to_opaque(mApp.getNetworkID(), ENVELOPE_TYPE_SCPVALUE,
-                           sv.txSetHash, sv.closeTime));
-    return b;
+    switch (sv.ext.v())
+    {
+    case STELLAR_VALUE_BASIC:
+        // TODO: What to do here?
+        releaseAssert(false);
+    case STELLAR_VALUE_SIGNED:
+        return PubKeyUtils::verifySig(
+            sv.ext.lcValueSignature().nodeID,
+            sv.ext.lcValueSignature().signature,
+            xdr::xdr_to_opaque(mApp.getNetworkID(), ENVELOPE_TYPE_SCPVALUE,
+                               sv.txSetHash, sv.closeTime));
+    case STELLAR_VALUE_SKIP:
+    {
+        auto const& ov = sv.ext.originalValue();
+        return PubKeyUtils::verifySig(
+            ov.lcValueSignature.nodeID, ov.lcValueSignature.signature,
+            xdr::xdr_to_opaque(mApp.getNetworkID(), ENVELOPE_TYPE_SCPVALUE,
+                               ov.txSetHash, sv.closeTime));
+    }
+    default:
+        releaseAssert(false);
+    }
 }
 
 StellarValue
