@@ -505,15 +505,20 @@ Value
 HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
 {
     ZoneScoped;
-    StellarValue sv;
-    bool success = toStellarValue(v, sv);
+    StellarValue originalValue;
+    bool success = toStellarValue(v, originalValue);
     // TODO: Handle failure
     releaseAssert(success);
 
-    StellarValue skipValue =
-        mHerder.makeStellarValue(Herder::SKIP_LEDGER_HASH, sv.closeTime,
-                                 sv.upgrades, mApp.getConfig().NODE_SEED);
-    return xdr::xdr_to_opaque(skipValue);
+    StellarValue sv;
+    sv.ext.v(STELLAR_VALUE_SKIP);
+    sv.txSetHash = Herder::SKIP_LEDGER_HASH;
+    sv.closeTime = originalValue.closeTime;
+    sv.upgrades = originalValue.upgrades;
+    sv.ext.originalValue().txSetHash = originalValue.txSetHash;
+    sv.ext.originalValue().lcValueSignature =
+        originalValue.ext.lcValueSignature();
+    return xdr::xdr_to_opaque(sv);
 }
 
 bool
@@ -527,7 +532,7 @@ HerderSCPDriver::isSkipLedgerValue(Value const& v) const
         return false;
     }
 
-    return sv.txSetHash == Herder::SKIP_LEDGER_HASH;
+    return sv.ext.v() == STELLAR_VALUE_SKIP;
 }
 
 // timer handling
