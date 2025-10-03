@@ -474,7 +474,11 @@ BallotProtocol::bumpState(Value const& value, uint32 n)
         {
             // Fall back on v_3 (value). This might also be a vote-to-skip
             // value.
-            newb.value = value;
+            // TODO: I don't think we actually want this. If we don't, we can
+            // simplify this function by only calling
+            // `maybeReplaceValueWithSkip` once at the end (currently we call it
+            // twice, once here, and once in the caller).
+            // newb.value = value;
         }
     }
     else
@@ -1231,8 +1235,8 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 // return `didWork`? We may have set `mHighBallot` above.
                 // Additionally, should we proceed so that
                 // `updateCurrentIfNeeded` is called below?
-                return false;
-                //return didWork;
+                // return false;
+                // return didWork;
             }
             // TODO: Is this right? This allows maybe valid / invalid values
             // through, but that's how the original code worked. I think during
