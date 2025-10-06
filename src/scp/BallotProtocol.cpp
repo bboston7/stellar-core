@@ -355,7 +355,6 @@ BallotProtocol::abandonBallot(uint32 n)
     {
         // NOTE: This is handling v_3.
         Value value = v->getValue();
-        maybeReplaceValueWithSkip(value);
         if (n == 0)
         {
             res = bumpState(value, true);
@@ -469,17 +468,6 @@ BallotProtocol::bumpState(Value const& value, uint32 n)
         // we use the value that we saw confirmed prepared
         // or that we at least voted to commit to
         newb.value = mValueOverride->getValue();
-        bool didSkip = maybeReplaceValueWithSkip(newb.value);
-        if (didSkip)
-        {
-            // Fall back on v_3 (value). This might also be a vote-to-skip
-            // value.
-            // TODO: I don't think we actually want this. If we don't, we can
-            // simplify this function by only calling
-            // `maybeReplaceValueWithSkip` once at the end (currently we call it
-            // twice, once here, and once in the caller).
-            // newb.value = value;
-        }
     }
     else
     {
@@ -489,6 +477,7 @@ BallotProtocol::bumpState(Value const& value, uint32 n)
     CLOG_TRACE(SCP, "BallotProtocol::bumpState i: {} v: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(newb));
 
+    maybeReplaceValueWithSkip(newb.value);
     bool updated = updateCurrentValue(newb);
 
     if (updated)
