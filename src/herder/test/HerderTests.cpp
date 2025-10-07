@@ -20,6 +20,7 @@
 #include "history/test/HistoryTestsUtils.h"
 
 #include "catchup/LedgerApplyManagerImpl.h"
+#include "crypto/KeyUtils.h"
 #include "crypto/SHA.h"
 #include "database/Database.h"
 #include "herder/HerderUtils.h"
@@ -6051,8 +6052,30 @@ TEST_CASE("Skip ledger", "[herder]")
 
     CLOG_ERROR(Herder, "There's a disconnect here");
 
-    // Run simulation for a while
-    simulation->crankForAtLeast(std::chrono::minutes(5), false);
+    // Helper function to check if all nodes have externalized a skip value
+    auto haveAllNodesExternalizedSkip = [&]() {
+        for (auto const& pubkey : pubkeys)
+        {
+            auto node = simulation->getNode(pubkey);
+            auto const& lcl =
+                node->getLedgerManager().getLastClosedLedgerHeader();
+
+            // Check if the scpValue in the last closed ledger is a skip value
+            if (lcl.header.scpValue.ext.v() != STELLAR_VALUE_SKIP)
+            {
+                return false;
+            }
+        }
+        // All nodes have externalized skip values, log the result
+        CLOG_INFO(Herder, "All {} nodes have externalized skip values",
+                  pubkeys.size());
+        return true;
+    };
+
+    // Run simulation until all nodes externalize a skip value (timeout: 5
+    // minutes)
+    simulation->crankUntil(haveAllNodesExternalizedSkip,
+                           std::chrono::minutes(5), false);
 }
 
 using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;
