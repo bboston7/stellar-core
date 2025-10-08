@@ -6052,30 +6052,29 @@ TEST_CASE("Skip ledger", "[herder]")
 
     CLOG_ERROR(Herder, "There's a disconnect here");
 
-    // Helper function to check if all nodes have externalized a skip value
-    auto haveAllNodesExternalizedSkip = [&]() {
-        for (auto const& pubkey : pubkeys)
-        {
-            auto node = simulation->getNode(pubkey);
-            auto const& lcl =
-                node->getLedgerManager().getLastClosedLedgerHeader();
-
-            // Check if the scpValue in the last closed ledger is a skip value
-            if (lcl.header.scpValue.ext.v() != STELLAR_VALUE_SKIP)
-            {
-                return false;
-            }
-        }
-        // All nodes have externalized skip values, log the result
-        CLOG_INFO(Herder, "All {} nodes have externalized skip values",
-                  pubkeys.size());
-        return true;
-    };
-
     // Run simulation until all nodes externalize a skip value (timeout: 5
     // minutes)
-    simulation->crankUntil(haveAllNodesExternalizedSkip,
-                           std::chrono::minutes(5), false);
+    simulation->crankForAtLeast(std::chrono::minutes(5), false);
+
+    // Check database for externalized skip values
+    auto& app = *simulation->getNode(pubkeys.at(0));
+    soci::session &session = app.getDatabase().getRawSession();
+    bool didSkip = false;
+    for (uint32_t i = 2; i <= app.getLedgerManager().getLastClosedLedgerNum();
+         ++i)
+    {
+        std::shared_ptr<LedgerHeader> lh =
+            LedgerHeaderUtils::loadBySequence(app.getDatabase(), session, i);
+        REQUIRE(lh);
+        if (lh->scpValue.ext.v() == STELLAR_VALUE_SKIP)
+        {
+            didSkip = true;
+            CLOG_INFO(Herder, "Ledger {} is a skip ledger", i);
+            break;
+        }
+        CLOG_INFO(Herder, "Ledger {} is {}", i, lh->scpValue.ext.v());
+    }
+    REQUIRE(didSkip);
 }
 
 using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;
