@@ -64,7 +64,11 @@ HerderSCPDriver::SCPMetrics::SCPMetrics(Application& app)
     , mFirstToSelfExternalizeLag(app.getMetrics().NewTimer(
           {"scp", "timing", "first-to-self-externalize-lag"}))
     , mSelfToOthersExternalizeLag(app.getMetrics().NewTimer(
-          {"scp", "timing", "self-to-others-externalize-lag"}))
+        {"scp", "timing", "self-to-others-externalize-lag"}))
+    , mSkipExternalized(
+        app.getMetrics().NewCounter({"scp", "skip", "externalized"}))
+    , mSkipValueReplaced(
+        app.getMetrics().NewCounter({"scp", "skip", "value-replaced"}))
 {
 }
 
@@ -952,6 +956,11 @@ HerderSCPDriver::valueExternalized(uint64_t slotIndex, Value const& value)
     bool isLatestSlot =
         slotIndex > mApp.getHerder().trackingConsensusLedgerIndex();
 
+    if (b.ext.v() == STELLAR_VALUE_SKIP)
+    {
+        mSCPMetrics.mSkipExternalized.inc();
+    }
+
     // Only update tracking state when newer slot comes in
     if (isLatestSlot)
     {
@@ -995,6 +1004,13 @@ HerderSCPDriver::valueExternalized(uint64_t slotIndex, Value const& value)
     {
         mHerder.valueExternalized(slotIndex, b, isLatestSlot);
     }
+}
+
+void
+HerderSCPDriver::noteSkipValueReplaced(uint64_t)
+{
+    ZoneScoped;
+    mSCPMetrics.mSkipValueReplaced.inc();
 }
 
 void

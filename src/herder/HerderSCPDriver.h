@@ -98,6 +98,7 @@ class HerderSCPDriver : public SCPDriver
     combineCandidates(uint64_t slotIndex,
                       ValueWrapperPtrSet const& candidates) override;
     void valueExternalized(uint64_t slotIndex, Value const& value) override;
+    void noteSkipValueReplaced(uint64_t slotIndex) override;
 
     // Submit a value to consider for slotIndex
     // previousValue is the value from slotIndex-1
@@ -197,6 +198,12 @@ class HerderSCPDriver : public SCPDriver
         // Timers tracking externalize messages
         medida::Timer& mFirstToSelfExternalizeLag;
         medida::Timer& mSelfToOthersExternalizeLag;
+
+    // Tracks how many ledgers we externalized using a skip value.
+    medida::Counter& mSkipExternalized;
+    // Counts replacements of proposed values with the synthesized skip
+    // value.
+    medida::Counter& mSkipValueReplaced;
 
         SCPMetrics(Application& app);
     };

@@ -6012,6 +6012,12 @@ TEST_CASE("Skip ledger", "[herder]")
     simulation->addPendingConnection(pubkeys.at(1), pubkeys.at(2));
     simulation->startAllNodes();
 
+    auto& skipExternalizedCounter =
+        simulation->getNode(pubkeys.at(0))
+            ->getMetrics()
+            .NewCounter({"scp", "skip", "externalized"});
+    auto const initialSkipCount = skipExternalizedCounter.count();
+
     // TODO: Is this necessary? vv
     // wait for ledgers to close so nodes get the updated transitive quorum
     simulation->crankUntil(
@@ -6056,25 +6062,8 @@ TEST_CASE("Skip ledger", "[herder]")
     // minutes)
     simulation->crankForAtLeast(std::chrono::minutes(5), false);
 
-    // Check database for externalized skip values
-    auto& app = *simulation->getNode(pubkeys.at(0));
-    soci::session &session = app.getDatabase().getRawSession();
-    bool didSkip = false;
-    for (uint32_t i = 2; i <= app.getLedgerManager().getLastClosedLedgerNum();
-         ++i)
-    {
-        std::shared_ptr<LedgerHeader> lh =
-            LedgerHeaderUtils::loadBySequence(app.getDatabase(), session, i);
-        REQUIRE(lh);
-        if (lh->scpValue.ext.v() == STELLAR_VALUE_SKIP)
-        {
-            didSkip = true;
-            CLOG_INFO(Herder, "Ledger {} is a skip ledger", i);
-            break;
-        }
-        CLOG_INFO(Herder, "Ledger {} is {}", i, lh->scpValue.ext.v());
-    }
-    REQUIRE(didSkip);
+    // Should have externalized skip
+    REQUIRE(skipExternalizedCounter.count() > initialSkipCount);
 }
 
 using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;

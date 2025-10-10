@@ -212,6 +212,11 @@ class SCPDriver
     {
     }
 
+    virtual void
+    noteSkipValueReplaced(uint64)
+    {
+    }
+
     // ``nominatingValue`` is called every time the local instance nominates
     // a new value.
     virtual void

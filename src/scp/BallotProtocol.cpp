@@ -427,6 +427,7 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
             ? highestSkip.value()
             : mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
     CLOG_ERROR(Herder, "Voting to skip slot {}", mSlot.getSlotIndex());
+    mSlot.getSCPDriver().noteSkipValueReplaced(mSlot.getSlotIndex());
 
     return true;
 }
