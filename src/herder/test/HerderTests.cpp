@@ -6066,6 +6066,172 @@ TEST_CASE("Skip ledger", "[herder]")
     REQUIRE(skipExternalizedCounter.count() > initialSkipCount);
 }
 
+// TODO: I think this needs to put the load generating validator (A?) as HIGH
+// and the rest as LOW. Otherwise, there's no reason at A would have the tx set
+// (if, for example, A did not win nomination). Also, I may have broken this
+// test with ctrl-z, which interacts poorly with copilot
+TEST_CASE("Skip ledger vote reversal", "[herder]")
+{
+    int constexpr simSize = 3;
+    int constexpr threshold = 2;
+    auto const networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    auto simulation =
+        std::make_shared<Simulation>(Simulation::OVER_LOOPBACK, networkID);
+
+    std::array<Config, simSize> configs;
+    std::array<PublicKey, simSize> pubkeys;
+    SCPQuorumSet qset;
+    qset.threshold = threshold;
+    constexpr int numAccounts = 30000;
+    for (int i = 0; i < simSize; ++i)
+    {
+        auto& cfg = configs.at(i) = simulation->newConfig();
+        cfg.GENESIS_TEST_ACCOUNT_COUNT = numAccounts;
+        auto const& pubkey = cfg.NODE_SEED.getPublicKey();
+        pubkeys.at(i) = pubkey;
+        qset.validators.push_back(pubkey);
+    }
+
+    for (int i = 0; i < simSize; ++i)
+    {
+        auto const& cfg = configs.at(i);
+        simulation->addNode(cfg.NODE_SEED, qset, &cfg);
+    }
+
+    simulation->addPendingConnection(pubkeys.at(0), pubkeys.at(1));
+    simulation->addPendingConnection(pubkeys.at(0), pubkeys.at(2));
+    simulation->addPendingConnection(pubkeys.at(1), pubkeys.at(2));
+    simulation->startAllNodes();
+
+    simulation->crankUntil(
+        [&simulation]() { return simulation->haveAllExternalized(3, 1); },
+        10 * simulation->getExpectedLedgerCloseTime(), false);
+
+    auto& nodeA = *simulation->getNode(pubkeys.at(0));
+    auto& nodeB = *simulation->getNode(pubkeys.at(1));
+    auto& nodeC = *simulation->getNode(pubkeys.at(2));
+
+    auto& skipValueReplacedB =
+        nodeB.getMetrics().NewCounter({"scp", "skip", "value-replaced"});
+    auto& skipValueReplacedC =
+        nodeC.getMetrics().NewCounter({"scp", "skip", "value-replaced"});
+    auto& skipExternalizedB =
+        nodeB.getMetrics().NewCounter({"scp", "skip", "externalized"});
+    auto& skipExternalizedC =
+        nodeC.getMetrics().NewCounter({"scp", "skip", "externalized"});
+
+    auto const valueReplacedInitialB = skipValueReplacedB.count();
+    auto const valueReplacedInitialC = skipValueReplacedC.count();
+    auto const externalizedInitialB = skipExternalizedB.count();
+    auto const externalizedInitialC = skipExternalizedC.count();
+
+    auto& loadGen = nodeA.getLoadGenerator();
+    auto loadConfig =
+        GeneratedLoadConfig::txLoad(LoadGenMode::PAY, numAccounts, 5000, 5);
+    loadGen.generateLoad(loadConfig);
+
+    auto dropTxSetFilter = [](StellarMessage const& msg) {
+        auto const msgType = msg.type();
+        return msgType != GET_TX_SET && msgType != TX_SET &&
+               msgType != GENERALIZED_TX_SET;
+    };
+    auto allowAllFilter = [](StellarMessage const&) { return true; };
+    auto const applyFilterToAllConnections =
+        [&](std::function<bool(StellarMessage const&)> const& filter) {
+            for (int i = 0; i < simSize; ++i)
+            {
+                for (int j = i + 1; j < simSize; ++j)
+                {
+                    auto conn =
+                        simulation->getLoopbackConnection(pubkeys.at(i),
+                                                          pubkeys.at(j));
+                    if (conn)
+                    {
+                        conn->getInitiator()->setOutgoingMessageFilter(filter);
+                        conn->getAcceptor()->setOutgoingMessageFilter(filter);
+                    }
+                }
+            }
+        };
+
+    applyFilterToAllConnections(dropTxSetFilter);
+
+    simulation->crankUntil(
+        [&]() {
+            return skipValueReplacedB.count() > valueReplacedInitialB &&
+                   skipValueReplacedC.count() > valueReplacedInitialC;
+        },
+        60 * simulation->getExpectedLedgerCloseTime(), false);
+
+    auto const replacedCountB = skipValueReplacedB.count();
+    auto const replacedCountC = skipValueReplacedC.count();
+
+    auto& herderA = dynamic_cast<HerderImpl&>(nodeA.getHerder());
+    auto& herderB = dynamic_cast<HerderImpl&>(nodeB.getHerder());
+    auto& herderC = dynamic_cast<HerderImpl&>(nodeC.getHerder());
+
+    auto const slotIndex = herderB.nextConsensusLedgerIndex();
+    REQUIRE(slotIndex == herderA.nextConsensusLedgerIndex());
+    REQUIRE(slotIndex == herderC.nextConsensusLedgerIndex());
+
+    REQUIRE(feedTxSetsFromSlot(nodeA, nodeB, slotIndex));
+    REQUIRE(feedTxSetsFromSlot(nodeA, nodeC, slotIndex));
+
+    applyFilterToAllConnections(allowAllFilter);
+
+    simulation->crankUntil(
+        [&]() {
+            return nodeA.getLedgerManager().getLastClosedLedgerNum() >=
+                       slotIndex &&
+                   nodeB.getLedgerManager().getLastClosedLedgerNum() >=
+                       slotIndex &&
+                   nodeC.getLedgerManager().getLastClosedLedgerNum() >=
+                       slotIndex;
+        },
+        30 * simulation->getExpectedLedgerCloseTime(), false);
+
+    REQUIRE(skipExternalizedB.count() == externalizedInitialB);
+    REQUIRE(skipExternalizedC.count() == externalizedInitialC);
+    REQUIRE(skipValueReplacedB.count() == replacedCountB);
+    REQUIRE(skipValueReplacedC.count() == replacedCountC);
+
+    auto const finalLedgerA =
+        nodeA.getLedgerManager().getLastClosedLedgerNum();
+    REQUIRE(nodeB.getLedgerManager().getLastClosedLedgerNum() == finalLedgerA);
+    REQUIRE(nodeC.getLedgerManager().getLastClosedLedgerNum() == finalLedgerA);
+
+    auto const verifyNonSkipExternalize =
+        [&](Application& node, HerderImpl& herder) {
+            auto slot = herder.getSCP().getSlotForTesting(slotIndex);
+            REQUIRE(slot != nullptr);
+            bool foundLocalExternalize = false;
+            for (auto const& histStmt :
+                 slot->getHistoricalStatementsForTesting())
+            {
+                auto const& st = histStmt.mStatement;
+                if (st.nodeID == node.getConfig().NODE_SEED.getPublicKey() &&
+                    st.pledges.type() == SCPStatementType::SCP_ST_EXTERNALIZE)
+                {
+                    auto const& value =
+                        st.pledges.externalize().commit.value;
+                    REQUIRE(!slot->getSCPDriver().isSkipLedgerValue(value));
+                    StellarValue sv;
+                    REQUIRE(
+                        herder.getHerderSCPDriver().toStellarValue(value, sv));
+                    auto txSet = herder.getTxSet(sv.txSetHash);
+                    REQUIRE(txSet);
+                    REQUIRE(txSet->sizeTxTotal() > 0);
+                    foundLocalExternalize = true;
+                    break;
+                }
+            }
+            REQUIRE(foundLocalExternalize);
+        };
+
+    verifyNonSkipExternalize(nodeB, herderB);
+    verifyNonSkipExternalize(nodeC, herderC);
+}
+
 using Topology = std::pair<std::vector<SecretKey>, std::vector<ValidatorEntry>>;
 
 // Generate a Topology with a single org containing 3 validators of HIGH quality
