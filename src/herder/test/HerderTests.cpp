@@ -5835,6 +5835,7 @@ TEST_CASE("Parallel tx set downloading", "[herder]")
     {
         auto& cfg = configs.at(i) = simulation->newConfig();
         cfg.GENESIS_TEST_ACCOUNT_COUNT = 100;
+        cfg.TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds(100);
         auto const& pubkey = cfg.NODE_SEED.getPublicKey();
         pubkeys.at(i) = pubkey;
         qset.validators.push_back(pubkey);
@@ -5995,6 +5996,7 @@ TEST_CASE("Skip ledger", "[herder]")
     {
         auto& cfg = configs.at(i) = simulation->newConfig();
         cfg.GENESIS_TEST_ACCOUNT_COUNT = numAccounts;
+        cfg.TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds(100);
         auto const& pubkey = cfg.NODE_SEED.getPublicKey();
         pubkeys.at(i) = pubkey;
         qset.validators.push_back(pubkey);
@@ -6087,6 +6089,7 @@ TEST_CASE("Skip ledger vote reversal", "[herder]")
         auto& cfg = configs.at(i) = simulation->newConfig();
         cfg.SKIP_HIGH_CRITICAL_VALIDATOR_CHECKS_FOR_TESTING = true;
         cfg.GENESIS_TEST_ACCOUNT_COUNT = numAccounts;
+        cfg.TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds(100);
         auto const& pubkey = cfg.NODE_SEED.getPublicKey();
         pubkeys.at(i) = pubkey;
 
@@ -6094,9 +6097,8 @@ TEST_CASE("Skip ledger vote reversal", "[herder]")
         std::string label(1, static_cast<char>('A' + i));
         entry.mName = "validator-" + label;
         entry.mHomeDomain = "domain-" + label;
-        entry.mQuality =
-            (i == 0) ? ValidatorQuality::VALIDATOR_HIGH_QUALITY
-                     : ValidatorQuality::VALIDATOR_LOW_QUALITY;
+        entry.mQuality = (i == 0) ? ValidatorQuality::VALIDATOR_HIGH_QUALITY
+                                  : ValidatorQuality::VALIDATOR_LOW_QUALITY;
         entry.mKey = pubkey;
         entry.mHasHistory = false;
         validators.emplace_back(std::move(entry));
@@ -6153,9 +6155,8 @@ TEST_CASE("Skip ledger vote reversal", "[herder]")
             {
                 for (int j = i + 1; j < simSize; ++j)
                 {
-                    auto conn =
-                        simulation->getLoopbackConnection(pubkeys.at(i),
-                                                          pubkeys.at(j));
+                    auto conn = simulation->getLoopbackConnection(
+                        pubkeys.at(i), pubkeys.at(j));
                     if (conn)
                     {
                         conn->getInitiator()->setOutgoingMessageFilter(filter);
@@ -6216,36 +6217,34 @@ TEST_CASE("Skip ledger vote reversal", "[herder]")
 
     // auto const finalLedgerA =
     //     nodeA.getLedgerManager().getLastClosedLedgerNum();
-    // REQUIRE(nodeB.getLedgerManager().getLastClosedLedgerNum() == finalLedgerA);
-    // REQUIRE(nodeC.getLedgerManager().getLastClosedLedgerNum() == finalLedgerA);
+    // REQUIRE(nodeB.getLedgerManager().getLastClosedLedgerNum() ==
+    // finalLedgerA); REQUIRE(nodeC.getLedgerManager().getLastClosedLedgerNum()
+    // == finalLedgerA);
 
-    auto const verifyNonSkipExternalize =
-        [&](Application& node, HerderImpl& herder) {
-            auto slot = herder.getSCP().getSlotForTesting(slotIndex);
-            REQUIRE(slot != nullptr);
-            bool foundLocalExternalize = false;
-            for (auto const& histStmt :
-                 slot->getHistoricalStatementsForTesting())
+    auto const verifyNonSkipExternalize = [&](Application& node,
+                                              HerderImpl& herder) {
+        auto slot = herder.getSCP().getSlotForTesting(slotIndex);
+        REQUIRE(slot != nullptr);
+        bool foundLocalExternalize = false;
+        for (auto const& histStmt : slot->getHistoricalStatementsForTesting())
+        {
+            auto const& st = histStmt.mStatement;
+            if (st.nodeID == node.getConfig().NODE_SEED.getPublicKey() &&
+                st.pledges.type() == SCPStatementType::SCP_ST_EXTERNALIZE)
             {
-                auto const& st = histStmt.mStatement;
-                if (st.nodeID == node.getConfig().NODE_SEED.getPublicKey() &&
-                    st.pledges.type() == SCPStatementType::SCP_ST_EXTERNALIZE)
-                {
-                    auto const& value =
-                        st.pledges.externalize().commit.value;
-                    REQUIRE(!slot->getSCPDriver().isSkipLedgerValue(value));
-                    StellarValue sv;
-                    REQUIRE(
-                        herder.getHerderSCPDriver().toStellarValue(value, sv));
-                    auto txSet = herder.getTxSet(sv.txSetHash);
-                    REQUIRE(txSet);
-                    REQUIRE(txSet->sizeTxTotal() > 0);
-                    foundLocalExternalize = true;
-                    break;
-                }
+                auto const& value = st.pledges.externalize().commit.value;
+                REQUIRE(!slot->getSCPDriver().isSkipLedgerValue(value));
+                StellarValue sv;
+                REQUIRE(herder.getHerderSCPDriver().toStellarValue(value, sv));
+                auto txSet = herder.getTxSet(sv.txSetHash);
+                REQUIRE(txSet);
+                REQUIRE(txSet->sizeTxTotal() > 0);
+                foundLocalExternalize = true;
+                break;
             }
-            REQUIRE(foundLocalExternalize);
-        };
+        }
+        REQUIRE(foundLocalExternalize);
+    };
 
     verifyNonSkipExternalize(nodeB, herderB);
     verifyNonSkipExternalize(nodeC, herderC);

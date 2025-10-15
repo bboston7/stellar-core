@@ -253,7 +253,7 @@ Config::Config() : NODE_SEED(SecretKey::random())
     PEER_AUTHENTICATION_TIMEOUT = 2;
     PEER_TIMEOUT = 30;
     PEER_STRAGGLER_TIMEOUT = 120;
-    TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds(100);
+    TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds(5000);
 
     FLOOD_OP_RATE_PER_LEDGER = 1.0;
     FLOOD_TX_PERIOD_MS = 200;
