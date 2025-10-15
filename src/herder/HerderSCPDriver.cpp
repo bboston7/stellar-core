@@ -328,7 +328,7 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             {
                 // TODO: Instead of returning "invalid" here, should this
                 // schedule a download?
-                CLOG_ERROR(Herder, "validateValue i:{} unknown txSet {}",
+                CLOG_DEBUG(Proto, "validateValue i:{} unknown txSet {}",
                            slotIndex, hexAbbrev(txSetHash));
 
                 res = SCPDriver::kInvalidValue;

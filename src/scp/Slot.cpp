@@ -401,10 +401,10 @@ Slot::federatedAccept(StatementPredicate voted, StatementPredicate accepted,
     // v-blocking set
     if (LocalNode::isVBlocking(getLocalNode()->getQuorumSet(), envs, accepted))
     {
-        CLOG_ERROR(SCP, "found v-blocking set");
+        CLOG_DEBUG(Proto, "found v-blocking set");
         return true;
     }
-    CLOG_ERROR(SCP, "did not find v-blocking set");
+    CLOG_DEBUG(Proto, "did not find v-blocking set");
 
     // Checks if the set of nodes that accepted or voted for it form a quorum
 
@@ -421,7 +421,7 @@ Slot::federatedAccept(StatementPredicate voted, StatementPredicate accepted,
     {
         return true;
     }
-    CLOG_ERROR(SCP, "did not find quorum");
+    CLOG_DEBUG(Proto, "did not find quorum");
 
     return false;
 }

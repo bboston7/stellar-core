@@ -160,7 +160,7 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
 {
     ZoneScoped;
     dbgAssert(envelope->getStatement().slotIndex == mSlot.getSlotIndex());
-    CLOG_ERROR(SCP, "processing {} envelope: {}", self ? "self" : "other",
+    CLOG_DEBUG(Proto, "processing {} envelope: {}", self ? "self" : "other",
                mSlot.getSCP().envToStr(envelope->getEnvelope()));
 
     SCPStatement const& statement = envelope->getStatement();
@@ -372,7 +372,7 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
     // Check how long we've been waiting
     auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
 
-    CLOG_ERROR(Herder, "Waiting time for {}: {}", hexAbbrev(v),
+    CLOG_DEBUG(Proto, "Waiting time for {}: {}", hexAbbrev(v),
                waitingTime.has_value()
                    ? std::to_string(waitingTime.value().count())
                    : "nullopt");
@@ -418,7 +418,7 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
     v = highestSkip.has_value()
             ? highestSkip.value()
             : mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
-    CLOG_ERROR(Herder, "Voting to skip slot {}", mSlot.getSlotIndex());
+    CLOG_DEBUG(Proto, "Voting to skip slot {}", mSlot.getSlotIndex());
     mSlot.getSCPDriver().noteSkipValueReplaced(mSlot.getSlotIndex());
 
     return true;
@@ -446,7 +446,7 @@ bool
 BallotProtocol::bumpState(Value const& value, uint32 n)
 {
     ZoneScoped;
-    CLOG_ERROR(Herder, "Bump state!");
+    CLOG_DEBUG(Proto, "Bump state!");
     if (mPhase != SCP_PHASE_PREPARE && mPhase != SCP_PHASE_CONFIRM)
     {
         return false;
@@ -601,7 +601,7 @@ void
 BallotProtocol::stopBallotProtocolTimer()
 {
     // TODO: Maybe the issue is that the ballot protocol stops too early?
-    CLOG_ERROR(Herder, "Stopping ballot protocol timer for slot {}",
+    CLOG_DEBUG(Proto, "Stopping ballot protocol timer for slot {}",
                mSlot.getSlotIndex());
     std::shared_ptr<Slot> slot = mSlot.shared_from_this();
     mSlot.getSCPDriver().setupTimer(mSlot.getSlotIndex(),
@@ -909,7 +909,7 @@ BallotProtocol::attemptAcceptPrepared(SCPStatement const& hint)
     for (auto cur = candidates.rbegin(); cur != candidates.rend(); cur++)
     {
         SCPBallot ballot = *cur;
-        CLOG_ERROR(SCP, "BallotProtocol::attemptAcceptPrepared i: {} b: {}",
+        CLOG_DEBUG(Proto, "BallotProtocol::attemptAcceptPrepared i: {} b: {}",
                    mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(ballot));
 
         if (mPhase == SCP_PHASE_CONFIRM)
@@ -929,7 +929,7 @@ BallotProtocol::attemptAcceptPrepared(SCPStatement const& hint)
         if (mPreparedPrime &&
             compareBallots(ballot, mPreparedPrime->getBallot()) <= 0)
         {
-            CLOG_ERROR(SCP, "ballot <= p'");
+            CLOG_DEBUG(Proto, "ballot <= p'");
             continue;
         }
 
@@ -938,7 +938,7 @@ BallotProtocol::attemptAcceptPrepared(SCPStatement const& hint)
             // if ballot is already covered by p, skip
             if (areBallotsLessAndCompatible(ballot, mPrepared->getBallot()))
             {
-                CLOG_ERROR(SCP, "ballot already covered by p");
+                CLOG_DEBUG(Proto, "ballot already covered by p");
                 continue;
             }
             // otherwise, there is a chance it increases p'
@@ -955,7 +955,7 @@ BallotProtocol::attemptAcceptPrepared(SCPStatement const& hint)
                 {
                     auto const& p = st.pledges.prepare();
                     res = areBallotsLessAndCompatible(ballot, p.ballot);
-                    CLOG_ERROR(SCP, "{} < {}: {}",
+                    CLOG_DEBUG(Proto, "{} < {}: {}",
                                mSlot.getSCP().ballotToStr(ballot),
                                mSlot.getSCP().ballotToStr(p.ballot), res);
                 }
@@ -980,7 +980,7 @@ BallotProtocol::attemptAcceptPrepared(SCPStatement const& hint)
                 return res;
             },
             std::bind(&BallotProtocol::hasPreparedBallot, ballot, _1));
-        CLOG_ERROR(SCP, "Accepted: {}", accepted);
+        CLOG_DEBUG(Proto, "Accepted: {}", accepted);
         if (accepted)
         {
             return setAcceptPrepared(ballot);
@@ -994,7 +994,7 @@ bool
 BallotProtocol::setAcceptPrepared(SCPBallot const& ballot)
 {
     ZoneScoped;
-    CLOG_ERROR(SCP, "BallotProtocol::setAcceptPrepared i: {} b: {}",
+    CLOG_DEBUG(Proto, "BallotProtocol::setAcceptPrepared i: {} b: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(ballot));
 
     // update our state
@@ -1187,8 +1187,8 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 mSlot.getSlotIndex(), newC.value, false);
 
             // Debug output to see what validation level we're getting
-            CLOG_ERROR(
-                SCP,
+            CLOG_DEBUG(
+                Proto,
                 "DEBUG: setConfirmPrepared validation level = {} for slot {}",
                 static_cast<int>(validationLevel), mSlot.getSlotIndex());
 
@@ -1202,8 +1202,8 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 // nullopt (e.g., transaction set not being fetched, or some
                 // other edge case)
 
-                CLOG_ERROR(
-                    SCP,
+                CLOG_DEBUG(
+                    Proto,
                     "BallotProtocol::setConfirmPrepared slot:{} "
                     "attempting to vote to commit with kAwaitingDownload value "
                     "- "
@@ -2035,7 +2035,7 @@ BallotProtocol::advanceSlot(SCPStatement const& hint)
 {
     ZoneScoped;
     mCurrentMessageLevel++;
-    CLOG_ERROR(SCP, "BallotProtocol::advanceSlot {} {}", mCurrentMessageLevel,
+    CLOG_DEBUG(Proto, "BallotProtocol::advanceSlot {} {}", mCurrentMessageLevel,
                getLocalState());
 
     if (mCurrentMessageLevel >= MAX_ADVANCE_SLOT_RECURSION)
@@ -2057,7 +2057,7 @@ BallotProtocol::advanceSlot(SCPStatement const& hint)
 
     if (didWork)
     {
-        CLOG_ERROR(SCP, "attemptAcceptPrepared did work");
+        CLOG_DEBUG(Proto, "attemptAcceptPrepared did work");
     }
 
     didWork = attemptConfirmPrepared(hint) || didWork;
@@ -2143,7 +2143,7 @@ BallotProtocol::validateValues(SCPStatement const& st)
 
     if (values.empty())
     {
-        CLOG_ERROR(SCP,
+        CLOG_DEBUG(Proto,
                    "BallotProtocol::validateValues slot:{} "
                    "found empty value set in statement",
                    mSlot.getSlotIndex());
@@ -2163,7 +2163,7 @@ BallotProtocol::validateValues(SCPStatement const& st)
 
                 if (tr == SCPDriver::kAwaitingDownload)
                 {
-                    CLOG_ERROR(SCP,
+                    CLOG_DEBUG(Proto,
                                "BallotProtocol::validateValues slot:{} "
                                "found kAwaitingDownload value in statement",
                                mSlot.getSlotIndex());
@@ -2178,7 +2178,7 @@ BallotProtocol::validateValues(SCPStatement const& st)
 
     if (res == SCPDriver::kInvalidValue)
     {
-        CLOG_ERROR(SCP,
+        CLOG_DEBUG(Proto,
                    "BallotProtocol::validateValues slot:{} found "
                    "kInvalidValue value in statement",
                    mSlot.getSlotIndex());

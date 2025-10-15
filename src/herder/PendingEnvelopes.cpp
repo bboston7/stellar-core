@@ -205,7 +205,7 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
     if (hash == Herder::SKIP_LEDGER_HASH)
     {
         // Special case for the skip ledger hash
-        CLOG_ERROR(Herder, "Request for skip ledger hash {}", hexAbbrev(hash));
+        CLOG_DEBUG(Proto, "Request for skip ledger hash {}", hexAbbrev(hash));
         // Return an empty tx set
         // TODO: Is it right to use the LCL header here? I'm not so sure. Here
         // are a couple cases I'm concerned about:
@@ -273,15 +273,14 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
     auto waitingTime = mTxSetFetcher.getWaitingTime(hash);
     if (waitingTime.has_value())
     {
-        CLOG_ERROR(
-            Herder,
+        CLOG_DEBUG(Proto,
             "Successfully downloaded tx set {} that was kAwaitingDownload - "
             "download took {} ms",
             hexAbbrev(hash), waitingTime.value().count());
     }
     else
     {
-        CLOG_ERROR(Herder,
+        CLOG_DEBUG(Proto,
                    "Successfully downloaded tx set {} that was requested",
                    hexAbbrev(hash));
     }
