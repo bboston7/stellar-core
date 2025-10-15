@@ -18,22 +18,12 @@
 #include <numeric>
 #include <sstream>
 
+// TODO: Dial down logging, as this level might have a performance impact. Maybe
+// add a new partition for this, and set everything to DEBUG.
+
 // TODO: Should make sure that any subsequent stages to vote-to-commit also
 // require the tx set. Do not externalize without the tx set. Test these cases
 // too.
-using namespace std::chrono_literals;
-
-namespace
-{
-// TODO: Skip ledger time needs to be configurable. This is low
-// for unit testing because of the way virtual clock works
-// (jumps to next event). This needs to trigger *before* the
-// heartbeat, but it won't for some reason. Not sure if that's a `Simulation`
-// thing, or if SCP has difficulty with check itself in the absence of new
-// external messages.
-constexpr std::chrono::milliseconds TX_SET_DOWNLOAD_TIMEOUT = 100ms;
-}
-
 namespace stellar
 {
 using namespace std::placeholders;
@@ -393,7 +383,9 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
     // timer rather than crash.
     releaseAssert(waitingTime.has_value());
 
-    if (waitingTime.value() < TX_SET_DOWNLOAD_TIMEOUT)
+    auto timeout = mSlot.getSCPDriver().getTxSetDownloadTimeout();
+
+    if (waitingTime.value() < timeout)
     {
         // Haven't timed out yet. Keep waiting.
         return false;

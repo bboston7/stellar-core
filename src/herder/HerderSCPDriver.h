@@ -145,6 +145,7 @@ class HerderSCPDriver : public SCPDriver
 
     std::optional<std::chrono::milliseconds>
     getTxSetDownloadWaitTime(Value const& v) const override;
+    std::chrono::milliseconds getTxSetDownloadTimeout() const override;
 
     // Application-specific weight function. This function uses the quality
     // levels from automatic quorum set generation to determine the weight of a

@@ -129,6 +129,12 @@ class TestSCP : public SCPDriver
         return std::nullopt;
     }
 
+    std::chrono::milliseconds
+    getTxSetDownloadTimeout() const override
+    {
+        return std::chrono::milliseconds(100);
+    }
+
     Value makeSkipLedgerValueFromValue(Value const& value) const override
     {
         // TODO: Implement?
