@@ -1194,6 +1194,11 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
             if (validationLevel == SCPDriver::kAwaitingDownload)
             {
+                // Record the start time if this is the first time balloting
+                // becomes blocked on this txset
+                mSlot.getSCPDriver().recordBallotBlockedOnTxSet(
+                    mSlot.getSlotIndex(), newC.value);
+
                 // Check how long we've been waiting for the transaction set
                 auto waitingTime =
                     mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
@@ -1238,6 +1243,13 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 //               !nodeSynced);
                 releaseAssert(validationLevel != SCPDriver::kInvalidValue);
                 dbgAssert(!mCommit);
+                
+                // Measure and record how long balloting was blocked on this txset
+                // TODO: This metric only works if we end up here only once per
+                // value. I think that's true, but I'm not 100% sure.
+                mSlot.getSCPDriver().measureAndRecordBallotBlockedOnTxSet(
+                    mSlot.getSlotIndex(), newC.value);
+                
                 mCommit = makeBallot(newC);
                 didWork = true;
             }

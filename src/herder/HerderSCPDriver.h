@@ -121,6 +121,13 @@ class HerderSCPDriver : public SCPDriver
                                  SCPBallot const& ballot) override;
     void acceptedCommit(uint64_t slotIndex, SCPBallot const& ballot) override;
 
+    // Ballot blocked on txset tracking methods
+    // Called when balloting becomes blocked waiting for a txset download
+    void recordBallotBlockedOnTxSet(uint64_t slotIndex, Value const& value) override;
+    // Called when balloting is unblocked (setting mCommit) to measure and
+    // record how long we were blocked
+    void measureAndRecordBallotBlockedOnTxSet(uint64_t slotIndex, Value const& value) override;
+
     std::optional<VirtualClock::time_point> getPrepareStart(uint64_t slotIndex);
 
     // converts a Value into a StellarValue
@@ -208,6 +215,10 @@ class HerderSCPDriver : public SCPDriver
         medida::Timer& mFirstToSelfExternalizeLag;
         medida::Timer& mSelfToOthersExternalizeLag;
 
+        // Timer tracking how long balloting was blocked waiting for a txset
+        // download (time spent in kAwaitingDownload before setting mCommit)
+        medida::Timer& mBallotBlockedOnTxSet;
+
     // Tracks how many ledgers we externalized using a skip value.
     medida::Counter& mSkipExternalized;
     // Counts replacements of proposed values with the synthesized skip
@@ -242,6 +253,10 @@ class HerderSCPDriver : public SCPDriver
         // externalize timing information
         std::optional<VirtualClock::time_point> mFirstExternalize;
         std::optional<VirtualClock::time_point> mSelfExternalize;
+
+        // Tracks when balloting first became blocked on each txset in this
+        // slot.
+        std::map<Value, VirtualClock::time_point> mBallotBlockedOnTxSetStart;
     };
 
     // Map of time points for each slot to measure key protocol metrics:

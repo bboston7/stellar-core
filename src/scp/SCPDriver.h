@@ -273,6 +273,19 @@ class SCPDriver
     {
     }
 
+    // Called when balloting becomes blocked waiting for a txset download
+    virtual void
+    recordBallotBlockedOnTxSet(uint64 slotIndex, Value const& value)
+    {
+    }
+
+    // Called when balloting is unblocked (setting mCommit) to measure and
+    // record how long we were blocked waiting for the txset
+    virtual void
+    measureAndRecordBallotBlockedOnTxSet(uint64 slotIndex, Value const& value)
+    {
+    }
+
 #ifdef BUILD_TESTS
     std::function<uint64(NodeID const&)> mPriorityLookupForTesting;
     void

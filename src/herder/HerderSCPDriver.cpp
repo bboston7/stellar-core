@@ -65,6 +65,8 @@ HerderSCPDriver::SCPMetrics::SCPMetrics(Application& app)
           {"scp", "timing", "first-to-self-externalize-lag"}))
     , mSelfToOthersExternalizeLag(app.getMetrics().NewTimer(
         {"scp", "timing", "self-to-others-externalize-lag"}))
+    , mBallotBlockedOnTxSet(
+          app.getMetrics().NewTimer({"scp", "timing", "ballot-blocked-on-txset"}))
     , mSkipExternalized(
         app.getMetrics().NewCounter({"scp", "skip", "externalized"}))
     , mSkipValueReplaced(
@@ -1090,6 +1092,41 @@ HerderSCPDriver::getQSet(Hash const& qSetHash)
 void
 HerderSCPDriver::ballotDidHearFromQuorum(uint64_t, SCPBallot const&)
 {
+}
+
+void
+HerderSCPDriver::recordBallotBlockedOnTxSet(uint64_t slotIndex,
+                                             Value const& value)
+{
+    auto& timing = mSCPExecutionTimes[slotIndex];
+    if (timing.mBallotBlockedOnTxSetStart.find(value) ==
+        timing.mBallotBlockedOnTxSetStart.end())
+    {
+        timing.mBallotBlockedOnTxSetStart[value] = mApp.getClock().now();
+    }
+}
+
+void
+HerderSCPDriver::measureAndRecordBallotBlockedOnTxSet(uint64_t slotIndex,
+                                                       Value const& value)
+{
+    auto it = mSCPExecutionTimes.find(slotIndex);
+    if (it != mSCPExecutionTimes.end())
+    {
+        auto& timing = it->second;
+        auto valueIt = timing.mBallotBlockedOnTxSetStart.find(value);
+        if (valueIt != timing.mBallotBlockedOnTxSetStart.end())
+        {
+            auto elapsed =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    mApp.getClock().now() - valueIt->second);
+            mSCPMetrics.mBallotBlockedOnTxSet.Update(elapsed);
+            return;
+        }
+    }
+
+    // No blocking - record zero duration
+    mSCPMetrics.mBallotBlockedOnTxSet.Update(std::chrono::milliseconds(0));
 }
 
 void
