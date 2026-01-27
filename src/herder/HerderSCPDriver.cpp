@@ -969,24 +969,6 @@ HerderSCPDriver::getTxSetDownloadTimeout() const
     return mApp.getConfig().TX_SET_DOWNLOAD_TIMEOUT;
 }
 
-std::optional<std::chrono::milliseconds>
-HerderSCPDriver::getTxSetDownloadWaitTime(Value const& v) const
-{
-    StellarValue sv;
-    bool success = toStellarValue(v, sv);
-
-    // TODO: Handle error here
-    releaseAssert(success);
-
-    return mPendingEnvelopes.getTxSetWaitingTime(sv.txSetHash);
-}
-
-std::chrono::milliseconds
-HerderSCPDriver::getTxSetDownloadTimeout() const
-{
-    return mApp.getConfig().TX_SET_DOWNLOAD_TIMEOUT;
-}
-
 void
 HerderSCPDriver::valueExternalized(uint64_t slotIndex, Value const& value)
 {

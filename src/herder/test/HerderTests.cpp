@@ -5796,7 +5796,7 @@ static bool
 feedTxSetFromStatement(Application& sourceNode, Application& targetNode,
                        SCPStatement const& statement)
 {
-    auto stellarValues = getStellarValues(statement);
+    auto stellarValues = getStellarValues(statement).value();
     auto& sourceHerder = dynamic_cast<HerderImpl&>(sourceNode.getHerder());
     auto& targetHerder = dynamic_cast<HerderImpl&>(targetNode.getHerder());
     bool fedNonEmptySet = false;
@@ -6354,7 +6354,7 @@ TEST_CASE("Skip ledger vote reversal", "[herder]")
                 auto const& value = st.pledges.externalize().commit.value;
                 REQUIRE(!slot->getSCPDriver().isSkipLedgerValue(value));
                 StellarValue sv;
-                REQUIRE(herder.getHerderSCPDriver().toStellarValue(value, sv));
+                REQUIRE(toStellarValue(value, sv));
                 auto txSet = herder.getTxSet(sv.txSetHash);
                 REQUIRE(txSet);
                 REQUIRE(txSet->sizeTxTotal() > 0);
