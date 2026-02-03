@@ -146,6 +146,9 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
             }
             else
             {
+                // TODO(5): What should we do in this case? Should we just
+                // remove this case entirely? What did the old prototype do?
+
                 // CLOG_ERROR(Herder, "TODO: Should we be checking that tx set
                 // is "
                 //                    "scheduled to download here?");
@@ -207,7 +210,7 @@ HerderSCPDriver::checkCloseTime(uint64_t slotIndex, uint64_t lastCloseTime,
     return true;
 }
 
-// TODO: Does this need updating for "kAwaitingDownload"?
+// TODO(6): Does this need updating for "kAwaitingDownload"?
 SCPDriver::ValidationLevel
 HerderSCPDriver::validatePastOrFutureValue(
     uint64_t slotIndex, StellarValue const& b,
@@ -328,7 +331,7 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             }
             else
             {
-                // TODO: Instead of returning "invalid" here, should this
+                // TODO(7): Instead of returning "invalid" here, should this
                 // schedule a download?
                 CLOG_DEBUG(Proto, "validateValue i:{} unknown txSet {}",
                            slotIndex, hexAbbrev(txSetHash));
@@ -377,7 +380,7 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
         return SCPDriver::kInvalidValue;
     }
 
-    // TODO: Grep for signature checks and update them for SKIP values
+    // TODO(8): Grep for signature checks and update them for SKIP values
     if (b.ext.v() != STELLAR_VALUE_SIGNED && b.ext.v() != STELLAR_VALUE_SKIP)
     {
         CLOG_TRACE(Herder,
@@ -453,8 +456,8 @@ HerderSCPDriver::extractValidValue(uint64_t slotIndex, Value const& value)
         return nullptr;
     }
     ValueWrapperPtr res;
-    // TODO: Should this conditional accept "kAwaitingDownload" too? I think so,
-    // given this only seems to care about upgrades (not txset values).
+    // TODO(9): Should this conditional accept "kAwaitingDownload" too? I think
+    // so, given this only seems to care about upgrades (not txset values).
     if (validateValueAgainstLocalState(slotIndex, b, true) >=
         SCPDriver::kFullyValidatedValue)
     {
@@ -682,18 +685,18 @@ compareTxSets(ApplicableTxSetFrameConstPtr const& l,
 {
     if (!l && !r)
     {
-        // CLOG_ERROR(Herder, "Comparing tx sets but both are null");
+        CLOG_TRACE(Proto, "Comparing tx sets but both are null");
         // Do not have either tx set. Compare hashes
         return lessThanXored(lh, rh, s);
     }
 
     if (!l || !r)
     {
-        // CLOG_ERROR(
-        //     Herder,
-        //     "Comparing tx sets but one is null: l: {}, r: {}, lh: {}, rh:
-        //     {}", l ? "exists" : "null", r ? "exists" : "null", hexAbbrev(lh),
-        //     hexAbbrev(rh));
+        CLOG_TRACE(
+            Proto,
+            "Comparing tx sets but one is null: l: {}, r: {}, lh: {}, rh: {}",
+            l ? "exists" : "null", r ? "exists" : "null", hexAbbrev(lh),
+            hexAbbrev(rh));
         // If one exists, choose it
         return !l;
     }
@@ -726,7 +729,7 @@ compareTxSets(ApplicableTxSetFrameConstPtr const& l,
     if (protocolVersionStartsFrom(header.ledgerVersion,
                                   SOROBAN_PROTOCOL_VERSION))
     {
-        // TODO: Error handling check that encoded sizes have a values?
+        // TODO(10): Error handling check that encoded sizes have a values?
         if (lEncodedSize.value() != rEncodedSize.value())
         {
             // Look for the smallest encoded size.
@@ -861,7 +864,7 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
         {
             auto const& sv = *it;
             auto cTxSet = mPendingEnvelopes.getTxSet(sv.txSetHash);
-            // TODO: I've changed this function to combine as follows:
+            // TODO(11): I've changed this function to combine as follows:
             // * If both `highestTxSet` and `cApplicableTxSet` exist, choose the
             //   largest one (like today)
             // * If only one exists, choose the one that exists
@@ -872,7 +875,7 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
             auto cApplicableTxSet =
                 cTxSet ? cTxSet->prepareForApply(mApp, lcl.header) : nullptr;
             // releaseAssert(cApplicableTxSet);
-            // TODO: I added the `!cTxSet` check here to allow this to proceed
+            // TODO(12): I added the `!cTxSet` check here to allow this to proceed
             // without a tx set, but it seems important that `previousLedgerHash
             // == lcl.hash`. Is that checked later during validation? Should
             // write a test that causes `combineCandidates` to use a tx set with
@@ -957,7 +960,7 @@ HerderSCPDriver::getTxSetDownloadWaitTime(Value const& v) const
     StellarValue sv;
     bool success = toStellarValue(v, sv);
 
-    // TODO: Handle error here
+    // TODO(13): Handle error here
     releaseAssert(success);
 
     return mPendingEnvelopes.getTxSetWaitingTime(sv.txSetHash);
@@ -1486,6 +1489,7 @@ class SCPHerderValueWrapper : public ValueWrapper
         mTxSet = mHerder.getTxSet(sv.txSetHash);
         if (!mTxSet)
         {
+            // TODO(14): Address this vv
             // CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
             //                    "scheduled to download here?");
             // throw std::runtime_error(fmt::format(

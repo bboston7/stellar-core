@@ -21,8 +21,7 @@ class NominationProtocol
 
     int32 mRoundNumber;
 
-    ValueWrapperPtrSet mVotes; // X
-    // TODO: MUST have tx set before accepting a value
+    ValueWrapperPtrSet mVotes;                                  // X
     ValueWrapperPtrSet mAccepted;                               // Y
     ValueWrapperPtrSet mCandidates;                             // Z
     std::map<NodeID, SCPEnvelopeWrapperPtr> mLatestNominations; // N

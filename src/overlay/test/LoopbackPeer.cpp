@@ -590,7 +590,7 @@ void
 LoopbackPeer::sendMessage(std::shared_ptr<StellarMessage const> msg,
                           bool log)
 {
-    // TODO: Drop here so that we don't run into issues with authenticated MAC
+    // TODO(19): Drop here so that we don't run into issues with authenticated MAC
     // counters. This is hacky and not great. Probably want a boolean in peer1's
     // Herder called something like "ignoreTxSetRequestsForTesting" or something
     // that just ignores any inbound requests for tx sets.

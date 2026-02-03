@@ -18,9 +18,6 @@
 #include <numeric>
 #include <sstream>
 
-// TODO: Dial down logging, as this level might have a performance impact. Maybe
-// add a new partition for this, and set everything to DEBUG.
-
 // TODO: Should make sure that any subsequent stages to vote-to-commit also
 // require the tx set. Do not externalize without the tx set. Test these cases
 // too.
@@ -196,12 +193,12 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
     auto validationRes = validateValues(statement);
 
     // Log validation results
-    // CLOG_ERROR(SCP,
-    //             "BallotProtocol::processEnvelope slot:{} "
-    //             "received statement with {} value from node:{}",
-    //             mSlot.getSlotIndex(),
-    //             SCPDriver::validationLevelToString(validationRes),
-    //             mSlot.getSCP().getDriver().toShortString(statement.nodeID));
+    CLOG_TRACE(Proto,
+               "BallotProtocol::processEnvelope slot:{} "
+               "received statement with {} value from node:{}",
+               mSlot.getSlotIndex(),
+               SCPDriver::validationLevelToString(validationRes),
+               mSlot.getSCP().getDriver().toShortString(statement.nodeID));
 
     // If the value is not valid, we just ignore it.
     if (validationRes == SCPDriver::kInvalidValue)
@@ -223,7 +220,7 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
     {
         if (validationRes == SCPDriver::kMaybeValidValue)
         {
-            // TODO: Should we also enter this branch if validationRes ==
+            // TODO(21): Should we also enter this branch if validationRes ==
             // kAwaitingDownload?
             mSlot.setFullyValidated(false);
         }
@@ -377,7 +374,7 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
                    ? std::to_string(waitingTime.value().count())
                    : "nullopt");
 
-    // TODO: What do we do in this case? Maybe have some way to feed back into
+    // TODO(22): What do we do in this case? Maybe have some way to feed back into
     // Herder to start a timer? I really don't think this should be possible,
     // but if this DOES happen we should probably log an error and start the
     // timer rather than crash.
@@ -395,6 +392,7 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 
     // First, check for other `skip` votes we've received and pick the highest
     // if available.
+    // TODO(23): Remove this and related commented out code below
     std::optional<Value> highestSkip;
     // for (auto const& [_, env] : mLatestEnvelopes)
     // {
@@ -424,10 +422,6 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
     return true;
 }
 
-// TODO: Either here or abandonBallot is where we should check if the value
-// timeout has expired. If so, then we can replace the value with `skip` while
-// we bump the counter.
-// TODO: ^^ Need to make sure this check only happens during the PREPARE phase?
 bool
 BallotProtocol::bumpState(Value const& value, bool force)
 {
@@ -600,7 +594,6 @@ BallotProtocol::startBallotProtocolTimer()
 void
 BallotProtocol::stopBallotProtocolTimer()
 {
-    // TODO: Maybe the issue is that the ballot protocol stops too early?
     CLOG_DEBUG(Proto, "Stopping ballot protocol timer for slot {}",
                mSlot.getSlotIndex());
     std::shared_ptr<Slot> slot = mSlot.shared_from_this();
@@ -1100,8 +1093,8 @@ BallotProtocol::attemptConfirmPrepared(SCPStatement const& hint)
                     std::bind(&BallotProtocol::hasPreparedBallot, ballot, _1));
                 if (ratified)
                 {
-                    // TODO: This is another place the check could go, right? We
-                    // would not set `newC` if the check fails?
+                    // TODO(24): This is another place the check could go,
+                    // right? We would not set `newC` if the check fails?
                     newC = ballot;
                 }
                 else
@@ -1173,7 +1166,7 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
         if (newC.counter != 0)
         {
-            // TODO: I *think* this is the setting of `c` corresponding to step
+            // TODO(25): I *think* this is the setting of `c` corresponding to step
             // 3 in the paper, as well as that final step in PREPARE from the
             // IETF paper. Check needs to go here, or in the caller of this
             // function (`attemptConfirmPrepared`). Specifically, there is a
@@ -1203,7 +1196,7 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 auto waitingTime =
                     mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
 
-                // TODO: Need to think more about what to do if waitingTime is
+                // TODO(26): Need to think more about what to do if waitingTime is
                 // nullopt (e.g., transaction set not being fetched, or some
                 // other edge case)
 
@@ -1218,19 +1211,19 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     waitingTime.has_value() ? waitingTime.value().count() : -1);
 
                 // Stall balloting. Return false to indicate no work was done.
-                // TODO: Is it right to early return here? If so, should we
+                // TODO(27): Is it right to early return here? If so, should we
                 // return `didWork`? We may have set `mHighBallot` above.
                 // Additionally, should we proceed so that
                 // `updateCurrentIfNeeded` is called below?
                 // return false;
                 // return didWork;
             }
-            // TODO: Is this right? This allows maybe valid / invalid values
+            // TODO(28): Is this right? This allows maybe valid / invalid values
             // through, but that's how the original code worked. I think during
             // catchup this expects maybe valid values?
             else
             {
-                // TODO: I don't understand why, but it seems like values can be
+                // TODO(29): I don't understand why, but it seems like values can be
                 // "maybe valid" here. Looks like this code path is exercised
                 // during catchup, but before ledger manager "knows" it's in
                 // catchup mode. So I can't just assert as below. So instead I'm
@@ -1243,13 +1236,14 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 //               !nodeSynced);
                 releaseAssert(validationLevel != SCPDriver::kInvalidValue);
                 dbgAssert(!mCommit);
-                
-                // Measure and record how long balloting was blocked on this txset
-                // TODO: This metric only works if we end up here only once per
+
+                // Measure and record how long balloting was blocked on this
+                // txset
+                // TODO(30): This metric only works if we end up here only once per
                 // value. I think that's true, but I'm not 100% sure.
                 mSlot.getSCPDriver().measureAndRecordBallotBlockedOnTxSet(
                     mSlot.getSlotIndex(), newC.value);
-                
+
                 mCommit = makeBallot(newC);
                 didWork = true;
             }
@@ -2074,7 +2068,7 @@ BallotProtocol::advanceSlot(SCPStatement const& hint)
 
     didWork = attemptConfirmPrepared(hint) || didWork;
 
-    // TODO5: As far as I can tell, `attemptAcceptCommit` is the first attempt*
+    // TODO(31): As far as I can tell, `attemptAcceptCommit` is the first attempt*
     // function for step 4, and it's not called for any earlier steps. Moreover,
     // `attemptConfirmCommit` is only for steps 7 and 8. Therefore, I think that
     // if `didWork` is false at this point, we need to have the preimage by now.
@@ -2171,7 +2165,7 @@ BallotProtocol::validateValues(SCPStatement const& st)
     SCPDriver::ValidationLevel res = std::accumulate(
         values.begin(), values.end(), SCPDriver::kFullyValidatedValue,
         [&](SCPDriver::ValidationLevel lv, stellar::Value const& v) {
-            // TODO: Does this comparison still hold with the new validation
+            // TODO(32): Does this comparison still hold with the new validation
             // level?
             if (lv > SCPDriver::kInvalidValue)
             {
@@ -2186,7 +2180,7 @@ BallotProtocol::validateValues(SCPStatement const& st)
                                mSlot.getSlotIndex());
                 }
 
-                // TODO: Does this `min` still make sense with the new
+                // TODO(33): Does this `min` still make sense with the new
                 // validation level?
                 lv = std::min(tr, lv);
             }

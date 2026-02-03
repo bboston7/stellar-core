@@ -54,7 +54,6 @@
 #include <fmt/format.h>
 
 using namespace std;
-
 namespace stellar
 {
 
@@ -888,7 +887,7 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
     else
     {
         SCPStatementType type = envelope.statement.pledges.type();
-        // TODO: I gated this behind an application state check because there
+        // TODO(1): I gated this behind an application state check because there
         // seem to be some bugs with catchup and `kAwaitingDownload` values
         // making it further than they should. I don't think this state check is
         // the right long-term solution, but for the prototype it's probably
@@ -905,7 +904,7 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
 
             // If we have the quorum set, then proceed without the tx set.
             //
-            // TODO: In the draft PR this is gated behind a check that the
+            // TODO(2): In the draft PR this is gated behind a check that the
             // message is a nomination message. We definitely want to go further
             // than that, but should there be a limit? Is there any harm to
             // proceeding without limit?
@@ -914,11 +913,6 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
             auto maybeQSet = mApp.getHerder().getQSet(qSetHash);
             if (maybeQSet)
             {
-                // CLOG_ERROR(
-                //     Herder,
-                //     "Proceeding without txset for slot {} envelope type {}",
-                //     envelope.statement.slotIndex,
-                //     envelope.statement.pledges.type());
                 processSCPQueue();
             }
         }
@@ -1116,7 +1110,7 @@ void
 HerderImpl::processSCPQueueUpToIndex(uint64 slotIndex)
 {
     ZoneScoped;
-    // CLOG_ERROR(Herder, "Processing SCP queue up to index {}", slotIndex);
+    CLOG_TRACE(Proto, "Processing SCP queue up to index {}", slotIndex);
     while (true)
     {
         SCPEnvelopeWrapperPtr envW = mPendingEnvelopes.pop(slotIndex);
@@ -1311,7 +1305,6 @@ HerderImpl::setupTriggerNextLedger()
 
     if (!mApp.getConfig().MANUAL_CLOSE)
     {
-        // TODO: This is what ultimately leads to nomination beginning
         mTriggerTimer.async_wait(std::bind(&HerderImpl::triggerNextLedger, this,
                                            static_cast<uint32_t>(nextIndex),
                                            true),
@@ -2646,7 +2639,7 @@ HerderImpl::verifyStellarValueSignature(StellarValue const& sv)
     switch (sv.ext.v())
     {
     case STELLAR_VALUE_BASIC:
-        // TODO: What to do here?
+        // TODO(3): What to do here?
         releaseAssert(false);
     case STELLAR_VALUE_SIGNED:
         return PubKeyUtils::verifySig(

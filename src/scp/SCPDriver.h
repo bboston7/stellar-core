@@ -138,7 +138,7 @@ class SCPDriver
         return kMaybeValidValue;
     }
 
-    // TODO: Remove this function?
+    // TODO: Remove this function after cleaning up logging?
     static std::string validationLevelToString(ValidationLevel level);
 
     // `extractValidValue` transforms the value, if possible to a different

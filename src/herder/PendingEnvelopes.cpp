@@ -208,7 +208,7 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
         // Special case for the skip ledger hash
         CLOG_DEBUG(Proto, "Request for skip ledger hash {}", hexAbbrev(hash));
         // Return an empty tx set
-        // TODO: Is it right to use the LCL header here? I'm not so sure. Here
+        // TODO(15): Is it right to use the LCL header here? I'm not so sure. Here
         // are a couple cases I'm concerned about:
         // 1. Ballot protocol for next ledger. Technically not the "last closed
         //    ledger" at that point. That being said, it looks like this is
@@ -435,6 +435,7 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
                 partiallyReady.insert(envelope);
             }
 
+            // TODO(16): Is this todo still relevant vv
             // TODO: The issue is that the envelope doesn't end up in
             // `mReadyEnvelopes` in this path, and wont until it is fetched.
             // That's why it's still blocking. Either this needs to go into
@@ -664,10 +665,10 @@ PendingEnvelopes::startFetch(SCPEnvelope const& envelope)
     {
         if (!getKnownTxSet(h2, 0, false))
         {
-            // CLOG_ERROR(
-            //     Herder,
-            //     "PendingEnvelopes::startFetch: requesting missing txset {}",
-            //     hexAbbrev(h2));
+            CLOG_TRACE(
+                Proto,
+                "PendingEnvelopes::startFetch: requesting missing txset {}",
+                hexAbbrev(h2));
             mTxSetFetcher.fetch(h2, envelope);
             needSomething = true;
         }
@@ -728,7 +729,7 @@ PendingEnvelopes::pop(uint64 slotIndex)
             return ret;
         }
 
-        // TODO: Maybe should return all fully ready envelopes from ALL slots
+        // TODO(17): Maybe should return all fully ready envelopes from ALL slots
         // before proceeding to partially ready ones.
         auto& partial = it->second.mPartiallyReadyEnvelopes;
         if (partial.size() != 0)

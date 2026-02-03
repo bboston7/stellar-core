@@ -158,7 +158,7 @@ class SCP
     }
 
 #ifdef BUILD_TESTS
-    std::shared_ptr<Slot> 
+    std::shared_ptr<Slot>
     getSlotForTesting(uint64 slotIndex)
     {
         return getSlot(slotIndex, false);

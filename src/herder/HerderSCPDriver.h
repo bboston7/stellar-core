@@ -76,9 +76,10 @@ class HerderSCPDriver : public SCPDriver
     std::string toShortString(NodeID const& pk) const override;
     std::string getValueString(Value const& v) const override;
 
+    // TODO: Docs
     Value makeSkipLedgerValueFromValue(Value const& v) const override;
 
-    // TODO: Do I even need this function?
+    // TODO(4): Do I even need this function?
     bool isSkipLedgerValue(Value const& v) const override;
 
     // timer handling
@@ -103,6 +104,7 @@ class HerderSCPDriver : public SCPDriver
     ValueWrapperPtr stripAllUpgrades(Value const& v) override;
     uint32_t getUpgradeNominationTimeoutLimit() const override;
 
+    // TODO: Docs
     void noteSkipValueReplaced(uint64_t slotIndex) override;
 
     // Submit a value to consider for slotIndex
