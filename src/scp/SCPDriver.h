@@ -16,6 +16,9 @@
 
 namespace stellar
 {
+class TxSetXDRFrame;
+using TxSetXDRFrameConstPtr = std::shared_ptr<TxSetXDRFrame const>;
+
 class ValueWrapper : public NonMovableOrCopyable
 {
     Value const mValue;
@@ -29,6 +32,11 @@ class ValueWrapper : public NonMovableOrCopyable
     {
         return mValue;
     }
+
+    // Called when a tx set becomes available after this wrapper was created
+    // without it. Default implementation does nothing; override in derived
+    // classes that need to hold tx set references.
+    virtual void setTxSet(TxSetXDRFrameConstPtr /* txSet */) {}
 };
 
 typedef std::shared_ptr<SCPQuorumSet> SCPQuorumSetPtr;
@@ -60,6 +68,11 @@ class SCPEnvelopeWrapper : public NonMovableOrCopyable
     {
         return mEnvelope.statement;
     }
+
+    // Called when a tx set becomes available after this wrapper was created
+    // without it. Default implementation does nothing; override in derived
+    // classes that need to hold tx set references.
+    virtual void addTxSet(TxSetXDRFrameConstPtr /* txSet */) {}
 };
 
 typedef std::shared_ptr<SCPEnvelopeWrapper> SCPEnvelopeWrapperPtr;

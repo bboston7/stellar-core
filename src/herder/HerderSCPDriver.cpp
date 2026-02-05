@@ -160,12 +160,30 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
             }
         }
     }
+
+    void
+    addTxSet(TxSetXDRFrameConstPtr txSet) override
+    {
+        mTxSets.emplace_back(txSet);
+    }
 };
 
 SCPEnvelopeWrapperPtr
 HerderSCPDriver::wrapEnvelope(SCPEnvelope const& envelope)
 {
     auto r = std::make_shared<SCPHerderEnvelopeWrapper>(envelope, mHerder);
+
+    // Register this wrapper for any tx sets that weren't available
+    // so we can update it later when the tx set arrives
+    auto txSetHashes = getValidatedTxSetHashes(envelope);
+    for (auto const& txSetH : txSetHashes)
+    {
+        if (!mHerder.getTxSet(txSetH))
+        {
+            mPendingTxSetEnvelopeWrappers[txSetH].push_back(r);
+        }
+    }
+
     return r;
 }
 
@@ -1465,7 +1483,83 @@ HerderSCPDriver::purgeSlots(uint64_t maxSlotIndex, uint64 slotToKeep)
         }
     }
 
+
     getSCP().purgeSlots(maxSlotIndex, slotToKeep);
+
+    // Clean up expired weak_ptrs from the pending tx set registries.
+    // This cleanup is correct because:
+    // 1. When SCP purges a slot via getSCP().purgeSlots() above, it destroys
+    //    the Slot object along with its NominationProtocol/BallotProtocol
+    // 2. This destroys the ValueWrapperPtrs/EnvelopeWrapperPtrs stored there
+    // 3. If those were the only remaining references, the weak_ptrs here expire
+    // 4. We remove expired entries to prevent unbounded growth of the map
+    for (auto mapIt = mPendingTxSetWrappers.begin();
+         mapIt != mPendingTxSetWrappers.end();)
+    {
+        auto& vec = mapIt->second;
+        vec.erase(std::remove_if(vec.begin(), vec.end(),
+                                 [](auto& wp) { return wp.expired(); }),
+                  vec.end());
+        if (vec.empty())
+        {
+            mapIt = mPendingTxSetWrappers.erase(mapIt);
+        }
+        else
+        {
+            ++mapIt;
+        }
+    }
+
+    // Also clean up envelope wrapper registry
+    for (auto mapIt = mPendingTxSetEnvelopeWrappers.begin();
+         mapIt != mPendingTxSetEnvelopeWrappers.end();)
+    {
+        auto& vec = mapIt->second;
+        vec.erase(std::remove_if(vec.begin(), vec.end(),
+                                 [](auto& wp) { return wp.expired(); }),
+                  vec.end());
+        if (vec.empty())
+        {
+            mapIt = mPendingTxSetEnvelopeWrappers.erase(mapIt);
+        }
+        else
+        {
+            ++mapIt;
+        }
+    }
+}
+
+void
+HerderSCPDriver::onTxSetReceived(Hash const& txSetHash,
+                                 TxSetXDRFrameConstPtr txSet)
+{
+    // Update any ValueWrappers waiting for this tx set
+    auto it = mPendingTxSetWrappers.find(txSetHash);
+    if (it != mPendingTxSetWrappers.end())
+    {
+        for (auto& wp : it->second)
+        {
+            if (auto sp = wp.lock())
+            {
+                sp->setTxSet(txSet);
+            }
+        }
+        mPendingTxSetWrappers.erase(it);
+    }
+
+    // Update any EnvelopeWrappers waiting for this tx set
+    auto envIt = mPendingTxSetEnvelopeWrappers.find(txSetHash);
+    if (envIt != mPendingTxSetEnvelopeWrappers.end())
+    {
+        for (auto& wp : envIt->second)
+        {
+            if (auto sp = wp.lock())
+            {
+                sp->addTxSet(txSet);
+            }
+        }
+        mPendingTxSetEnvelopeWrappers.erase(envIt);
+    }
 }
 
 void
@@ -1487,17 +1581,14 @@ class SCPHerderValueWrapper : public ValueWrapper
         : ValueWrapper(value), mHerder(herder)
     {
         mTxSet = mHerder.getTxSet(sv.txSetHash);
-        if (!mTxSet)
-        {
-            // TODO(14): Address this vv
-            // CLOG_ERROR(Herder, "TODO: Should we be checking that tx set is "
-            //                    "scheduled to download here?");
-            // throw std::runtime_error(fmt::format(
-            //     FMT_STRING(
-            //         "SCPHerderValueWrapper tried to bind an unknown tx set
-            //         {}"),
-            //     hexAbbrev(sv.txSetHash)));
-        }
+        // mTxSet may be null if tx set hasn't been received yet (parallel downloading).
+        // It will be set later via setTxSet() when the tx set arrives.
+    }
+
+    void
+    setTxSet(TxSetXDRFrameConstPtr txSet) override
+    {
+        mTxSet = txSet;
     }
 };
 
@@ -1513,6 +1604,14 @@ HerderSCPDriver::wrapValue(Value const& val)
                         binToHex(val)));
     }
     auto res = std::make_shared<SCPHerderValueWrapper>(sv, val, mHerder);
+
+    // If tx set wasn't available, register this wrapper to be updated later
+    // when the tx set arrives via onTxSetReceived()
+    if (!mHerder.getTxSet(sv.txSetHash))
+    {
+        mPendingTxSetWrappers[sv.txSetHash].push_back(res);
+    }
+
     return res;
 }
 
@@ -1521,6 +1620,14 @@ HerderSCPDriver::wrapStellarValue(StellarValue const& sv)
 {
     auto val = xdr::xdr_to_opaque(sv);
     auto res = std::make_shared<SCPHerderValueWrapper>(sv, val, mHerder);
+
+    // If tx set wasn't available, register this wrapper to be updated later
+    // when the tx set arrives via onTxSetReceived()
+    if (!mHerder.getTxSet(sv.txSetHash))
+    {
+        mPendingTxSetWrappers[sv.txSetHash].push_back(res);
+    }
+
     return res;
 }
 
