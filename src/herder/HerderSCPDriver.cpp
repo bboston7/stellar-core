@@ -123,9 +123,12 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
     std::vector<TxSetXDRFrameConstPtr> mTxSets;
 
   public:
-    explicit SCPHerderEnvelopeWrapper(SCPEnvelope const& e, HerderImpl& herder)
+    // TODO: Explain missingHashes and maybe rename it to something like "missingTxSets"
+    explicit SCPHerderEnvelopeWrapper(SCPEnvelope const& e, HerderImpl& herder, std::set<Hash>& missingHashes)
         : SCPEnvelopeWrapper(e), mHerder(herder)
     {
+        releaseAssert(missingHashes.empty());
+
         // attach everything we can to the wrapper
         auto qSetH = Slot::getCompanionQuorumSetHashFromStatement(e.statement);
         mQSet = mHerder.getQSet(qSetH);
@@ -146,17 +149,7 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
             }
             else
             {
-                // TODO(5): What should we do in this case? Should we just
-                // remove this case entirely? What did the old prototype do?
-
-                // CLOG_ERROR(Herder, "TODO: Should we be checking that tx set
-                // is "
-                //                    "scheduled to download here?");
-                // throw std::runtime_error(fmt::format(
-                //     FMT_STRING("SCPHerderEnvelopeWrapper: Wrapping an unknown
-                //     "
-                //                "tx set {} from envelope"),
-                //     hexAbbrev(txSetH)));
+                missingHashes.insert(txSetH);
             }
         }
     }
@@ -171,17 +164,16 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
 SCPEnvelopeWrapperPtr
 HerderSCPDriver::wrapEnvelope(SCPEnvelope const& envelope)
 {
-    auto r = std::make_shared<SCPHerderEnvelopeWrapper>(envelope, mHerder);
+    std::set<Hash> missingTxSets;
+    auto r = std::make_shared<SCPHerderEnvelopeWrapper>(envelope, mHerder, missingTxSets);
 
     // Register this wrapper for any tx sets that weren't available
     // so we can update it later when the tx set arrives
-    auto txSetHashes = getValidatedTxSetHashes(envelope);
-    for (auto const& txSetH : txSetHashes)
+    // TODO: Double check this update ACTUALLY happens (both here and in the
+    // value case)
+    for (auto const& h : missingTxSets)
     {
-        if (!mHerder.getTxSet(txSetH))
-        {
-            mPendingTxSetEnvelopeWrappers[txSetH].push_back(r);
-        }
+        mPendingTxSetEnvelopeWrappers[h].push_back(r);
     }
 
     return r;
@@ -1574,20 +1566,34 @@ class SCPHerderValueWrapper : public ValueWrapper
     HerderImpl& mHerder;
 
     TxSetXDRFrameConstPtr mTxSet;
+    Hash const mTxSetHash;
 
   public:
     explicit SCPHerderValueWrapper(StellarValue const& sv, Value const& value,
                                    HerderImpl& herder)
-        : ValueWrapper(value), mHerder(herder)
+        : ValueWrapper(value), mHerder(herder), mTxSetHash(sv.txSetHash)
     {
         mTxSet = mHerder.getTxSet(sv.txSetHash);
         // mTxSet may be null if tx set hasn't been received yet (parallel downloading).
         // It will be set later via setTxSet() when the tx set arrives.
     }
 
+    bool
+    hasTxSet() const
+    {
+        return mTxSet != nullptr;
+    }
+
+    Hash const&
+    getTxSetHash() const
+    {
+        return mTxSetHash;
+    }
+
     void
     setTxSet(TxSetXDRFrameConstPtr txSet) override
     {
+        releaseAssert(txSet->getContentsHash() == mTxSetHash);
         mTxSet = txSet;
     }
 };
@@ -1607,9 +1613,12 @@ HerderSCPDriver::wrapValue(Value const& val)
 
     // If tx set wasn't available, register this wrapper to be updated later
     // when the tx set arrives via onTxSetReceived()
-    if (!mHerder.getTxSet(sv.txSetHash))
+    // TODO: Here, below, and in the envelope case, lets try to bring this check
+    // into the wrapper itself (something like `hasTxSet()` so we don't have to
+    // know about how the wrapper works internally).
+    if (!res->hasTxSet())
     {
-        mPendingTxSetWrappers[sv.txSetHash].push_back(res);
+        mPendingTxSetWrappers[res->getTxSetHash()].push_back(res);
     }
 
     return res;
@@ -1623,9 +1632,9 @@ HerderSCPDriver::wrapStellarValue(StellarValue const& sv)
 
     // If tx set wasn't available, register this wrapper to be updated later
     // when the tx set arrives via onTxSetReceived()
-    if (!mHerder.getTxSet(sv.txSetHash))
+    if (!res->hasTxSet())
     {
-        mPendingTxSetWrappers[sv.txSetHash].push_back(res);
+        mPendingTxSetWrappers[res->getTxSetHash()].push_back(res);
     }
 
     return res;
