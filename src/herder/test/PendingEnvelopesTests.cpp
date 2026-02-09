@@ -137,9 +137,7 @@ TEST_CASE("PendingEnvelopes recvSCPEnvelope", "[herder]")
             REQUIRE(pendingEnvelopes.recvSCPEnvelope(saneEnvelope) ==
                     Herder::ENVELOPE_STATUS_FETCHING);
 
-            // TODO: I think this REQUIRE just needs to be removed now that it's
-            // valid to request an envelope we don't have the tx set for vv.
-            // REQUIRE(herder.getSCP().getLatestMessage(pk) == nullptr);
+            REQUIRE(herder.getSCP().getLatestMessage(pk) != nullptr);
             // -> processes saneEnvelope
             REQUIRE(pendingEnvelopes.recvTxSet(p.second->getContentsHash(),
                                                p.second));

@@ -1615,9 +1615,6 @@ HerderSCPDriver::wrapValue(Value const& val)
 
     // If tx set wasn't available, register this wrapper to be updated later
     // when the tx set arrives via onTxSetReceived()
-    // TODO: Here, below, and in the envelope case, lets try to bring this check
-    // into the wrapper itself (something like `hasTxSet()` so we don't have to
-    // know about how the wrapper works internally).
     if (!res->hasTxSet())
     {
         mPendingTxSetWrappers[res->getTxSetHash()].push_back(res);
