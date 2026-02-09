@@ -353,7 +353,7 @@ TEST_CASE("PendingEnvelopes recvSCPEnvelope", "[herder]")
         REQUIRE(pendingEnvelopes.recvSCPEnvelope(malformedEnvelope) ==
                 Herder::ENVELOPE_STATUS_FETCHING);
         REQUIRE(pendingEnvelopes.recvSCPQuorumSet(saneQSetHash, saneQSet));
-        REQUIRE(herder.getSCP().getLatestMessage(pk) == nullptr);
+        REQUIRE(herder.getSCP().getLatestMessage(pk) != nullptr);
         REQUIRE(pendingEnvelopes.recvTxSet(p2.second->getContentsHash(),
                                            p2.second));
     }
