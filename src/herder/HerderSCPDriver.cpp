@@ -123,11 +123,13 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
     std::vector<TxSetXDRFrameConstPtr> mTxSets;
 
   public:
-    // TODO: Explain missingHashes and maybe rename it to something like "missingTxSets"
-    explicit SCPHerderEnvelopeWrapper(SCPEnvelope const& e, HerderImpl& herder, std::set<Hash>& missingHashes)
+    // Wrap an SCP envelope `e`, using `herder` to fetch the quorum set. This
+    // function inserts hashes corresponding to missing transaction sets into
+    // `missingTxSets`.
+    explicit SCPHerderEnvelopeWrapper(SCPEnvelope const& e, HerderImpl& herder, std::set<Hash>& missingTxSets)
         : SCPEnvelopeWrapper(e), mHerder(herder)
     {
-        releaseAssert(missingHashes.empty());
+        releaseAssert(missingTxSets.empty());
 
         // attach everything we can to the wrapper
         auto qSetH = Slot::getCompanionQuorumSetHashFromStatement(e.statement);
@@ -149,7 +151,7 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
             }
             else
             {
-                missingHashes.insert(txSetH);
+                missingTxSets.insert(txSetH);
             }
         }
     }
