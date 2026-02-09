@@ -17,8 +17,6 @@
 namespace stellar
 {
 class TxSetXDRFrame;
-// TODO: Look into importing this from elsewhere (even if we ned to reverse who
-// exports it).
 using TxSetXDRFrameConstPtr = std::shared_ptr<TxSetXDRFrame const>;
 
 class ValueWrapper : public NonMovableOrCopyable
