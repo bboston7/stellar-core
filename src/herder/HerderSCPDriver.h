@@ -149,6 +149,10 @@ class HerderSCPDriver : public SCPDriver
     // clean up older slots
     void purgeSlots(uint64_t maxSlotIndex, uint64 slotToKeep);
 
+    // Called when a tx set is received to update any ValueWrappers that were
+    // created before the tx set was available (for parallel tx set downloading).
+    void onTxSetReceived(Hash const& txSetHash, TxSetXDRFrameConstPtr txSet);
+
     double getExternalizeLag(NodeID const& id) const;
 
     Json::Value getQsetLagInfo(bool summary, bool fullKeys);
@@ -202,6 +206,19 @@ class HerderSCPDriver : public SCPDriver
     Upgrades const& mUpgrades;
     PendingEnvelopes& mPendingEnvelopes;
     SCP mSCP;
+
+    // Registry of ValueWrappers that were created before their tx set was
+    // available. Maps txSetHash -> weak_ptrs to wrappers awaiting that tx set.
+    // When onTxSetReceived() is called, we update any waiting wrappers.
+    // Cleanup of expired weak_ptrs happens in purgeSlots().
+    std::map<Hash, std::vector<std::weak_ptr<ValueWrapper>>> mPendingTxSetWrappers;
+
+    // Registry of EnvelopeWrappers that were created before their tx set was
+    // available. Maps txSetHash -> weak_ptrs to wrappers awaiting that tx set.
+    // When onTxSetReceived() is called, we update any waiting wrappers.
+    // Cleanup of expired weak_ptrs happens in purgeSlots().
+    std::map<Hash, std::vector<std::weak_ptr<SCPEnvelopeWrapper>>>
+        mPendingTxSetEnvelopeWrappers;
 
     struct SCPMetrics
     {

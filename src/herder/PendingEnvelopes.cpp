@@ -287,6 +287,11 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
     }
 
     addTxSet(hash, lastSeenSlotIndex, txset);
+
+    // Update any ValueWrappers that were created before this tx set was
+    // available
+    mHerder.getHerderSCPDriver().onTxSetReceived(hash, txset);
+
     return true;
 }
 
