@@ -125,7 +125,7 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
   public:
     // Wrap an SCP envelope `e`, using `herder` to fetch the quorum set. This
     // function inserts hashes corresponding to missing transaction sets into
-    // `missingTxSets`.
+    // the output parameter `missingTxSets`.
     explicit SCPHerderEnvelopeWrapper(SCPEnvelope const& e, HerderImpl& herder, std::set<Hash>& missingTxSets)
         : SCPEnvelopeWrapper(e), mHerder(herder)
     {
@@ -171,8 +171,6 @@ HerderSCPDriver::wrapEnvelope(SCPEnvelope const& envelope)
 
     // Register this wrapper for any tx sets that weren't available
     // so we can update it later when the tx set arrives
-    // TODO: Double check this update ACTUALLY happens (both here and in the
-    // value case)
     for (auto const& h : missingTxSets)
     {
         mPendingTxSetEnvelopeWrappers[h].push_back(r);
@@ -1460,6 +1458,32 @@ HerderSCPDriver::recordSCPExecutionMetrics(uint64_t slotIndex)
     }
 }
 
+namespace
+{
+// Remove expired weak_ptrs from each vector in the map, and erase map entries
+// whose vectors become empty.
+template <typename T>
+void
+purgeExpiredWeakPtrs(std::map<Hash, std::vector<std::weak_ptr<T>>>& map)
+{
+    for (auto mapIt = map.begin(); mapIt != map.end();)
+    {
+        auto& vec = mapIt->second;
+        vec.erase(std::remove_if(vec.begin(), vec.end(),
+                                 [](auto& wp) { return wp.expired(); }),
+                  vec.end());
+        if (vec.empty())
+        {
+            mapIt = map.erase(mapIt);
+        }
+        else
+        {
+            ++mapIt;
+        }
+    }
+}
+}
+
 void
 HerderSCPDriver::purgeSlots(uint64_t maxSlotIndex, uint64 slotToKeep)
 {
@@ -1477,7 +1501,6 @@ HerderSCPDriver::purgeSlots(uint64_t maxSlotIndex, uint64 slotToKeep)
         }
     }
 
-
     getSCP().purgeSlots(maxSlotIndex, slotToKeep);
 
     // Clean up expired weak_ptrs from the pending tx set registries.
@@ -1487,40 +1510,8 @@ HerderSCPDriver::purgeSlots(uint64_t maxSlotIndex, uint64 slotToKeep)
     // 2. This destroys the ValueWrapperPtrs/EnvelopeWrapperPtrs stored there
     // 3. If those were the only remaining references, the weak_ptrs here expire
     // 4. We remove expired entries to prevent unbounded growth of the map
-    for (auto mapIt = mPendingTxSetWrappers.begin();
-         mapIt != mPendingTxSetWrappers.end();)
-    {
-        auto& vec = mapIt->second;
-        vec.erase(std::remove_if(vec.begin(), vec.end(),
-                                 [](auto& wp) { return wp.expired(); }),
-                  vec.end());
-        if (vec.empty())
-        {
-            mapIt = mPendingTxSetWrappers.erase(mapIt);
-        }
-        else
-        {
-            ++mapIt;
-        }
-    }
-
-    // Also clean up envelope wrapper registry
-    for (auto mapIt = mPendingTxSetEnvelopeWrappers.begin();
-         mapIt != mPendingTxSetEnvelopeWrappers.end();)
-    {
-        auto& vec = mapIt->second;
-        vec.erase(std::remove_if(vec.begin(), vec.end(),
-                                 [](auto& wp) { return wp.expired(); }),
-                  vec.end());
-        if (vec.empty())
-        {
-            mapIt = mPendingTxSetEnvelopeWrappers.erase(mapIt);
-        }
-        else
-        {
-            ++mapIt;
-        }
-    }
+    purgeExpiredWeakPtrs(mPendingTxSetWrappers);
+    purgeExpiredWeakPtrs(mPendingTxSetEnvelopeWrappers);
 }
 
 void
