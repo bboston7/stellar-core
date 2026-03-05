@@ -198,29 +198,17 @@ PendingEnvelopes::putTxSet(Hash const& hash, uint64 slot,
 // tries to find a txset in memory, setting touch also touches the LRU,
 // extending the lifetime of the result *and* updating the slot number
 // to a greater value if needed
-TxSetXDRFrameConstPtr
+TxSetResult
 PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
 {
     // slot is only used when `touch` is set
     releaseAssert(touch || (slot == 0));
     if (hash == Herder::SKIP_LEDGER_HASH)
     {
-        // Special case for the skip ledger hash
-        CLOG_DEBUG(Proto, "Request for skip ledger hash {}", hexAbbrev(hash));
-        // Return an empty tx set
-        // TODO(15): Is it right to use the LCL header here? I'm not so sure.
-        // Here are a couple cases I'm concerned about:
-        // 1. Ballot protocol for next ledger. Technically not the "last closed
-        //    ledger" at that point. That being said, it looks like this is
-        //    kinda what Herder does in building the tx set for nomination via
-        //    `makeTxSetFromTransactions`.
-        // 2. Does this function get called for previous ledgers older than LCL?
-        //    If so, then I think it needs that header.
-        // In practice, it looks like the LCL is used only to extract the
-        // protocol version, so it probably only matters on protocol boundaries.
-        // Still important to get right, but not so much for the prototype.
-        return TxSetXDRFrame::makeEmpty(
-            mApp.getLedgerManager().getLastClosedLedgerHeader());
+        // Don't construct an empty tx set here — we may not have the correct
+        // previous ledger header (e.g. if the node is catching up). The caller
+        // is responsible for constructing the empty tx set at apply time.
+        return SkipLedgerTxSet{};
     }
 
     TxSetXDRFrameConstPtr res;
@@ -565,11 +553,15 @@ PendingEnvelopes::recordReceivedCost(SCPEnvelope const& env)
         }
         else
         {
-            auto txSetPtr = getTxSet(v.txSetHash);
-            if (txSetPtr)
+            auto maybeTxSetPtr = getTxSet(v.txSetHash);
+            if (std::holds_alternative<TxSetXDRFrameConstPtr>(maybeTxSetPtr))
             {
-                txSetSize = txSetPtr->encodedSize();
-                mValueSizeCache.put(v.txSetHash, txSetSize);
+                auto txSetPtr = std::get<TxSetXDRFrameConstPtr>(maybeTxSetPtr);
+                if (txSetPtr)
+                {
+                    txSetSize = txSetPtr->encodedSize();
+                    mValueSizeCache.put(v.txSetHash, txSetSize);
+                }
             }
         }
 
@@ -669,7 +661,13 @@ PendingEnvelopes::startFetch(SCPEnvelope const& envelope)
 
     for (auto const& h2 : getValidatedTxSetHashes(envelope))
     {
-        if (!getKnownTxSet(h2, 0, false))
+        TxSetResult maybeTxSet = getKnownTxSet(h2, 0, false);
+        if (std::holds_alternative<SkipLedgerTxSet>(maybeTxSet))
+        {
+            // Nothing to fetch
+            continue;
+        }
+        if (!std::get<TxSetXDRFrameConstPtr>(maybeTxSet))
         {
             CLOG_TRACE(
                 Proto,
@@ -829,7 +827,7 @@ PendingEnvelopes::forceRebuildQuorum()
     mRebuildQuorum = true;
 }
 
-TxSetXDRFrameConstPtr
+TxSetResult
 PendingEnvelopes::getTxSet(Hash const& hash)
 {
     return getKnownTxSet(hash, 0, false);

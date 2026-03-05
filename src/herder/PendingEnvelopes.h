@@ -17,6 +17,7 @@
 #include <optional>
 #include <queue>
 #include <set>
+#include <variant>
 
 /*
 SCP messages that you have received but are waiting to get the info of
@@ -27,6 +28,15 @@ namespace stellar
 {
 
 class HerderImpl;
+
+// Returned by getKnownTxSet/getTxSet when the hash is SKIP_LEDGER_HASH.
+// The actual empty tx set should be constructed at apply time, when the
+// correct previous ledger header is known.
+struct SkipLedgerTxSet
+{
+};
+// TODO: I don't love the name `TxSetResult`. Consider renaming
+using TxSetResult = std::variant<TxSetXDRFrameConstPtr, SkipLedgerTxSet>;
 
 struct SlotEnvelopes
 {
@@ -116,9 +126,10 @@ class PendingEnvelopes
     SCPQuorumSetPtr getKnownQSet(Hash const& hash, bool touch);
 
     // tries to find a txset in memory, setting touch also touches the LRU,
-    // extending the lifetime of the result
-    TxSetXDRFrameConstPtr getKnownTxSet(Hash const& hash, uint64 slot,
-                                        bool touch);
+    // extending the lifetime of the result.
+    // Returns SkipLedgerTxSet for SKIP_LEDGER_HASH, otherwise a
+    // TxSetXDRFrameConstPtr (possibly null if not found).
+    TxSetResult getKnownTxSet(Hash const& hash, uint64 slot, bool touch);
 
     void cleanKnownData();
 
@@ -203,7 +214,7 @@ class PendingEnvelopes
 
     Json::Value getJsonInfo(size_t limit);
 
-    TxSetXDRFrameConstPtr getTxSet(Hash const& hash);
+    TxSetResult getTxSet(Hash const& hash);
     SCPQuorumSetPtr getQSet(Hash const& hash);
 
     /**
