@@ -305,11 +305,8 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
                      slotIndex, hexAbbrev(value.txSetHash));
     }
 
-    TxSetXDRFrameConstPtr externalizedSet =
+    TxSetResult externalizedSet =
         mPendingEnvelopes.getTxSet(value.txSetHash);
-    // TODO: Remove this?
-    // TODO: If a node doesn't have the tx set by here it will crash.
-    releaseAssert(externalizedSet != nullptr);
 
     // save the SCP messages in the database
     if (mApp.getConfig().MODE_STORES_HISTORY_MISC)
@@ -367,6 +364,10 @@ void
 HerderImpl::writeDebugTxSet(LedgerCloseData const& lcd)
 {
     ZoneScoped;
+
+    // TODO: Get LCL and check whether LCL number is one less than the one in
+    // lcd. If so, can convert a skip value. If not, we need to just return
+    // early here. Consider logging a debug item or something in that case.
 
     // Dump latest externalized tx set. Do as much of error-handling as possible
     // to avoid crashing core, since this is used purely for debugging.

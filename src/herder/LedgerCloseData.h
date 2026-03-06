@@ -63,6 +63,9 @@ class LedgerCloseData
     }
 #endif // BUILD_TESTS
 
+    // I think we want this to take a function from SkipLedgerTxSet to
+    // optional<prevHeader>. If it can't get the prev header, then this should
+    // return nullopt, which will tell writeDebugTxSet to do nothing.
     StoredDebugTransactionSet
     toXDR(LedgerHeaderHistoryEntry const& lclHeader) const
     {

@@ -60,6 +60,7 @@ ApplyBufferedLedgersWork::onRun()
     }
     else
     {
+        releaseAssert(std::holds_alternative<SkipLedgerTxSet>(txSet));
         CLOG_INFO(History,
                   "Scheduling buffered ledger-close: skip value [seq={}]",
                   lcd.getLedgerSeq());
