@@ -204,24 +204,48 @@ class TxSetXDRFrame : public NonMovableOrCopyable
     Hash mHash;
 };
 
-// TODO: Move this struct somewhere?
-// TODO: Update comment vv
-// Returned by getKnownTxSet/getTxSet when the hash is SKIP_LEDGER_HASH.
-// The actual empty tx set should be constructed at apply time, when the
-// correct previous ledger header is known.
-struct SkipLedgerTxSet
+// TODO: Move implementation out of header?
+class TxSetResult
 {
   public:
-    // TODO: Comment
-    // TODO: Move implementation out of header?
-    TxSetXDRFrameConstPtr toTxSetXdrFrameConstPtr(LedgerHeaderHistoryEntry const& lclHeader) const
+    TxSetResult(TxSetXDRFrameConstPtr const& txSet, bool isSkipLedger)
+        : mTxSet(txSet), mIsSkipLedger(isSkipLedger)
     {
-        return TxSetXDRFrame::makeEmpty(lclHeader);
+        // if isSkipLedger is true, then txSet must be nullptr
+        if (isSkipLedger)
+        {
+            releaseAssert(!txSet);
+        }
     }
 
+    bool isSkipLedger() const
+    {
+        return mIsSkipLedger;
+    }
+
+    TxSetXDRFrameConstPtr const& getTxSet() const
+    {
+        return mTxSet;
+    }
+
+    // If this is a skip ledger, constructs a valid TxSetXDRFrameConstPtr using
+    // the provided header for the ledger proceeding the skip ledger. If this is
+    // not a skip ledger, simply returns the stored TxSetXDRFrameConstPtr.
+    TxSetXDRFrameConstPtr tryConstructTxSet(LedgerHeaderHistoryEntry const& prevHeader) const
+    {
+        if (isSkipLedger())
+        {
+            return TxSetXDRFrame::makeEmpty(prevHeader);
+        }
+        else
+        {
+            return mTxSet;
+        }
+    }
+  private:
+    TxSetXDRFrameConstPtr const mTxSet;
+    bool const mIsSkipLedger;
 };
-// TODO: I don't love the name `TxSetResult`. Consider renaming
-using TxSetResult = std::variant<TxSetXDRFrameConstPtr, SkipLedgerTxSet>;
 
 // The following definitions are used to represent the 'parallel' phase of the
 // transaction set.

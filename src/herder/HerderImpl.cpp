@@ -375,8 +375,10 @@ HerderImpl::writeDebugTxSet(LedgerCloseData const& lcd)
         metautils::getLatestTxSetFilePath(mApp.getConfig().BUCKET_DIR_PATH);
     try
     {
+        // TODO: Does this really need to be a function? I guess it's nice that
+        // it only executes when needed.
         LedgerCloseData::GetPrevHeaderFn getPrevHeader =
-            [&](SkipLedgerTxSet const& skipLedgerTxSet) {
+            [&]() {
                 // If we got here, then the tx set for this ledger was a skip.
                 // We need to construct a debug tx set with an empty tx set and
                 // the correct close time.
@@ -391,7 +393,7 @@ HerderImpl::writeDebugTxSet(LedgerCloseData const& lcd)
                     // set here.
                     return std::optional<LedgerHeaderHistoryEntry>();
                 }
-                return lclHeader;
+                return std::make_optional<LedgerHeaderHistoryEntry>(lclHeader);
             };
         std::optional<StoredDebugTransactionSet> maybeDebugTxSet =
             lcd.toXDR(getPrevHeader);
@@ -2135,11 +2137,11 @@ HerderImpl::persistSCPState(uint64 slot)
         // saves transaction sets referred by the statement
         for (auto const& h : getValidatedTxSetHashes(e))
         {
-            auto txSet = std::get_if<TxSetXDRFrameConstPtr>(
-                &mPendingEnvelopes.getTxSet(h));
-            if (txSet && *txSet && !mApp.getPersistentState().hasTxSet(h))
+            TxSetResult const txSetResult = mPendingEnvelopes.getTxSet(h);
+            auto txSetPtr = txSetResult.getTxSet();
+            if (txSetPtr && !mApp.getPersistentState().hasTxSet(h))
             {
-                txSets.insert(std::make_pair(h, *txSet));
+                txSets.insert(std::make_pair(h, txSetPtr));
             }
         }
         Hash qsHash = Slot::getCompanionQuorumSetHashFromStatement(e.statement);

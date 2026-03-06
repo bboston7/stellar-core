@@ -324,7 +324,8 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
         }
 
         Hash const& txSetHash = b.txSetHash;
-        TxSetXDRFrameConstPtr txSet = mPendingEnvelopes.getTxSet(txSetHash);
+        TxSetXDRFrameConstPtr txSet =
+            mPendingEnvelopes.getTxSet(txSetHash).getTxSet();
 
         auto closeTimeOffset = b.closeTime - lcl.header.scpValue.closeTime;
 
@@ -868,7 +869,10 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
              ++it)
         {
             auto const& sv = *it;
-            auto cTxSet = mPendingEnvelopes.getTxSet(sv.txSetHash);
+            // TODO: Do we want to do anything special with explicit skip values
+            // here? I think we want the same logic anyway (prefer non-skip
+            // values, but worth double checking.
+            auto cTxSet = mPendingEnvelopes.getTxSet(sv.txSetHash).getTxSet();
             // TODO(11): Combining strategy when tx sets may be missing:
             // * Both exist: choose the largest (unchanged from before)
             // * One exists: choose the one that exists
@@ -1559,7 +1563,9 @@ class SCPHerderValueWrapper : public ValueWrapper
                                    HerderImpl& herder)
         : ValueWrapper(value), mHerder(herder), mTxSetHash(sv.txSetHash)
     {
-        mTxSet = mHerder.getTxSet(sv.txSetHash);
+        // TODO: Special case for skip value here? This wrapper stores the hash,
+        // so it shouldn't be necessary, I think.
+        mTxSet = mHerder.getTxSet(sv.txSetHash).getTxSet();
         // mTxSet may be null if tx set hasn't been received yet (parallel
         // downloading). It will be set later via setTxSet() when the tx set
         // arrives.
