@@ -185,7 +185,9 @@ TxSetXDRFrameConstPtr
 PendingEnvelopes::putTxSet(Hash const& hash, uint64 slot,
                            TxSetXDRFrameConstPtr txset)
 {
-    auto res = getKnownTxSet(hash, slot, true);
+    // TODO: I think it's not possible for this to be called with a skip hash,
+    // but REALLY triple check because this *will* throw on error.
+    auto res = std::get<TxSetXDRFrameConstPtr>(getKnownTxSet(hash, slot, true));
     if (!res)
     {
         res = txset;

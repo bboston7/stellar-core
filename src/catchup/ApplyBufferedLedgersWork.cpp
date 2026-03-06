@@ -47,14 +47,23 @@ ApplyBufferedLedgersWork::onRun()
         return State::WORK_SUCCESS;
     }
     auto const& lcd = maybeLcd.value();
-
-    CLOG_INFO(
-        History,
-        "Scheduling buffered ledger-close: [seq={}, prev={}, txs={}, "
-        "ops={}, sv: {}]",
-        lcd.getLedgerSeq(), hexAbbrev(lcd.getTxSet()->previousLedgerHash()),
-        lcd.getTxSet()->sizeTxTotal(), lcd.getTxSet()->sizeOpTotalForLogging(),
-        stellarValueToString(mApp.getConfig(), lcd.getValue()));
+    TxSetResult const& txSet = lcd.getTxSet();
+    if (std::holds_alternative<TxSetXDRFrameConstPtr>(txSet))
+    {
+        auto const txSetPtr = std::get<TxSetXDRFrameConstPtr>(txSet);
+        CLOG_INFO(History,
+                  "Scheduling buffered ledger-close: [seq={}, prev={}, txs={}, "
+                  "ops={}, sv: {}]",
+                  lcd.getLedgerSeq(), hexAbbrev(txSetPtr->previousLedgerHash()),
+                  txSetPtr->sizeTxTotal(), txSetPtr->sizeOpTotalForLogging(),
+                  stellarValueToString(mApp.getConfig(), lcd.getValue()));
+    }
+    else
+    {
+        CLOG_INFO(History,
+                  "Scheduling buffered ledger-close: skip value [seq={}]",
+                  lcd.getLedgerSeq());
+    }
 
     auto applyLedger = std::make_shared<ApplyLedgerWork>(mApp, lcd);
 

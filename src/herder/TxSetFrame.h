@@ -204,6 +204,25 @@ class TxSetXDRFrame : public NonMovableOrCopyable
     Hash mHash;
 };
 
+// TODO: Move this struct somewhere?
+// TODO: Update comment vv
+// Returned by getKnownTxSet/getTxSet when the hash is SKIP_LEDGER_HASH.
+// The actual empty tx set should be constructed at apply time, when the
+// correct previous ledger header is known.
+struct SkipLedgerTxSet
+{
+  public:
+    // TODO: Comment
+    // TODO: Move implementation out of header?
+    TxSetXDRFrameConstPtr toTxSetXdrFrameConstPtr(LedgerHeaderHistoryEntry const& lclHeader) const
+    {
+        return TxSetXDRFrame::makeEmpty(lclHeader);
+    }
+
+};
+// TODO: I don't love the name `TxSetResult`. Consider renaming
+using TxSetResult = std::variant<TxSetXDRFrameConstPtr, SkipLedgerTxSet>;
+
 // The following definitions are used to represent the 'parallel' phase of the
 // transaction set.
 //

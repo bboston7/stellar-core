@@ -154,7 +154,7 @@ class HerderImpl : public Herder
     bool recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset) override;
     void peerDoesntHave(MessageType type, uint256 const& itemID,
                         Peer::pointer peer) override;
-    TxSetXDRFrameConstPtr getTxSet(Hash const& hash) override;
+    TxSetResult getTxSet(Hash const& hash) override;
     SCPQuorumSetPtr getQSet(Hash const& qSetHash) override;
 
     void processSCPQueue();

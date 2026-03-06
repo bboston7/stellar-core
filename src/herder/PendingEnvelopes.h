@@ -29,15 +29,6 @@ namespace stellar
 
 class HerderImpl;
 
-// Returned by getKnownTxSet/getTxSet when the hash is SKIP_LEDGER_HASH.
-// The actual empty tx set should be constructed at apply time, when the
-// correct previous ledger header is known.
-struct SkipLedgerTxSet
-{
-};
-// TODO: I don't love the name `TxSetResult`. Consider renaming
-using TxSetResult = std::variant<TxSetXDRFrameConstPtr, SkipLedgerTxSet>;
-
 struct SlotEnvelopes
 {
     // envelopes we have discarded

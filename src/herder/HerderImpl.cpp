@@ -1339,7 +1339,7 @@ HerderImpl::peerDoesntHave(MessageType type, uint256 const& itemID,
     mPendingEnvelopes.peerDoesntHave(type, itemID, peer);
 }
 
-TxSetXDRFrameConstPtr
+TxSetResult
 HerderImpl::getTxSet(Hash const& hash)
 {
     return mPendingEnvelopes.getTxSet(hash);
@@ -2105,10 +2105,10 @@ HerderImpl::persistSCPState(uint64 slot)
         // saves transaction sets referred by the statement
         for (auto const& h : getValidatedTxSetHashes(e))
         {
-            auto txSet = mPendingEnvelopes.getTxSet(h);
-            if (txSet && !mApp.getPersistentState().hasTxSet(h))
+            auto txSet = std::get_if<TxSetXDRFrameConstPtr>(&mPendingEnvelopes.getTxSet(h));
+            if (txSet && *txSet && !mApp.getPersistentState().hasTxSet(h))
             {
-                txSets.insert(std::make_pair(h, txSet));
+                txSets.insert(std::make_pair(h, *txSet));
             }
         }
         Hash qsHash = Slot::getCompanionQuorumSetHashFromStatement(e.statement);

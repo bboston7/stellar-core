@@ -25,11 +25,11 @@ class LedgerCloseData
 {
   public:
     LedgerCloseData(
-        uint32_t ledgerSeq, TxSetXDRFrameConstPtr txSet, StellarValue const& v,
+        uint32_t ledgerSeq, TxSetResult txSet, StellarValue const& v,
         std::optional<Hash> const& expectedLedgerHash = std::nullopt);
 
 #ifdef BUILD_TESTS
-    LedgerCloseData(uint32_t ledgerSeq, TxSetXDRFrameConstPtr txSet,
+    LedgerCloseData(uint32_t ledgerSeq, TxSetResult txSet,
                     StellarValue const& v,
                     std::optional<Hash> const& expectedLedgerHash,
                     std::optional<TransactionResultSet> const& expectedResults);
@@ -40,7 +40,7 @@ class LedgerCloseData
     {
         return mLedgerSeq;
     }
-    TxSetXDRFrameConstPtr
+    TxSetResult
     getTxSet() const
     {
         return mTxSet;
@@ -64,10 +64,16 @@ class LedgerCloseData
 #endif // BUILD_TESTS
 
     StoredDebugTransactionSet
-    toXDR() const
+    toXDR(LedgerHeaderHistoryEntry const& lclHeader) const
     {
+        auto txSet =
+            std::holds_alternative<TxSetXDRFrameConstPtr>(mTxSet)
+                ? std::get<TxSetXDRFrameConstPtr>(mTxSet)
+                : std::get<SkipLedgerTxSet>(mTxSet).toTxSetXdrFrameConstPtr(
+                      lclHeader);
+
         StoredDebugTransactionSet sts;
-        mTxSet->storeXDR(sts.txSet);
+        txSet->storeXDR(sts.txSet);
         sts.scpValue = mValue;
         sts.ledgerSeq = mLedgerSeq;
         return sts;
@@ -93,7 +99,7 @@ class LedgerCloseData
 
   private:
     uint32_t mLedgerSeq;
-    TxSetXDRFrameConstPtr mTxSet;
+    TxSetResult mTxSet;
     StellarValue mValue;
     std::optional<Hash> mExpectedLedgerHash = std::nullopt;
 #ifdef BUILD_TESTS

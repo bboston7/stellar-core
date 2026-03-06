@@ -15,8 +15,7 @@ using namespace std;
 namespace stellar
 {
 
-LedgerCloseData::LedgerCloseData(uint32_t ledgerSeq,
-                                 TxSetXDRFrameConstPtr txSet,
+LedgerCloseData::LedgerCloseData(uint32_t ledgerSeq, TxSetResult txSet,
                                  StellarValue const& v,
                                  std::optional<Hash> const& expectedLedgerHash)
     : mLedgerSeq(ledgerSeq)
@@ -25,8 +24,13 @@ LedgerCloseData::LedgerCloseData(uint32_t ledgerSeq,
     , mExpectedLedgerHash(expectedLedgerHash)
 {
     Hash const& valueTxHash = mValue.txSetHash;
+    releaseAssert((valueTxHash == Herder::SKIP_LEDGER_HASH &&
+                   std::holds_alternative<SkipLedgerTxSet>(txSet)) ||
+                  (valueTxHash != Herder::SKIP_LEDGER_HASH &&
+                   std::holds_alternative<TxSetXDRFrameConstPtr>(txSet)));
     releaseAssert(valueTxHash == Herder::SKIP_LEDGER_HASH ||
-                  txSet->getContentsHash() == valueTxHash);
+                  std::get<TxSetXDRFrameConstPtr>(txSet)->getContentsHash() ==
+                      valueTxHash);
 }
 
 #ifdef BUILD_TESTS
