@@ -63,17 +63,39 @@ class LedgerCloseData
     }
 #endif // BUILD_TESTS
 
+    using GetPrevHeaderFn = std::function<
+        std::optional<LedgerHeaderHistoryEntry>(SkipLedgerTxSet const&)>;
+
     // I think we want this to take a function from SkipLedgerTxSet to
     // optional<prevHeader>. If it can't get the prev header, then this should
     // return nullopt, which will tell writeDebugTxSet to do nothing.
-    StoredDebugTransactionSet
-    toXDR(LedgerHeaderHistoryEntry const& lclHeader) const
+    // TODO: Docs explaining the above ^^
+    std::optional<StoredDebugTransactionSet>
+    toXDR(GetPrevHeaderFn const& getPrevHeader) const
     {
-        auto txSet =
-            std::holds_alternative<TxSetXDRFrameConstPtr>(mTxSet)
-                ? std::get<TxSetXDRFrameConstPtr>(mTxSet)
-                : std::get<SkipLedgerTxSet>(mTxSet).toTxSetXdrFrameConstPtr(
-                      lclHeader);
+        TxSetXDRFrameConstPtr txSet;
+        if (std::holds_alternative<TxSetXDRFrameConstPtr>(mTxSet))
+        {
+            txSet = std::get<TxSetXDRFrameConstPtr>(mTxSet);
+        }
+        else
+        {
+            // Try to convert the SkipLedgerTxSet to a TxSetXDRFrameConstPtr. If
+            // we can't get the previous header, then we can't do the
+            // conversion, and we should return nullopt to indicate that
+            // TODO: Maybe this conversion logic should be pulled into
+            // `tTxSetXdrFrameConstPtr` instead? We might want something similar
+            // in apply.
+            auto const skipLedgerTxSet = std::get<SkipLedgerTxSet>(mTxSet);
+            std::optional<LedgerHeaderHistoryEntry> const maybePrevHeader =
+                getPrevHeader(skipLedgerTxSet);
+            if (!maybePrevHeader.has_value())
+            {
+                return std::nullopt;
+            }
+            txSet = skipLedgerTxSet.toTxSetXdrFrameConstPtr(*maybePrevHeader);
+        }
+        releaseAssert(txSet);
 
         StoredDebugTransactionSet sts;
         txSet->storeXDR(sts.txSet);

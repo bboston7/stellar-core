@@ -305,8 +305,7 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
                      slotIndex, hexAbbrev(value.txSetHash));
     }
 
-    TxSetResult externalizedSet =
-        mPendingEnvelopes.getTxSet(value.txSetHash);
+    TxSetResult externalizedSet = mPendingEnvelopes.getTxSet(value.txSetHash);
 
     // save the SCP messages in the database
     if (mApp.getConfig().MODE_STORES_HISTORY_MISC)
@@ -360,6 +359,7 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
     mLedgerManager.valueExternalized(ledgerData, isLatestSlot);
 }
 
+// TODO: The comments added in this function need some cleaning up
 void
 HerderImpl::writeDebugTxSet(LedgerCloseData const& lcd)
 {
@@ -375,6 +375,35 @@ HerderImpl::writeDebugTxSet(LedgerCloseData const& lcd)
         metautils::getLatestTxSetFilePath(mApp.getConfig().BUCKET_DIR_PATH);
     try
     {
+        LedgerCloseData::GetPrevHeaderFn getPrevHeader =
+            [&](SkipLedgerTxSet const& skipLedgerTxSet) {
+                // If we got here, then the tx set for this ledger was a skip.
+                // We need to construct a debug tx set with an empty tx set and
+                // the correct close time.
+                LedgerHeaderHistoryEntry const lclHeader =
+                    mLedgerManager.getLastClosedLedgerHeader();
+                if (lcd.getLedgerSeq() != lclHeader.header.ledgerSeq + 1)
+                {
+                    // lcd is not for LCL+1, which makes conversion from a skip
+                    // to a real tx set impossible here, as we will not have the
+                    // hash of the ledger preceding the skip value. This will be
+                    // patched up at apply-time, but we cannot emit a debug tx
+                    // set here.
+                    return std::optional<LedgerHeaderHistoryEntry>();
+                }
+                return lclHeader;
+            };
+        std::optional<StoredDebugTransactionSet> maybeDebugTxSet =
+            lcd.toXDR(getPrevHeader);
+        if (!maybeDebugTxSet)
+        {
+            // This can happen if the ledger close value was a skip and we are
+            // not able to find the header of the ledger preceding the skip. In
+            // that case, we cannot emit a debug tx set, but this is not a fatal
+            // error, so we just return early here.
+            return;
+        }
+
         if (fs::mkpath(path.parent_path().string()))
         {
             auto timer = LogSlowExecution(
@@ -387,7 +416,7 @@ HerderImpl::writeDebugTxSet(LedgerCloseData const& lcd)
             XDROutputFileStream stream(mApp.getClock().getIOContext(),
                                        /*fsyncOnClose=*/false);
             stream.open(path.string());
-            stream.writeOne(lcd.toXDR());
+            stream.writeOne(*maybeDebugTxSet);
         }
         else
         {
@@ -2106,7 +2135,8 @@ HerderImpl::persistSCPState(uint64 slot)
         // saves transaction sets referred by the statement
         for (auto const& h : getValidatedTxSetHashes(e))
         {
-            auto txSet = std::get_if<TxSetXDRFrameConstPtr>(&mPendingEnvelopes.getTxSet(h));
+            auto txSet = std::get_if<TxSetXDRFrameConstPtr>(
+                &mPendingEnvelopes.getTxSet(h));
             if (txSet && *txSet && !mApp.getPersistentState().hasTxSet(h))
             {
                 txSets.insert(std::make_pair(h, *txSet));
