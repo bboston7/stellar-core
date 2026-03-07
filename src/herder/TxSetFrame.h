@@ -205,25 +205,25 @@ class TxSetXDRFrame : public NonMovableOrCopyable
 };
 
 // TODO: Move implementation out of header?
+// TODO: Rename? TxSetWrapper? Something like that?
 class TxSetResult
 {
   public:
-    TxSetResult(TxSetXDRFrameConstPtr const& txSet, bool isSkipLedger)
-        : mTxSet(txSet), mIsSkipLedger(isSkipLedger)
+    // TODO: Explain that `isKnownSkipLedger` should be `true` only when we are
+    // 100% certain that the tx set referenced here was intentionally skipped.
+    TxSetResult(TxSetXDRFrameConstPtr const& txSet, bool isKnownSkipLedger)
+        : mTxSet(txSet), mKnownIsSkipLedger(isKnownSkipLedger)
     {
-        // if isSkipLedger is true, then txSet must be nullptr
-        if (isSkipLedger)
-        {
-            releaseAssert(!txSet);
-        }
     }
 
-    bool isSkipLedger() const
+    bool
+    isKnownSkipLedger() const
     {
-        return mIsSkipLedger;
+        return mKnownIsSkipLedger;
     }
 
-    TxSetXDRFrameConstPtr const& getTxSet() const
+    TxSetXDRFrameConstPtr const&
+    getTxSet() const
     {
         return mTxSet;
     }
@@ -231,20 +231,19 @@ class TxSetResult
     // If this is a skip ledger, constructs a valid TxSetXDRFrameConstPtr using
     // the provided header for the ledger proceeding the skip ledger. If this is
     // not a skip ledger, simply returns the stored TxSetXDRFrameConstPtr.
-    TxSetXDRFrameConstPtr tryConstructTxSet(LedgerHeaderHistoryEntry const& prevHeader) const
+    TxSetXDRFrameConstPtr
+    tryConstructTxSet(LedgerHeaderHistoryEntry const& prevHeader)
     {
-        if (isSkipLedger())
+        if (isKnownSkipLedger() && !mTxSet)
         {
-            return TxSetXDRFrame::makeEmpty(prevHeader);
+            mTxSet = TxSetXDRFrame::makeEmpty(prevHeader);
         }
-        else
-        {
-            return mTxSet;
-        }
+        return mTxSet;
     }
+
   private:
-    TxSetXDRFrameConstPtr const mTxSet;
-    bool const mIsSkipLedger;
+    TxSetXDRFrameConstPtr mTxSet;
+    bool const mKnownIsSkipLedger;
 };
 
 // The following definitions are used to represent the 'parallel' phase of the

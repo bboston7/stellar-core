@@ -74,7 +74,7 @@ class LedgerCloseData
     toXDR(GetPrevHeaderFn const& getPrevHeader) const
     {
         TxSetXDRFrameConstPtr txSet;
-        if (mTxSet.isSkipLedger())
+        if (mTxSet.isKnownSkipLedger())
         {
             // Try to construct a TxSetXDRFrameConstPtr. If we can't get the
             // previous header, then we can't do the conversion, and we should
@@ -102,20 +102,28 @@ class LedgerCloseData
         return sts;
     }
 
+    // TODO: Note that it's impossible for these to be "known skip ledgers"
+    // because they would have been "converted" to normal empty ledgers (which
+    // is what skip ledgers become after apply). The fact that they were
+    // intentionally skipped is erased at the tx set level (though it still
+    // exists at the ledger header level)
     static LedgerCloseData
     toLedgerCloseData(StoredDebugTransactionSet const& sts)
     {
         if (sts.txSet.v() == 0)
         {
             return LedgerCloseData(
-                sts.ledgerSeq, TxSetXDRFrame::makeFromWire(sts.txSet.txSet()),
+                sts.ledgerSeq,
+                TxSetResult(TxSetXDRFrame::makeFromWire(sts.txSet.txSet()),
+                            /*isKnownSkipLedger=*/false),
                 sts.scpValue);
         }
         else
         {
             return LedgerCloseData(
                 sts.ledgerSeq,
-                TxSetXDRFrame::makeFromWire(sts.txSet.generalizedTxSet()),
+                TxSetResult(TxSetXDRFrame::makeFromWire(sts.txSet.generalizedTxSet()),
+                            /*isKnownSkipLedger=*/false),
                 sts.scpValue);
         }
     }

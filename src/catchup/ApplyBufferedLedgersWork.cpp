@@ -48,22 +48,22 @@ ApplyBufferedLedgersWork::onRun()
     }
     auto const& lcd = maybeLcd.value();
     TxSetResult const& txSet = lcd.getTxSet();
-    if (std::holds_alternative<TxSetXDRFrameConstPtr>(txSet))
+    if (txSet.isKnownSkipLedger())
     {
-        auto const txSetPtr = std::get<TxSetXDRFrameConstPtr>(txSet);
+        CLOG_INFO(History,
+                  "Scheduling buffered ledger-close: skip value [seq={}]",
+                  lcd.getLedgerSeq());
+    }
+    else
+    {
+        auto const txSetPtr = txSet.getTxSet();
+        releaseAssert(txSetPtr);
         CLOG_INFO(History,
                   "Scheduling buffered ledger-close: [seq={}, prev={}, txs={}, "
                   "ops={}, sv: {}]",
                   lcd.getLedgerSeq(), hexAbbrev(txSetPtr->previousLedgerHash()),
                   txSetPtr->sizeTxTotal(), txSetPtr->sizeOpTotalForLogging(),
                   stellarValueToString(mApp.getConfig(), lcd.getValue()));
-    }
-    else
-    {
-        releaseAssert(std::holds_alternative<SkipLedgerTxSet>(txSet));
-        CLOG_INFO(History,
-                  "Scheduling buffered ledger-close: skip value [seq={}]",
-                  lcd.getLedgerSeq());
     }
 
     auto applyLedger = std::make_shared<ApplyLedgerWork>(mApp, lcd);

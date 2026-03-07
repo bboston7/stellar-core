@@ -6,6 +6,7 @@
 #include "bucket/BucketManager.h"
 #include "bucket/LiveBucketList.h"
 #include "catchup/ApplyLedgerWork.h"
+#include "herder/Herder.h"
 #include "history/FileTransferInfo.h"
 #include "history/HistoryManager.h"
 #include "history/HistoryUtils.h"
@@ -277,7 +278,8 @@ ApplyCheckpointWork::getNextLedgerCloseData()
     // sense) in CATCHUP_VERIFY phase; we now need to check that the
     // txhash we're about to apply is the one denoted by that ledger
     // header.
-    if (header.scpValue.txSetHash != txset->getContentsHash())
+    bool const isSkipLedger = header.scpValue.txSetHash == Herder::SKIP_LEDGER_HASH;
+    if (header.scpValue.txSetHash != txset->getContentsHash() && !isSkipLedger)
     {
         throw std::runtime_error(
             fmt::format(FMT_STRING("replay txset hash differs from txset hash "
