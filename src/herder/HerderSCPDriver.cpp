@@ -146,11 +146,11 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
         for (auto const& txSetH : txSets)
         {
             auto txSet = mHerder.getTxSet(txSetH);
-            if (txSet)
+            if (txSet.getTxSet())
             {
-                mTxSets.emplace_back(txSet);
+                mTxSets.emplace_back(txSet.getTxSet());
             }
-            else
+            else if (!txSet.isKnownSkipLedger())
             {
                 missingTxSets.insert(txSetH);
             }
