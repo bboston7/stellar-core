@@ -123,6 +123,10 @@ class ApplyLedgersFromMetaWork : public Work
             return BasicWork::State::WORK_FAILURE;
         }
 
+        // TODO: I don't understand this. What if we don't have a tx set? How
+        // did one get written out to debug meta? Do we skip that? What about
+        // the note at the top of this function that debug meta "can't have
+        // gaps"? When does this function even get called?
         TxSetXDRFrameConstPtr txSet;
         if (lcm.v() == 0)
         {
@@ -136,8 +140,11 @@ class ApplyLedgersFromMetaWork : public Work
         {
             txSet = TxSetXDRFrame::makeFromWire(lcm.v2().txSet);
         }
+        bool const isSkipLedger = lh.scpValue.ext.v() == STELLAR_VALUE_SKIP;
+        TxSetResult const txSetWrapper(txSet, isSkipLedger);
 
-        LedgerCloseData ledgerCloseData(ledgerSeqToApply, txSet, lh.scpValue);
+        LedgerCloseData ledgerCloseData(ledgerSeqToApply, txSetWrapper,
+                                        lh.scpValue);
 
         releaseAssert(!mApplyLedgerWork);
         mApplyLedgerWork = addWork<ApplyLedgerWork>(ledgerCloseData);
