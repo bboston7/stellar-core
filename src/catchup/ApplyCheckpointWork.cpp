@@ -289,6 +289,7 @@ ApplyCheckpointWork::getNextLedgerCloseData()
                         hexAbbrev(header.scpValue.txSetHash)));
     }
 
+    TxSetResult txSetWrapper(txset, isSkipLedger);
 #ifdef BUILD_TESTS
     if (mApp.getConfig()
             .ARTIFICIALLY_REPLAY_WITH_NEWEST_BUCKET_LOGIC_FOR_TESTING)
@@ -302,11 +303,11 @@ ApplyCheckpointWork::getNextLedgerCloseData()
             mApp.getConfig().LEDGER_PROTOCOL_VERSION, header.bucketListHash);
     }
     return std::make_shared<LedgerCloseData>(
-        header.ledgerSeq, txset, header.scpValue,
+        header.ledgerSeq, txSetWrapper, header.scpValue,
         std::make_optional<Hash>(mHeaderHistoryEntry.hash), txres);
 #else
     return std::make_shared<LedgerCloseData>(
-        header.ledgerSeq, txset, header.scpValue,
+        header.ledgerSeq, txSetWrapper, header.scpValue,
         std::make_optional<Hash>(mHeaderHistoryEntry.hash));
 #endif
 }

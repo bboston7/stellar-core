@@ -442,7 +442,22 @@ LedgerApplyManagerImpl::startOnlineCatchup()
     // buffered ledger with last one downloaded from history
     auto const& lcd = mSyncingLedgers.begin()->second;
     auto firstBufferedLedgerSeq = lcd.getLedgerSeq();
-    auto hash = std::make_optional<Hash>(lcd.getTxSet()->previousLedgerHash());
+    TxSetResult const& txSetWrapper = lcd.getTxSet();
+    TxSetXDRFrameConstPtr const& txSet = txSetWrapper.getTxSet();
+    std::optional<Hash> hash = std::nullopt;
+    if (txSet)
+    {
+        hash = txSet->previousLedgerHash();
+    }
+    else
+    {
+        // TODO: Is this *always* true? If we don't have the tx set, then
+        // isKnownSkipLedger is set here? It definitely *is* a skip ledger at
+        // this point, but are our heuristics good enough to always have that
+        // set here? Return to this question after everything compiles (as I
+        // don't think it's possible to evaluate before then).
+        releaseAssert(txSetWrapper.isKnownSkipLedger());
+    }
     startCatchup({LedgerNumHashPair(firstBufferedLedgerSeq - 1, hash),
                   getCatchupCount(), CatchupConfiguration::Mode::ONLINE},
                  nullptr);

@@ -232,11 +232,11 @@ class TxSetResult
     // the provided header for the ledger proceeding the skip ledger. If this is
     // not a skip ledger, simply returns the stored TxSetXDRFrameConstPtr.
     TxSetXDRFrameConstPtr
-    tryConstructTxSet(LedgerHeaderHistoryEntry const& prevHeader)
+    tryConstructTxSet(LedgerHeaderHistoryEntry const& prevHeader) const
     {
         if (isKnownSkipLedger() && !mTxSet)
         {
-            mTxSet = TxSetXDRFrame::makeEmpty(prevHeader);
+            return TxSetXDRFrame::makeEmpty(prevHeader);
         }
         return mTxSet;
     }

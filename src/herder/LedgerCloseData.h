@@ -40,7 +40,7 @@ class LedgerCloseData
     {
         return mLedgerSeq;
     }
-    TxSetResult
+    TxSetResult const&
     getTxSet() const
     {
         return mTxSet;
