@@ -207,6 +207,9 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
     // for a skip value is built in HerderImpl::processExternalized using the
     // previousLedgerHash and previousLedgerVersion fields from the StellarValue.
     // Use hasTxSet() for existence checks that include skip hashes.
+    // TODO: This makes me nervous. If it works for all call sites, maybe this
+    // should be changed to take the relevant info to build a skip tx set if
+    // needed.
     releaseAssert(hash != Herder::SKIP_LEDGER_HASH);
 
     TxSetXDRFrameConstPtr res;
@@ -712,6 +715,9 @@ PendingEnvelopes::touchFetchCache(SCPEnvelope const& envelope)
     for (auto const& h : getValidatedTxSetHashes(envelope))
     {
         // Skip values don't have real tx sets in the cache
+        // TODO: This can be removed if we change `getKnownTxSet` to accept skip
+        // ledger hashes. Might be possible with the envelope here? Or maybe
+        // not.
         if (h == Herder::SKIP_LEDGER_HASH)
         {
             continue;
@@ -836,6 +842,7 @@ PendingEnvelopes::getTxSet(Hash const& hash)
 {
     // Skip values don't have real tx sets in the cache. The correct empty
     // tx set for skip values is built in HerderImpl::processExternalized.
+    // TODO: Is this right? Idk
     if (hash == Herder::SKIP_LEDGER_HASH)
     {
         return nullptr;

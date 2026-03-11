@@ -316,6 +316,8 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
     {
         externalizedSet = mPendingEnvelopes.getTxSet(value.txSetHash);
     }
+    // TODO: Remove this?
+    // TODO: If a node doesn't have the tx set by here it will crash.
     releaseAssert(externalizedSet != nullptr);
 
     // save the SCP messages in the database

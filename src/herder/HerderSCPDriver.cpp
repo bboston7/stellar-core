@@ -338,6 +338,9 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
                     slotIndex);
                 return SCPDriver::kInvalidValue;
             }
+            // TODO: This early return skips some checks below, most notably
+            // `checkAndCacheTxSetValid`. Is that OK? Do we need to perform
+            // those checks?
             return SCPDriver::kFullyValidatedValue;
         }
 
@@ -545,6 +548,8 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
     // This function should only be called when the node is in sync and
     // actively participating in consensus for LCL+1, so the LCL is the
     // correct previous ledger.
+    // TODO: REALLY double check this is ONLY called when LCL is up to date. OR
+    // have the caller pass relevant LCL info in to be safe.
     releaseAssert(mLedgerManager.isSynced());
 
     StellarValue originalValue = toStellarValueOrThrow(v);

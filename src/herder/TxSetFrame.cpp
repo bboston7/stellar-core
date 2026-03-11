@@ -958,34 +958,31 @@ TxSetXDRFrameConstPtr
 TxSetXDRFrame::makeEmpty(Hash const& previousLedgerHash,
                          uint32 previousLedgerVersion)
 {
-    LedgerHeaderHistoryEntry lclHeader;
-    lclHeader.hash = previousLedgerHash;
-    lclHeader.header.ledgerVersion = previousLedgerVersion;
-    return makeEmpty(lclHeader);
-}
-
-TxSetXDRFrameConstPtr
-TxSetXDRFrame::makeEmpty(LedgerHeaderHistoryEntry const& lclHeader)
-{
-    if (protocolVersionStartsFrom(lclHeader.header.ledgerVersion,
+    if (protocolVersionStartsFrom(previousLedgerVersion,
                                   SOROBAN_PROTOCOL_VERSION))
     {
         bool isParallelSoroban = false;
-        isParallelSoroban =
-            protocolVersionStartsFrom(lclHeader.header.ledgerVersion,
-                                      PARALLEL_SOROBAN_PHASE_PROTOCOL_VERSION);
+        isParallelSoroban = protocolVersionStartsFrom(
+            previousLedgerVersion, PARALLEL_SOROBAN_PHASE_PROTOCOL_VERSION);
         std::vector<TxSetPhaseFrame> emptyPhases = {
             TxSetPhaseFrame::makeEmpty(TxSetPhase::CLASSIC, false),
             TxSetPhaseFrame::makeEmpty(TxSetPhase::SOROBAN, isParallelSoroban)};
 
         GeneralizedTransactionSet txSet;
-        transactionsToGeneralizedTransactionSetXDR(emptyPhases, lclHeader.hash,
-                                                   txSet);
+        transactionsToGeneralizedTransactionSetXDR(emptyPhases,
+                                                   previousLedgerHash, txSet);
         return TxSetXDRFrame::makeFromWire(txSet);
     }
     TransactionSet txSet;
-    transactionsToTransactionSetXDR({}, lclHeader.hash, txSet);
+    transactionsToTransactionSetXDR({}, previousLedgerHash, txSet);
     return TxSetXDRFrame::makeFromWire(txSet);
+}
+
+TxSetXDRFrameConstPtr
+TxSetXDRFrame::makeEmpty(LedgerHeaderHistoryEntry const& lclHeader)
+{
+    return makeEmpty(lclHeader.header.previousLedgerHash,
+                     lclHeader.header.ledgerVersion);
 }
 
 TxSetXDRFrameConstPtr
