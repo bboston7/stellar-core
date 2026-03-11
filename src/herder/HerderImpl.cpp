@@ -305,8 +305,9 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
                      slotIndex, hexAbbrev(value.txSetHash));
     }
 
+    auto result = mPendingEnvelopes.getTxSet(value.txSetHash);
     TxSetXDRFrameConstPtr externalizedSet;
-    if (value.txSetHash == Herder::SKIP_LEDGER_HASH)
+    if (std::holds_alternative<SkipTxSet>(result))
     {
         auto const& ov = value.ext.originalValue();
         externalizedSet = TxSetXDRFrame::makeEmpty(
@@ -314,10 +315,8 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
     }
     else
     {
-        externalizedSet = mPendingEnvelopes.getTxSet(value.txSetHash);
+        externalizedSet = std::get<TxSetXDRFrameConstPtr>(result);
     }
-    // TODO: Remove this?
-    // TODO: If a node doesn't have the tx set by here it will crash.
     releaseAssert(externalizedSet != nullptr);
 
     // save the SCP messages in the database
@@ -1348,7 +1347,7 @@ HerderImpl::peerDoesntHave(MessageType type, uint256 const& itemID,
     mPendingEnvelopes.peerDoesntHave(type, itemID, peer);
 }
 
-TxSetXDRFrameConstPtr
+TxSetResult
 HerderImpl::getTxSet(Hash const& hash)
 {
     return mPendingEnvelopes.getTxSet(hash);
@@ -2114,16 +2113,16 @@ HerderImpl::persistSCPState(uint64 slot)
         // saves transaction sets referred by the statement
         for (auto const& h : getValidatedTxSetHashes(e))
         {
-            // Skip values don't have real tx sets to persist
-            if (h == Herder::SKIP_LEDGER_HASH)
+            auto result = mPendingEnvelopes.getTxSet(h);
+            if (auto* txSetPtr =
+                    std::get_if<TxSetXDRFrameConstPtr>(&result))
             {
-                continue;
+                if (*txSetPtr && !mApp.getPersistentState().hasTxSet(h))
+                {
+                    txSets.insert(std::make_pair(h, *txSetPtr));
+                }
             }
-            auto txSet = mPendingEnvelopes.getTxSet(h);
-            if (txSet && !mApp.getPersistentState().hasTxSet(h))
-            {
-                txSets.insert(std::make_pair(h, txSet));
-            }
+            // SkipTxSet: nothing to persist
         }
         Hash qsHash = Slot::getCompanionQuorumSetHashFromStatement(e.statement);
         SCPQuorumSetPtr qSet = mPendingEnvelopes.getQSet(qsHash);

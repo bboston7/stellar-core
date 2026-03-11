@@ -2562,7 +2562,10 @@ TEST_CASE("SCP State", "[herder]")
                 {
                     for (auto const& h : getValidatedTxSetHashes(msg))
                     {
-                        REQUIRE(herder.getPendingEnvelopes().getTxSet(h));
+                        auto txSetResult = herder.getPendingEnvelopes().getTxSet(h);
+                        auto* txSetPtr = std::get_if<TxSetXDRFrameConstPtr>(&txSetResult);
+                        REQUIRE(txSetPtr);
+                        REQUIRE(*txSetPtr);
                         REQUIRE(app->getPersistentState().hasTxSet(h));
                         hashes.insert(h);
                     }
@@ -3134,8 +3137,9 @@ TEST_CASE("soroban txs each parameter surge priced", "[soroban][herder]")
                                                 ->getLedgerManager()
                                                 .getLastClosedLedgerHeader()
                                                 .header;
-                    auto txSet = nodes[0]->getHerder().getTxSet(
+                    auto txSetResult = nodes[0]->getHerder().getTxSet(
                         lclHeader.scpValue.txSetHash);
+                    auto txSet = std::get<TxSetXDRFrameConstPtr>(txSetResult);
                     GeneralizedTransactionSet xdrTxSet;
                     txSet->toXDR(xdrTxSet);
                     auto const& phase = xdrTxSet.v1TxSet().phases.at(
@@ -3597,13 +3601,14 @@ TEST_CASE("soroban txs accepted by the network",
             bool upgradeApplied = false;
             simulation->crankUntil(
                 [&]() {
+                    auto txSetResult =
+                        nodes[0]->getHerder().getTxSet(
+                            nodes[0]
+                                ->getLedgerManager()
+                                .getLastClosedLedgerHeader()
+                                .header.scpValue.txSetHash);
                     auto txSetSize =
-                        nodes[0]
-                            ->getHerder()
-                            .getTxSet(nodes[0]
-                                          ->getLedgerManager()
-                                          .getLastClosedLedgerHeader()
-                                          .header.scpValue.txSetHash)
+                        std::get<TxSetXDRFrameConstPtr>(txSetResult)
                             ->sizeOpTotalForLogging();
                     upgradeApplied =
                         upgradeApplied || txSetSize > ledgerWideLimit;
@@ -3722,7 +3727,8 @@ getValidatorExternalizeMessages(Application& app, uint32_t start, uint32_t end)
                 auto& pe = herder.getPendingEnvelopes();
                 toStellarValue(env.statement.pledges.externalize().commit.value,
                                sv);
-                auto txset = pe.getTxSet(sv.txSetHash);
+                auto txsetResult = pe.getTxSet(sv.txSetHash);
+                auto txset = std::get<TxSetXDRFrameConstPtr>(txsetResult);
                 REQUIRE(txset);
                 validatorSCPMessages[seq] =
                     std::make_pair(env, txset->toStellarMessage());
@@ -5806,7 +5812,8 @@ feedTxSetFromStatement(Application& sourceNode, Application& targetNode,
         // target should *not* already have the tx set
         // REQUIRE(!targetHerder.getTxSet(sv.txSetHash));
 
-        auto txSet = sourceHerder.getTxSet(sv.txSetHash);
+        auto txSetResult = sourceHerder.getTxSet(sv.txSetHash);
+        auto txSet = std::get<TxSetXDRFrameConstPtr>(txSetResult);
         REQUIRE(txSet);
         fedNonEmptySet |= txSet->sizeTxTotal() > 0;
         targetHerder.recvTxSet(txSet->getContentsHash(), txSet);
@@ -6355,7 +6362,8 @@ TEST_CASE("Skip ledger vote reversal", "[herder]")
                 REQUIRE(!slot->getSCPDriver().isSkipLedgerValue(value));
                 StellarValue sv;
                 REQUIRE(toStellarValue(value, sv));
-                auto txSet = herder.getTxSet(sv.txSetHash);
+                auto txSetResult = herder.getTxSet(sv.txSetHash);
+                auto txSet = std::get<TxSetXDRFrameConstPtr>(txSetResult);
                 REQUIRE(txSet);
                 REQUIRE(txSet->sizeTxTotal() > 0);
                 foundLocalExternalize = true;

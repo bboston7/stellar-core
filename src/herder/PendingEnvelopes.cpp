@@ -565,10 +565,12 @@ PendingEnvelopes::recordReceivedCost(SCPEnvelope const& env)
         }
         else
         {
-            auto txSetPtr = getTxSet(v.txSetHash);
-            if (txSetPtr)
+            auto txSetResult = getTxSet(v.txSetHash);
+            if (auto* txSetPtr =
+                    std::get_if<TxSetXDRFrameConstPtr>(&txSetResult);
+                txSetPtr && *txSetPtr)
             {
-                txSetSize = txSetPtr->encodedSize();
+                txSetSize = (*txSetPtr)->encodedSize();
                 mValueSizeCache.put(v.txSetHash, txSetSize);
             }
         }
@@ -837,15 +839,12 @@ PendingEnvelopes::forceRebuildQuorum()
     mRebuildQuorum = true;
 }
 
-TxSetXDRFrameConstPtr
+TxSetResult
 PendingEnvelopes::getTxSet(Hash const& hash)
 {
-    // Skip values don't have real tx sets in the cache. The correct empty
-    // tx set for skip values is built in HerderImpl::processExternalized.
-    // TODO: Is this right? Idk
     if (hash == Herder::SKIP_LEDGER_HASH)
     {
-        return nullptr;
+        return SkipTxSet{};
     }
     return getKnownTxSet(hash, 0, false);
 }

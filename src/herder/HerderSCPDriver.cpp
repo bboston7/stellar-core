@@ -145,15 +145,16 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
         auto txSets = getValidatedTxSetHashes(e);
         for (auto const& txSetH : txSets)
         {
-            auto txSet = mHerder.getTxSet(txSetH);
-            if (txSet)
+            auto result = mHerder.getTxSet(txSetH);
+            if (auto* txSet =
+                    std::get_if<TxSetXDRFrameConstPtr>(&result))
             {
-                mTxSets.emplace_back(txSet);
+                if (*txSet)
+                    mTxSets.emplace_back(*txSet);
+                else
+                    missingTxSets.insert(txSetH);
             }
-            else
-            {
-                missingTxSets.insert(txSetH);
-            }
+            // SkipTxSet: not missing, nothing to store
         }
     }
 
@@ -345,7 +346,12 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
         }
 
         Hash const& txSetHash = b.txSetHash;
-        TxSetXDRFrameConstPtr txSet = mPendingEnvelopes.getTxSet(txSetHash);
+        // Skip values return early above, so this only runs for
+        // non-skip hashes. Extract the TxSetXDRFrameConstPtr.
+        TxSetXDRFrameConstPtr txSet;
+        auto txSetResult = mPendingEnvelopes.getTxSet(txSetHash);
+        if (auto* ptr = std::get_if<TxSetXDRFrameConstPtr>(&txSetResult))
+            txSet = *ptr;
 
         auto closeTimeOffset = b.closeTime - lcl.header.scpValue.closeTime;
 
@@ -900,7 +906,13 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
              ++it)
         {
             auto const& sv = *it;
-            auto cTxSet = mPendingEnvelopes.getTxSet(sv.txSetHash);
+            TxSetXDRFrameConstPtr cTxSet;
+            auto cTxSetResult = mPendingEnvelopes.getTxSet(sv.txSetHash);
+            if (auto* ptr =
+                    std::get_if<TxSetXDRFrameConstPtr>(&cTxSetResult))
+                cTxSet = *ptr;
+            // else: SkipTxSet -> cTxSet stays null, handled by existing
+            // !cTxSet logic
             // TODO(11): Combining strategy when tx sets may be missing:
             // * Both exist: choose the largest (unchanged from before)
             // * One exists: choose the one that exists
@@ -1591,10 +1603,13 @@ class SCPHerderValueWrapper : public ValueWrapper
                                    HerderImpl& herder)
         : ValueWrapper(value), mHerder(herder), mTxSetHash(sv.txSetHash)
     {
-        mTxSet = mHerder.getTxSet(sv.txSetHash);
-        // mTxSet may be null if tx set hasn't been received yet (parallel
-        // downloading). It will be set later via setTxSet() when the tx set
-        // arrives.
+        auto result = mHerder.getTxSet(sv.txSetHash);
+        if (auto* ptr = std::get_if<TxSetXDRFrameConstPtr>(&result))
+            mTxSet = *ptr;
+        // else: SkipTxSet -> mTxSet stays null
+        // mTxSet may also be null if tx set hasn't been received yet
+        // (parallel downloading). It will be set later via setTxSet()
+        // when the tx set arrives.
     }
 
     bool

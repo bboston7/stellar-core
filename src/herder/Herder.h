@@ -16,9 +16,15 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <variant>
 
 namespace stellar
 {
+
+// Returned by getTxSet to distinguish "skip" values (no real tx set)
+// from "not yet downloaded" (nullptr).
+struct SkipTxSet {};
+using TxSetResult = std::variant<TxSetXDRFrameConstPtr, SkipTxSet>;
 class Application;
 class XDROutputFileStream;
 
@@ -149,7 +155,7 @@ class Herder
 #endif
     virtual void peerDoesntHave(stellar::MessageType type,
                                 uint256 const& itemID, Peer::pointer peer) = 0;
-    virtual TxSetXDRFrameConstPtr getTxSet(Hash const& hash) = 0;
+    virtual TxSetResult getTxSet(Hash const& hash) = 0;
     virtual SCPQuorumSetPtr getQSet(Hash const& qSetHash) = 0;
 
     // We are learning about a new envelope.
