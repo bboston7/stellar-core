@@ -146,13 +146,16 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
         for (auto const& txSetH : txSets)
         {
             auto result = mHerder.getTxSet(txSetH);
-            if (auto* txSet =
-                    std::get_if<TxSetXDRFrameConstPtr>(&result))
+            if (auto* txSet = std::get_if<TxSetXDRFrameConstPtr>(&result))
             {
                 if (*txSet)
+                {
                     mTxSets.emplace_back(*txSet);
+                }
                 else
+                {
                     missingTxSets.insert(txSetH);
+                }
             }
             // SkipTxSet: not missing, nothing to store
         }
@@ -348,10 +351,8 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
         Hash const& txSetHash = b.txSetHash;
         // Skip values return early above, so this only runs for
         // non-skip hashes. Extract the TxSetXDRFrameConstPtr.
-        TxSetXDRFrameConstPtr txSet;
-        auto txSetResult = mPendingEnvelopes.getTxSet(txSetHash);
-        if (auto* ptr = std::get_if<TxSetXDRFrameConstPtr>(&txSetResult))
-            txSet = *ptr;
+        TxSetXDRFrameConstPtr txSet = std::get<TxSetXDRFrameConstPtr>(
+            mPendingEnvelopes.getTxSet(txSetHash));
 
         auto closeTimeOffset = b.closeTime - lcl.header.scpValue.closeTime;
 
@@ -908,11 +909,11 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
             auto const& sv = *it;
             TxSetXDRFrameConstPtr cTxSet;
             auto cTxSetResult = mPendingEnvelopes.getTxSet(sv.txSetHash);
-            if (auto* ptr =
-                    std::get_if<TxSetXDRFrameConstPtr>(&cTxSetResult))
+            if (auto* ptr = std::get_if<TxSetXDRFrameConstPtr>(&cTxSetResult))
                 cTxSet = *ptr;
             // else: SkipTxSet -> cTxSet stays null, handled by existing
             // !cTxSet logic
+            // TODO: ^^ Is this logic sound?
             // TODO(11): Combining strategy when tx sets may be missing:
             // * Both exist: choose the largest (unchanged from before)
             // * One exists: choose the one that exists
@@ -1610,6 +1611,10 @@ class SCPHerderValueWrapper : public ValueWrapper
         // mTxSet may also be null if tx set hasn't been received yet
         // (parallel downloading). It will be set later via setTxSet()
         // when the tx set arrives.
+        // TODO: Does it make sense to treat "not received" and "skip" the same?
+        // Should we distinguish them? Should `hasTxSet` return true for skip
+        // values? It would be easy to do, since we store txSetHash and could
+        // check if it's the skip hash.
     }
 
     bool

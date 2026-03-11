@@ -842,6 +842,8 @@ PendingEnvelopes::forceRebuildQuorum()
 TxSetResult
 PendingEnvelopes::getTxSet(Hash const& hash)
 {
+    // TODO: Should we just move this into `getKnownTxSet`? Does that screw up
+    // any other callers of that function?
     if (hash == Herder::SKIP_LEDGER_HASH)
     {
         return SkipTxSet{};
