@@ -955,6 +955,16 @@ makeTxSetFromTransactions(
 }
 
 TxSetXDRFrameConstPtr
+TxSetXDRFrame::makeEmpty(Hash const& previousLedgerHash,
+                         uint32 previousLedgerVersion)
+{
+    LedgerHeaderHistoryEntry lclHeader;
+    lclHeader.hash = previousLedgerHash;
+    lclHeader.header.ledgerVersion = previousLedgerVersion;
+    return makeEmpty(lclHeader);
+}
+
+TxSetXDRFrameConstPtr
 TxSetXDRFrame::makeEmpty(LedgerHeaderHistoryEntry const& lclHeader)
 {
     if (protocolVersionStartsFrom(lclHeader.header.ledgerVersion,

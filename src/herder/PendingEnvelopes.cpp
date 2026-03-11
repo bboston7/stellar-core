@@ -203,25 +203,11 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
 {
     // slot is only used when `touch` is set
     releaseAssert(touch || (slot == 0));
-    if (hash == Herder::SKIP_LEDGER_HASH)
-    {
-        // Special case for the skip ledger hash
-        CLOG_DEBUG(Proto, "Request for skip ledger hash {}", hexAbbrev(hash));
-        // Return an empty tx set
-        // TODO(15): Is it right to use the LCL header here? I'm not so sure.
-        // Here are a couple cases I'm concerned about:
-        // 1. Ballot protocol for next ledger. Technically not the "last closed
-        //    ledger" at that point. That being said, it looks like this is
-        //    kinda what Herder does in building the tx set for nomination via
-        //    `makeTxSetFromTransactions`.
-        // 2. Does this function get called for previous ledgers older than LCL?
-        //    If so, then I think it needs that header.
-        // In practice, it looks like the LCL is used only to extract the
-        // protocol version, so it probably only matters on protocol boundaries.
-        // Still important to get right, but not so much for the prototype.
-        return TxSetXDRFrame::makeEmpty(
-            mApp.getLedgerManager().getLastClosedLedgerHeader());
-    }
+    // Skip ledger hashes are not stored in the cache. The correct empty tx set
+    // for a skip value is built in HerderImpl::processExternalized using the
+    // previousLedgerHash and previousLedgerVersion fields from the StellarValue.
+    // Use hasTxSet() for existence checks that include skip hashes.
+    releaseAssert(hash != Herder::SKIP_LEDGER_HASH);
 
     TxSetXDRFrameConstPtr res;
     auto it = mKnownTxSets.find(hash);
@@ -245,6 +231,17 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
         }
     }
     return res;
+}
+
+bool
+PendingEnvelopes::hasTxSet(Hash const& hash) const
+{
+    if (hash == Herder::SKIP_LEDGER_HASH)
+    {
+        return true;
+    }
+    auto it = mKnownTxSets.find(hash);
+    return it != mKnownTxSets.end() && it->second.lock() != nullptr;
 }
 
 void
@@ -649,7 +646,7 @@ PendingEnvelopes::isFullyFetched(SCPEnvelope const& envelope)
     auto txSetHashes = getValidatedTxSetHashes(envelope);
     return std::all_of(std::begin(txSetHashes), std::end(txSetHashes),
                        [&](Hash const& txSetHash) {
-                           return getKnownTxSet(txSetHash, 0, false);
+                           return hasTxSet(txSetHash);
                        });
 }
 
@@ -669,7 +666,7 @@ PendingEnvelopes::startFetch(SCPEnvelope const& envelope)
 
     for (auto const& h2 : getValidatedTxSetHashes(envelope))
     {
-        if (!getKnownTxSet(h2, 0, false))
+        if (!hasTxSet(h2))
         {
             CLOG_TRACE(
                 Proto,
@@ -714,6 +711,11 @@ PendingEnvelopes::touchFetchCache(SCPEnvelope const& envelope)
 
     for (auto const& h : getValidatedTxSetHashes(envelope))
     {
+        // Skip values don't have real tx sets in the cache
+        if (h == Herder::SKIP_LEDGER_HASH)
+        {
+            continue;
+        }
         getKnownTxSet(h, envelope.statement.slotIndex, true);
     }
 }
@@ -832,6 +834,12 @@ PendingEnvelopes::forceRebuildQuorum()
 TxSetXDRFrameConstPtr
 PendingEnvelopes::getTxSet(Hash const& hash)
 {
+    // Skip values don't have real tx sets in the cache. The correct empty
+    // tx set for skip values is built in HerderImpl::processExternalized.
+    if (hash == Herder::SKIP_LEDGER_HASH)
+    {
+        return nullptr;
+    }
     return getKnownTxSet(hash, 0, false);
 }
 

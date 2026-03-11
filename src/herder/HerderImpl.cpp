@@ -305,10 +305,17 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
                      slotIndex, hexAbbrev(value.txSetHash));
     }
 
-    TxSetXDRFrameConstPtr externalizedSet =
-        mPendingEnvelopes.getTxSet(value.txSetHash);
-    // TODO: Remove this?
-    // TODO: If a node doesn't have the tx set by here it will crash.
+    TxSetXDRFrameConstPtr externalizedSet;
+    if (value.txSetHash == Herder::SKIP_LEDGER_HASH)
+    {
+        auto const& ov = value.ext.originalValue();
+        externalizedSet = TxSetXDRFrame::makeEmpty(
+            ov.previousLedgerHash, ov.previousLedgerVersion);
+    }
+    else
+    {
+        externalizedSet = mPendingEnvelopes.getTxSet(value.txSetHash);
+    }
     releaseAssert(externalizedSet != nullptr);
 
     // save the SCP messages in the database
@@ -2105,6 +2112,11 @@ HerderImpl::persistSCPState(uint64 slot)
         // saves transaction sets referred by the statement
         for (auto const& h : getValidatedTxSetHashes(e))
         {
+            // Skip values don't have real tx sets to persist
+            if (h == Herder::SKIP_LEDGER_HASH)
+            {
+                continue;
+            }
             auto txSet = mPendingEnvelopes.getTxSet(h);
             if (txSet && !mApp.getPersistentState().hasTxSet(h))
             {

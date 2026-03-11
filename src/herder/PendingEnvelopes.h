@@ -120,6 +120,10 @@ class PendingEnvelopes
     TxSetXDRFrameConstPtr getKnownTxSet(Hash const& hash, uint64 slot,
                                         bool touch);
 
+    // Returns true if the tx set is available locally (either in cache or
+    // is a skip ledger hash which doesn't need fetching).
+    bool hasTxSet(Hash const& hash) const;
+
     void cleanKnownData();
 
     void recordReceivedCost(SCPEnvelope const& env);

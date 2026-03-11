@@ -323,6 +323,24 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             return SCPDriver::kInvalidValue;
         }
 
+        // For skip values, validate that the previous ledger context matches
+        // our LCL. Skip values don't have a real tx set to validate.
+        if (b.ext.v() == STELLAR_VALUE_SKIP)
+        {
+            auto const& ov = b.ext.originalValue();
+            if (ov.previousLedgerHash != lcl.hash ||
+                ov.previousLedgerVersion != lcl.header.ledgerVersion)
+            {
+                CLOG_DEBUG(
+                    Herder,
+                    "HerderSCPDriver::validateValue i: {} skip value has "
+                    "mismatched previous ledger context",
+                    slotIndex);
+                return SCPDriver::kInvalidValue;
+            }
+            return SCPDriver::kFullyValidatedValue;
+        }
+
         Hash const& txSetHash = b.txSetHash;
         TxSetXDRFrameConstPtr txSet = mPendingEnvelopes.getTxSet(txSetHash);
 
@@ -523,7 +541,14 @@ Value
 HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
 {
     ZoneScoped;
+
+    // This function should only be called when the node is in sync and
+    // actively participating in consensus for LCL+1, so the LCL is the
+    // correct previous ledger.
+    releaseAssert(mLedgerManager.isSynced());
+
     StellarValue originalValue = toStellarValueOrThrow(v);
+    auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
 
     StellarValue sv;
     sv.ext.v(STELLAR_VALUE_SKIP);
@@ -531,6 +556,8 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
     sv.closeTime = originalValue.closeTime;
     sv.upgrades = originalValue.upgrades;
     sv.ext.originalValue().txSetHash = originalValue.txSetHash;
+    sv.ext.originalValue().previousLedgerHash = lcl.hash;
+    sv.ext.originalValue().previousLedgerVersion = lcl.header.ledgerVersion;
     sv.ext.originalValue().lcValueSignature =
         originalValue.ext.lcValueSignature();
     return xdr::xdr_to_opaque(sv);
