@@ -185,7 +185,13 @@ TxSetXDRFrameConstPtr
 PendingEnvelopes::putTxSet(Hash const& hash, uint64 slot,
                            TxSetXDRFrameConstPtr txset)
 {
-    auto res = getKnownTxSet(hash, slot, true);
+    // Cannot add a tx set for the skip ledger hash
+    // TODO: Double check that there are no call sites that may try to add a tx
+    // set for the skip ledger hash. Should this just return early in that case
+    // instead of asserting?
+    releaseAssert(hash != Herder::SKIP_LEDGER_HASH);
+
+    auto res = std::get<TxSetXDRFrameConstPtr>(getKnownTxSet(hash, slot, true));
     if (!res)
     {
         res = txset;
@@ -198,19 +204,15 @@ PendingEnvelopes::putTxSet(Hash const& hash, uint64 slot,
 // tries to find a txset in memory, setting touch also touches the LRU,
 // extending the lifetime of the result *and* updating the slot number
 // to a greater value if needed
-TxSetXDRFrameConstPtr
+TxSetResult
 PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
 {
     // slot is only used when `touch` is set
     releaseAssert(touch || (slot == 0));
-    // Skip ledger hashes are not stored in the cache. The correct empty tx set
-    // for a skip value is built in HerderImpl::processExternalized using the
-    // previousLedgerHash and previousLedgerVersion fields from the StellarValue.
-    // Use hasTxSet() for existence checks that include skip hashes.
-    // TODO: This makes me nervous. If it works for all call sites, maybe this
-    // should be changed to take the relevant info to build a skip tx set if
-    // needed.
-    releaseAssert(hash != Herder::SKIP_LEDGER_HASH);
+    if (hash == Herder::SKIP_LEDGER_HASH)
+    {
+        return SkipTxSet{};
+    }
 
     TxSetXDRFrameConstPtr res;
     auto it = mKnownTxSets.find(hash);
@@ -649,10 +651,9 @@ PendingEnvelopes::isFullyFetched(SCPEnvelope const& envelope)
     }
 
     auto txSetHashes = getValidatedTxSetHashes(envelope);
-    return std::all_of(std::begin(txSetHashes), std::end(txSetHashes),
-                       [&](Hash const& txSetHash) {
-                           return hasTxSet(txSetHash);
-                       });
+    return std::all_of(
+        std::begin(txSetHashes), std::end(txSetHashes),
+        [&](Hash const& txSetHash) { return hasTxSet(txSetHash); });
 }
 
 // Requests all missing tx sets in `envelope`
@@ -716,14 +717,6 @@ PendingEnvelopes::touchFetchCache(SCPEnvelope const& envelope)
 
     for (auto const& h : getValidatedTxSetHashes(envelope))
     {
-        // Skip values don't have real tx sets in the cache
-        // TODO: This can be removed if we change `getKnownTxSet` to accept skip
-        // ledger hashes. Might be possible with the envelope here? Or maybe
-        // not.
-        if (h == Herder::SKIP_LEDGER_HASH)
-        {
-            continue;
-        }
         getKnownTxSet(h, envelope.statement.slotIndex, true);
     }
 }
@@ -842,12 +835,6 @@ PendingEnvelopes::forceRebuildQuorum()
 TxSetResult
 PendingEnvelopes::getTxSet(Hash const& hash)
 {
-    // TODO: Should we just move this into `getKnownTxSet`? Does that screw up
-    // any other callers of that function?
-    if (hash == Herder::SKIP_LEDGER_HASH)
-    {
-        return SkipTxSet{};
-    }
     return getKnownTxSet(hash, 0, false);
 }
 

@@ -556,7 +556,9 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
     // actively participating in consensus for LCL+1, so the LCL is the
     // correct previous ledger.
     // TODO: REALLY double check this is ONLY called when LCL is up to date. OR
-    // have the caller pass relevant LCL info in to be safe.
+    // have the caller pass relevant LCL info in to be safe. If the assert
+    // remains, add a comment to this function that it must ONLY be called when
+    // the node is in sync.
     releaseAssert(mLedgerManager.isSynced());
 
     StellarValue originalValue = toStellarValueOrThrow(v);
