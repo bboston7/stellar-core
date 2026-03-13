@@ -342,9 +342,6 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
                     slotIndex);
                 return SCPDriver::kInvalidValue;
             }
-            // TODO: This early return skips some checks below, most notably
-            // `checkAndCacheTxSetValid`. Is that OK? Do we need to perform
-            // those checks?
             return SCPDriver::kFullyValidatedValue;
         }
 
