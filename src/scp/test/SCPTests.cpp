@@ -67,6 +67,10 @@ class TestSCP : public SCPDriver
     validateValue(uint64 slotIndex, Value const& value,
                   bool nomination) override
     {
+        if (mValidateValueOverride)
+        {
+            return mValidateValueOverride(slotIndex, value, nomination);
+        }
         // If we're tracking download wait time for this value, it's awaiting
         // download
         if (mDownloadWaitTimes.find(value) != mDownloadWaitTimes.end())
@@ -248,6 +252,8 @@ class TestSCP : public SCPDriver
 
     std::function<uint64(NodeID const&)> mPriorityLookup;
     std::function<uint64(Value const&)> mHashValueCalculator;
+    std::function<SCPDriver::ValidationLevel(uint64, Value const&, bool)>
+        mValidateValueOverride;
 
     std::map<Hash, SCPQuorumSetPtr> mQuorumSets;
     std::vector<SCPEnvelope> mEnvs;
@@ -3415,6 +3421,54 @@ TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
 
         testTimeouts(scp, test);
     }
+}
+
+TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
+          " turns invalid",
+          "[scp][nomination]")
+{
+    setupValues();
+    SIMULATION_CREATE_NODE(0);
+    SIMULATION_CREATE_NODE(1);
+    SIMULATION_CREATE_NODE(2);
+
+    SCPQuorumSet qSet;
+    qSet.threshold = 2;
+    qSet.validators.push_back(v0NodeID);
+    qSet.validators.push_back(v1NodeID);
+    qSet.validators.push_back(v2NodeID);
+
+    auto const qSetHash = sha256(xdr::xdr_to_opaque(qSet));
+
+    TestSCP scp(v0SecretKey.getPublicKey(), qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+
+    std::map<Value, SCPDriver::ValidationLevel> validationLevels;
+    validationLevels[xValue] = SCPDriver::kAwaitingDownload;
+    scp.mValidateValueOverride =
+        [&](uint64, Value const& value, bool) -> SCPDriver::ValidationLevel {
+        auto const it = validationLevels.find(value);
+        if (it != validationLevels.end())
+        {
+            return it->second;
+        }
+        return SCPDriver::kFullyValidatedValue;
+    };
+
+    REQUIRE(scp.nominate(0, xValue, false));
+
+    auto const followerVoteNomination =
+        makeNominate(v1SecretKey, qSetHash, 0, {xValue}, {});
+    REQUIRE_NOTHROW(scp.receiveEnvelope(followerVoteNomination));
+
+    validationLevels[xValue] = SCPDriver::kInvalidValue;
+    scp.mExpectedCandidates.emplace(xValue);
+    scp.mCompositeValue = xValue;
+
+    auto const followerAcceptedNomination =
+        makeNominate(v2SecretKey, qSetHash, 0, {xValue}, {xValue});
+    REQUIRE_THROWS_AS(scp.receiveEnvelope(followerAcceptedNomination),
+                      std::runtime_error);
 }
 
 TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
