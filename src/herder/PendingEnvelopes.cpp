@@ -186,9 +186,6 @@ PendingEnvelopes::putTxSet(Hash const& hash, uint64 slot,
                            TxSetXDRFrameConstPtr txset)
 {
     // Cannot add a tx set for the skip ledger hash
-    // TODO: Double check that there are no call sites that may try to add a tx
-    // set for the skip ledger hash. Should this just return early in that case
-    // instead of asserting?
     releaseAssert(hash != Herder::SKIP_LEDGER_HASH);
 
     auto res = std::get<TxSetXDRFrameConstPtr>(getKnownTxSet(hash, slot, true));

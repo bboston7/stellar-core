@@ -1605,23 +1605,21 @@ class SCPHerderValueWrapper : public ValueWrapper
                                    HerderImpl& herder)
         : ValueWrapper(value), mHerder(herder), mTxSetHash(sv.txSetHash)
     {
-        auto result = mHerder.getTxSet(sv.txSetHash);
-        if (auto* ptr = std::get_if<TxSetXDRFrameConstPtr>(&result))
+        auto const result = mHerder.getTxSet(sv.txSetHash);
+        if (auto const* ptr = std::get_if<TxSetXDRFrameConstPtr>(&result))
+        {
             mTxSet = *ptr;
+        }
         // else: SkipTxSet -> mTxSet stays null
         // mTxSet may also be null if tx set hasn't been received yet
         // (parallel downloading). It will be set later via setTxSet()
         // when the tx set arrives.
-        // TODO: Does it make sense to treat "not received" and "skip" the same?
-        // Should we distinguish them? Should `hasTxSet` return true for skip
-        // values? It would be easy to do, since we store txSetHash and could
-        // check if it's the skip hash.
     }
 
     bool
     hasTxSet() const
     {
-        return mTxSet != nullptr;
+        return mTxSet != nullptr || mTxSetHash == Herder::SKIP_LEDGER_HASH;
     }
 
     Hash const&
