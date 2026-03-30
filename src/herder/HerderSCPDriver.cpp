@@ -548,7 +548,6 @@ Value
 HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
 {
     ZoneScoped;
-
     StellarValue originalValue = toStellarValueOrThrow(v);
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
 

@@ -1462,15 +1462,16 @@ Peer::recvGetTxSet(StellarMessage const& msg)
         txSetPtr && *txSetPtr)
     {
         auto newMsg = std::make_shared<StellarMessage>();
-        if ((*txSetPtr)->isGeneralizedTxSet())
+        TxSetXDRFrameConstPtr const txSet = *txSetPtr;
+        if (txSet->isGeneralizedTxSet())
         {
             newMsg->type(GENERALIZED_TX_SET);
-            (*txSetPtr)->toXDR(newMsg->generalizedTxSet());
+            txSet->toXDR(newMsg->generalizedTxSet());
         }
         else
         {
             newMsg->type(TX_SET);
-            (*txSetPtr)->toXDR(newMsg->txSet());
+            txSet->toXDR(newMsg->txSet());
         }
 
         self->sendMessage(newMsg);

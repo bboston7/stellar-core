@@ -78,6 +78,8 @@ class HerderSCPDriver : public SCPDriver
 
     // TODO: Docs. Mention that this function can throw if `v` cannot be
     // converted to a `StellarValue`
+    // TODO: Mention in docs that this should only be called from slots with
+    // slot indicies equal to LCL+1.
     Value makeSkipLedgerValueFromValue(Value const& v) const override;
 
     // TODO(4): Do I even need this function?
