@@ -981,8 +981,7 @@ TxSetXDRFrame::makeEmpty(Hash const& previousLedgerHash,
 TxSetXDRFrameConstPtr
 TxSetXDRFrame::makeEmpty(LedgerHeaderHistoryEntry const& lclHeader)
 {
-    return makeEmpty(lclHeader.header.previousLedgerHash,
-                     lclHeader.header.ledgerVersion);
+    return makeEmpty(lclHeader.hash, lclHeader.header.ledgerVersion);
 }
 
 TxSetXDRFrameConstPtr
