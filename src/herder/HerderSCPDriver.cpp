@@ -426,6 +426,14 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
         return SCPDriver::kInvalidValue;
     }
 
+    // Skip values must have the skip hash, and non-skip values must not have
+    // the skip hash.
+    if ((b.txSetHash == Herder::SKIP_LEDGER_HASH) !=
+        (b.ext.v() == STELLAR_VALUE_SKIP))
+    {
+        return SCPDriver::kInvalidValue;
+    }
+
     {
         ZoneNamedN(sigZone, "signature check", true);
         if (!mHerder.verifyStellarValueSignature(b))
