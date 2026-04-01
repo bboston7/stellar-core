@@ -2176,6 +2176,41 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
                 testInvalidValue(/* isNomination */ false);
             }
         }
+
+        SECTION("skip hash/type mismatch")
+        {
+            auto checkInvalidMismatch = [&](StellarValue const& sv) {
+                auto v = xdr::xdr_to_opaque(sv);
+
+                REQUIRE(scp.validateValue(seq, v, true) ==
+                        SCPDriver::kInvalidValue);
+                REQUIRE(scp.validateValue(seq, v, false) ==
+                        SCPDriver::kInvalidValue);
+
+                ValueWrapperPtr extracted;
+                REQUIRE_NOTHROW(extracted = scp.extractValidValue(seq, v));
+                REQUIRE(extracted == nullptr);
+            };
+
+            SECTION("signed value with skip hash")
+            {
+                auto p = makeTxPair(herder, txSet0, ct);
+                StellarValue sv;
+                xdr::xdr_from_opaque(p.first, sv);
+                sv.txSetHash = Herder::SKIP_LEDGER_HASH;
+                checkInvalidMismatch(sv);
+            }
+
+            SECTION("skip value without skip hash")
+            {
+                auto p = makeTxPair(herder, txSet0, ct);
+                auto skipValue = scp.makeSkipLedgerValueFromValue(p.first);
+                StellarValue sv;
+                xdr::xdr_from_opaque(skipValue, sv);
+                sv.txSetHash = txSet0->getContentsHash();
+                checkInvalidMismatch(sv);
+            }
+        }
     }
 
     SECTION("validateValue closeTimes")

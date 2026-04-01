@@ -304,6 +304,36 @@ HerderSCPDriver::validatePastOrFutureValue(
     return SCPDriver::kMaybeValidValue;
 }
 
+bool
+HerderSCPDriver::checkValueTypeAndSkipHashInvariant(
+    uint64_t slotIndex, StellarValue const& b) const
+{
+    // Only signed and skip values participate in SCP.
+    // TODO(8): Grep for signature checks and update them for SKIP values
+    if (b.ext.v() != STELLAR_VALUE_SIGNED && b.ext.v() != STELLAR_VALUE_SKIP)
+    {
+        CLOG_TRACE(Herder,
+                   "HerderSCPDriver::validateValue i: {} invalid value type - "
+                   "expected SIGNED or SKIP",
+                   slotIndex);
+        return false;
+    }
+
+    // Skip values must have the skip hash, and non-skip values must not have
+    // the skip hash
+    if ((b.txSetHash == Herder::SKIP_LEDGER_HASH) !=
+        (b.ext.v() == STELLAR_VALUE_SKIP))
+    {
+        CLOG_TRACE(Herder,
+                   "HerderSCPDriver::validateValue i: {} invalid skip hash "
+                   "for value type",
+                   slotIndex);
+        return false;
+    }
+
+    return true;
+}
+
 SCPDriver::ValidationLevel
 HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
                                                 StellarValue const& b,
@@ -416,20 +446,7 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
         return SCPDriver::kInvalidValue;
     }
 
-    // TODO(8): Grep for signature checks and update them for SKIP values
-    if (b.ext.v() != STELLAR_VALUE_SIGNED && b.ext.v() != STELLAR_VALUE_SKIP)
-    {
-        CLOG_TRACE(Herder,
-                   "HerderSCPDriver::validateValue i: {} invalid value type - "
-                   "expected SIGNED or SKIP",
-                   slotIndex);
-        return SCPDriver::kInvalidValue;
-    }
-
-    // Skip values must have the skip hash, and non-skip values must not have
-    // the skip hash.
-    if ((b.txSetHash == Herder::SKIP_LEDGER_HASH) !=
-        (b.ext.v() == STELLAR_VALUE_SKIP))
+    if (!checkValueTypeAndSkipHashInvariant(slotIndex, b))
     {
         return SCPDriver::kInvalidValue;
     }
@@ -499,6 +516,12 @@ HerderSCPDriver::extractValidValue(uint64_t slotIndex, Value const& value)
     {
         return nullptr;
     }
+
+    if (!checkValueTypeAndSkipHashInvariant(slotIndex, b))
+    {
+        return nullptr;
+    }
+
     ValueWrapperPtr res;
     if (validateValueAgainstLocalState(slotIndex, b, true) >=
         SCPDriver::kAwaitingDownload)

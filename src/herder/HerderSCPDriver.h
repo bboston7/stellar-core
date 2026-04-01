@@ -311,6 +311,10 @@ class HerderSCPDriver : public SCPDriver
     mutable RandomEvictionCache<TxSetValidityKey, bool, TxSetValidityKeyHash>
         mTxSetValidCache;
 
+    // TODO: Docs
+    bool checkValueTypeAndSkipHashInvariant(uint64_t slotIndex,
+                                            StellarValue const& sv) const;
+
     SCPDriver::ValidationLevel
     validateValueAgainstLocalState(uint64_t slotIndex, StellarValue const& sv,
                                    bool nomination) const;
