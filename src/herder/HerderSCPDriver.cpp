@@ -243,6 +243,22 @@ HerderSCPDriver::validatePastOrFutureValue(
                        slotIndex, b.closeTime, lcl.header.scpValue.closeTime);
             return SCPDriver::kInvalidValue;
         }
+        if (b.ext.v() == STELLAR_VALUE_SKIP)
+        {
+            auto const& ov = b.ext.originalValue();
+            // We can check previousLedgerHash because the LCL header
+            // contains the hash of its parent. We cannot check
+            // previousLedgerVersion because the LCL header only has
+            // its own version, and a protocol upgrade on the LCL
+            // could make it differ from its parent's version.
+            if (ov.previousLedgerHash != lcl.header.previousLedgerHash)
+            {
+                CLOG_TRACE(Herder,
+                           "Got a bad previousLedgerHash for skip value "
+                           "in ledger {}", slotIndex);
+                return SCPDriver::kInvalidValue;
+            }
+        }
     }
     else if (slotIndex < lcl.header.ledgerSeq)
     {
