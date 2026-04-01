@@ -117,8 +117,11 @@ class PendingEnvelopes
 
     // tries to find a txset in memory, setting touch also touches the LRU,
     // extending the lifetime of the result
-    TxSetXDRFrameConstPtr getKnownTxSet(Hash const& hash, uint64 slot,
-                                        bool touch);
+    TxSetResult getKnownTxSet(Hash const& hash, uint64 slot, bool touch);
+
+    // Returns true if the tx set is available locally (either in cache or
+    // is a skip ledger hash which doesn't need fetching).
+    bool hasTxSet(Hash const& hash) const;
 
     void cleanKnownData();
 
@@ -203,7 +206,7 @@ class PendingEnvelopes
 
     Json::Value getJsonInfo(size_t limit);
 
-    TxSetXDRFrameConstPtr getTxSet(Hash const& hash);
+    TxSetResult getTxSet(Hash const& hash);
     SCPQuorumSetPtr getQSet(Hash const& hash);
 
     /**

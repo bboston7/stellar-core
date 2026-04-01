@@ -305,10 +305,18 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
                      slotIndex, hexAbbrev(value.txSetHash));
     }
 
-    TxSetXDRFrameConstPtr externalizedSet =
-        mPendingEnvelopes.getTxSet(value.txSetHash);
-    // TODO: Remove this?
-    // TODO: If a node doesn't have the tx set by here it will crash.
+    auto result = mPendingEnvelopes.getTxSet(value.txSetHash);
+    TxSetXDRFrameConstPtr externalizedSet;
+    if (std::holds_alternative<SkipTxSet>(result))
+    {
+        auto const& ov = value.ext.originalValue();
+        externalizedSet = TxSetXDRFrame::makeEmpty(
+            ov.previousLedgerHash, ov.previousLedgerVersion);
+    }
+    else
+    {
+        externalizedSet = std::get<TxSetXDRFrameConstPtr>(result);
+    }
     releaseAssert(externalizedSet != nullptr);
 
     // save the SCP messages in the database
@@ -1339,7 +1347,7 @@ HerderImpl::peerDoesntHave(MessageType type, uint256 const& itemID,
     mPendingEnvelopes.peerDoesntHave(type, itemID, peer);
 }
 
-TxSetXDRFrameConstPtr
+TxSetResult
 HerderImpl::getTxSet(Hash const& hash)
 {
     return mPendingEnvelopes.getTxSet(hash);
@@ -2105,11 +2113,16 @@ HerderImpl::persistSCPState(uint64 slot)
         // saves transaction sets referred by the statement
         for (auto const& h : getValidatedTxSetHashes(e))
         {
-            auto txSet = mPendingEnvelopes.getTxSet(h);
-            if (txSet && !mApp.getPersistentState().hasTxSet(h))
+            auto result = mPendingEnvelopes.getTxSet(h);
+            if (auto* txSetPtr =
+                    std::get_if<TxSetXDRFrameConstPtr>(&result))
             {
-                txSets.insert(std::make_pair(h, txSet));
+                if (*txSetPtr && !mApp.getPersistentState().hasTxSet(h))
+                {
+                    txSets.insert(std::make_pair(h, *txSetPtr));
+                }
             }
+            // SkipTxSet: nothing to persist
         }
         Hash qsHash = Slot::getCompanionQuorumSetHashFromStatement(e.statement);
         SCPQuorumSetPtr qSet = mPendingEnvelopes.getQSet(qsHash);

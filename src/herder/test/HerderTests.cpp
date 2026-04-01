@@ -2176,6 +2176,41 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
                 testInvalidValue(/* isNomination */ false);
             }
         }
+
+        SECTION("skip hash/type mismatch")
+        {
+            auto checkInvalidMismatch = [&](StellarValue const& sv) {
+                auto v = xdr::xdr_to_opaque(sv);
+
+                REQUIRE(scp.validateValue(seq, v, true) ==
+                        SCPDriver::kInvalidValue);
+                REQUIRE(scp.validateValue(seq, v, false) ==
+                        SCPDriver::kInvalidValue);
+
+                ValueWrapperPtr extracted;
+                REQUIRE_NOTHROW(extracted = scp.extractValidValue(seq, v));
+                REQUIRE(extracted == nullptr);
+            };
+
+            SECTION("signed value with skip hash")
+            {
+                auto p = makeTxPair(herder, txSet0, ct);
+                StellarValue sv;
+                xdr::xdr_from_opaque(p.first, sv);
+                sv.txSetHash = Herder::SKIP_LEDGER_HASH;
+                checkInvalidMismatch(sv);
+            }
+
+            SECTION("skip value without skip hash")
+            {
+                auto p = makeTxPair(herder, txSet0, ct);
+                auto skipValue = scp.makeSkipLedgerValueFromValue(p.first);
+                StellarValue sv;
+                xdr::xdr_from_opaque(skipValue, sv);
+                sv.txSetHash = txSet0->getContentsHash();
+                checkInvalidMismatch(sv);
+            }
+        }
     }
 
     SECTION("validateValue closeTimes")
@@ -2562,7 +2597,8 @@ TEST_CASE("SCP State", "[herder]")
                 {
                     for (auto const& h : getValidatedTxSetHashes(msg))
                     {
-                        REQUIRE(herder.getPendingEnvelopes().getTxSet(h));
+                        REQUIRE(std::get<TxSetXDRFrameConstPtr>(
+                            herder.getPendingEnvelopes().getTxSet(h)));
                         REQUIRE(app->getPersistentState().hasTxSet(h));
                         hashes.insert(h);
                     }
@@ -3134,8 +3170,9 @@ TEST_CASE("soroban txs each parameter surge priced", "[soroban][herder]")
                                                 ->getLedgerManager()
                                                 .getLastClosedLedgerHeader()
                                                 .header;
-                    auto txSet = nodes[0]->getHerder().getTxSet(
-                        lclHeader.scpValue.txSetHash);
+                    auto txSet = std::get<TxSetXDRFrameConstPtr>(
+                        nodes[0]->getHerder().getTxSet(
+                            lclHeader.scpValue.txSetHash));
                     GeneralizedTransactionSet xdrTxSet;
                     txSet->toXDR(xdrTxSet);
                     auto const& phase = xdrTxSet.v1TxSet().phases.at(
@@ -3597,13 +3634,13 @@ TEST_CASE("soroban txs accepted by the network",
             bool upgradeApplied = false;
             simulation->crankUntil(
                 [&]() {
-                    auto txSetSize =
+                    auto txSetResult = nodes[0]->getHerder().getTxSet(
                         nodes[0]
-                            ->getHerder()
-                            .getTxSet(nodes[0]
-                                          ->getLedgerManager()
-                                          .getLastClosedLedgerHeader()
-                                          .header.scpValue.txSetHash)
+                            ->getLedgerManager()
+                            .getLastClosedLedgerHeader()
+                            .header.scpValue.txSetHash);
+                    auto txSetSize =
+                        std::get<TxSetXDRFrameConstPtr>(txSetResult)
                             ->sizeOpTotalForLogging();
                     upgradeApplied =
                         upgradeApplied || txSetSize > ledgerWideLimit;
@@ -3722,7 +3759,8 @@ getValidatorExternalizeMessages(Application& app, uint32_t start, uint32_t end)
                 auto& pe = herder.getPendingEnvelopes();
                 toStellarValue(env.statement.pledges.externalize().commit.value,
                                sv);
-                auto txset = pe.getTxSet(sv.txSetHash);
+                auto txset =
+                    std::get<TxSetXDRFrameConstPtr>(pe.getTxSet(sv.txSetHash));
                 REQUIRE(txset);
                 validatorSCPMessages[seq] =
                     std::make_pair(env, txset->toStellarMessage());
@@ -5806,7 +5844,8 @@ feedTxSetFromStatement(Application& sourceNode, Application& targetNode,
         // target should *not* already have the tx set
         // REQUIRE(!targetHerder.getTxSet(sv.txSetHash));
 
-        auto txSet = sourceHerder.getTxSet(sv.txSetHash);
+        auto txSet = std::get<TxSetXDRFrameConstPtr>(
+            sourceHerder.getTxSet(sv.txSetHash));
         REQUIRE(txSet);
         fedNonEmptySet |= txSet->sizeTxTotal() > 0;
         targetHerder.recvTxSet(txSet->getContentsHash(), txSet);
@@ -6355,7 +6394,8 @@ TEST_CASE("Skip ledger vote reversal", "[herder]")
                 REQUIRE(!slot->getSCPDriver().isSkipLedgerValue(value));
                 StellarValue sv;
                 REQUIRE(toStellarValue(value, sv));
-                auto txSet = herder.getTxSet(sv.txSetHash);
+                auto txSet = std::get<TxSetXDRFrameConstPtr>(
+                    herder.getTxSet(sv.txSetHash));
                 REQUIRE(txSet);
                 REQUIRE(txSet->sizeTxTotal() > 0);
                 foundLocalExternalize = true;

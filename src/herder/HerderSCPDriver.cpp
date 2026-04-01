@@ -145,15 +145,19 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
         auto txSets = getValidatedTxSetHashes(e);
         for (auto const& txSetH : txSets)
         {
-            auto txSet = mHerder.getTxSet(txSetH);
-            if (txSet)
+            auto result = mHerder.getTxSet(txSetH);
+            if (auto* txSet = std::get_if<TxSetXDRFrameConstPtr>(&result))
             {
-                mTxSets.emplace_back(txSet);
+                if (*txSet)
+                {
+                    mTxSets.emplace_back(*txSet);
+                }
+                else
+                {
+                    missingTxSets.insert(txSetH);
+                }
             }
-            else
-            {
-                missingTxSets.insert(txSetH);
-            }
+            // SkipTxSet: not missing, nothing to store
         }
     }
 
@@ -239,6 +243,22 @@ HerderSCPDriver::validatePastOrFutureValue(
                        slotIndex, b.closeTime, lcl.header.scpValue.closeTime);
             return SCPDriver::kInvalidValue;
         }
+        if (b.ext.v() == STELLAR_VALUE_SKIP)
+        {
+            auto const& ov = b.ext.originalValue();
+            // We can check previousLedgerHash because the LCL header
+            // contains the hash of its parent. We cannot check
+            // previousLedgerVersion because the LCL header only has
+            // its own version, and a protocol upgrade on the LCL
+            // could make it differ from its parent's version.
+            if (ov.previousLedgerHash != lcl.header.previousLedgerHash)
+            {
+                CLOG_TRACE(Herder,
+                           "Got a bad previousLedgerHash for skip value "
+                           "in ledger {}", slotIndex);
+                return SCPDriver::kInvalidValue;
+            }
+        }
     }
     else if (slotIndex < lcl.header.ledgerSeq)
     {
@@ -300,6 +320,36 @@ HerderSCPDriver::validatePastOrFutureValue(
     return SCPDriver::kMaybeValidValue;
 }
 
+bool
+HerderSCPDriver::checkValueTypeAndSkipHashInvariant(
+    uint64_t slotIndex, StellarValue const& b) const
+{
+    // Only signed and skip values participate in SCP.
+    // TODO(8): Grep for signature checks and update them for SKIP values
+    if (b.ext.v() != STELLAR_VALUE_SIGNED && b.ext.v() != STELLAR_VALUE_SKIP)
+    {
+        CLOG_TRACE(Herder,
+                   "HerderSCPDriver::validateValue i: {} invalid value type - "
+                   "expected SIGNED or SKIP",
+                   slotIndex);
+        return false;
+    }
+
+    // Skip values must have the skip hash, and non-skip values must not have
+    // the skip hash
+    if ((b.txSetHash == Herder::SKIP_LEDGER_HASH) !=
+        (b.ext.v() == STELLAR_VALUE_SKIP))
+    {
+        CLOG_TRACE(Herder,
+                   "HerderSCPDriver::validateValue i: {} invalid skip hash "
+                   "for value type",
+                   slotIndex);
+        return false;
+    }
+
+    return true;
+}
+
 SCPDriver::ValidationLevel
 HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
                                                 StellarValue const& b,
@@ -323,8 +373,29 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             return SCPDriver::kInvalidValue;
         }
 
+        // For skip values, validate that the previous ledger context matches
+        // our LCL. Skip values don't have a real tx set to validate.
+        if (b.ext.v() == STELLAR_VALUE_SKIP)
+        {
+            auto const& ov = b.ext.originalValue();
+            if (ov.previousLedgerHash != lcl.hash ||
+                ov.previousLedgerVersion != lcl.header.ledgerVersion)
+            {
+                CLOG_DEBUG(
+                    Herder,
+                    "HerderSCPDriver::validateValue i: {} skip value has "
+                    "mismatched previous ledger context",
+                    slotIndex);
+                return SCPDriver::kInvalidValue;
+            }
+            return SCPDriver::kFullyValidatedValue;
+        }
+
         Hash const& txSetHash = b.txSetHash;
-        TxSetXDRFrameConstPtr txSet = mPendingEnvelopes.getTxSet(txSetHash);
+        // Skip values return early above, so this only runs for
+        // non-skip hashes. Extract the TxSetXDRFrameConstPtr.
+        TxSetXDRFrameConstPtr txSet = std::get<TxSetXDRFrameConstPtr>(
+            mPendingEnvelopes.getTxSet(txSetHash));
 
         auto closeTimeOffset = b.closeTime - lcl.header.scpValue.closeTime;
 
@@ -391,13 +462,8 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
         return SCPDriver::kInvalidValue;
     }
 
-    // TODO(8): Grep for signature checks and update them for SKIP values
-    if (b.ext.v() != STELLAR_VALUE_SIGNED && b.ext.v() != STELLAR_VALUE_SKIP)
+    if (!checkValueTypeAndSkipHashInvariant(slotIndex, b))
     {
-        CLOG_TRACE(Herder,
-                   "HerderSCPDriver::validateValue i: {} invalid value type - "
-                   "expected SIGNED or SKIP",
-                   slotIndex);
         return SCPDriver::kInvalidValue;
     }
 
@@ -466,6 +532,12 @@ HerderSCPDriver::extractValidValue(uint64_t slotIndex, Value const& value)
     {
         return nullptr;
     }
+
+    if (!checkValueTypeAndSkipHashInvariant(slotIndex, b))
+    {
+        return nullptr;
+    }
+
     ValueWrapperPtr res;
     if (validateValueAgainstLocalState(slotIndex, b, true) >=
         SCPDriver::kAwaitingDownload)
@@ -524,6 +596,7 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
 {
     ZoneScoped;
     StellarValue originalValue = toStellarValueOrThrow(v);
+    auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
 
     StellarValue sv;
     sv.ext.v(STELLAR_VALUE_SKIP);
@@ -531,6 +604,8 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
     sv.closeTime = originalValue.closeTime;
     sv.upgrades = originalValue.upgrades;
     sv.ext.originalValue().txSetHash = originalValue.txSetHash;
+    sv.ext.originalValue().previousLedgerHash = lcl.hash;
+    sv.ext.originalValue().previousLedgerVersion = lcl.header.ledgerVersion;
     sv.ext.originalValue().lcValueSignature =
         originalValue.ext.lcValueSignature();
     return xdr::xdr_to_opaque(sv);
@@ -868,7 +943,24 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
              ++it)
         {
             auto const& sv = *it;
-            auto cTxSet = mPendingEnvelopes.getTxSet(sv.txSetHash);
+            TxSetXDRFrameConstPtr cTxSet;
+            auto const cTxSetResult = mPendingEnvelopes.getTxSet(sv.txSetHash);
+            if (auto const* ptr =
+                    std::get_if<TxSetXDRFrameConstPtr>(&cTxSetResult))
+            {
+                cTxSet = *ptr;
+            }
+            // else: SkipTxSet -> cTxSet stays null, handled by existing
+            // !cTxSet logic
+            // TODO(35): This treats skip hashes the same as missing tx sets. I
+            // think that's techincally fine, but in practice we might one to
+            // prefer one over the other (probably prefer missing over skip).
+            // Technically skip values shouldn't come up here (I think this is
+            // only called in nomination?), but it's worth considering what to
+            // do if one *does* end up here from a misbehaving validator.
+            // Consider making this change in `compareTxSets` instead of here,
+            // but before doing that we need to make sure that wouldn't cause
+            // any issues in other places that call `compareTxSets`.
             // TODO(11): Combining strategy when tx sets may be missing:
             // * Both exist: choose the largest (unchanged from before)
             // * One exists: choose the one that exists
@@ -1559,16 +1651,21 @@ class SCPHerderValueWrapper : public ValueWrapper
                                    HerderImpl& herder)
         : ValueWrapper(value), mHerder(herder), mTxSetHash(sv.txSetHash)
     {
-        mTxSet = mHerder.getTxSet(sv.txSetHash);
-        // mTxSet may be null if tx set hasn't been received yet (parallel
-        // downloading). It will be set later via setTxSet() when the tx set
-        // arrives.
+        auto const result = mHerder.getTxSet(sv.txSetHash);
+        if (auto const* ptr = std::get_if<TxSetXDRFrameConstPtr>(&result))
+        {
+            mTxSet = *ptr;
+        }
+        // else: SkipTxSet -> mTxSet stays null
+        // mTxSet may also be null if tx set hasn't been received yet
+        // (parallel downloading). It will be set later via setTxSet()
+        // when the tx set arrives.
     }
 
     bool
     hasTxSet() const
     {
-        return mTxSet != nullptr;
+        return mTxSet != nullptr || mTxSetHash == Herder::SKIP_LEDGER_HASH;
     }
 
     Hash const&
