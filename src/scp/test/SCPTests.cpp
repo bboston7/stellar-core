@@ -3471,6 +3471,57 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
                       std::runtime_error);
 }
 
+TEST_CASE("ballot protocol can self-generate invalid prepare after"
+          " awaiting value turns invalid",
+          "[scp][ballotprotocol]")
+{
+    setupValues();
+    SIMULATION_CREATE_NODE(0);
+    SIMULATION_CREATE_NODE(1);
+    SIMULATION_CREATE_NODE(2);
+
+    SCPQuorumSet qSet;
+    qSet.threshold = 2;
+    qSet.validators.push_back(v0NodeID);
+    qSet.validators.push_back(v1NodeID);
+    qSet.validators.push_back(v2NodeID);
+
+    uint256 qSetHash = sha256(xdr::xdr_to_opaque(qSet));
+
+    TestSCP scp(v0SecretKey.getPublicKey(), qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+
+    // v0 enters ballot protocol with xValue while its tx set is
+    // still being downloaded (kAwaitingDownload, not yet timed out)
+    scp.startDownload(xValue, std::chrono::milliseconds(1000));
+    REQUIRE(scp.bumpState(0, xValue));
+    REQUIRE(scp.mEnvs.size() == 1);
+    REQUIRE(scp.mEnvs[0].statement.pledges.prepare().ballot ==
+            SCPBallot(1, xValue));
+
+    // xValue becomes invalid (tx set downloaded but found unusable)
+    scp.mValidateValueOverride =
+        [](uint64, Value const& value, bool) -> SCPDriver::ValidationLevel {
+        if (value == xValue)
+        {
+            return SCPDriver::kInvalidValue;
+        }
+        return SCPDriver::kFullyValidatedValue;
+    };
+
+    // v1 sends PREPARE at higher counter with a different (valid) value
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        makePrepare(v1SecretKey, qSetHash, 0, SCPBallot(2, yValue))));
+
+    // v2 sends PREPARE at higher counter — v1+v2 now form a v-blocking
+    // set ahead of v0, triggering attemptBump -> abandonBallot ->
+    // bumpState with xValue (now invalid) -> throw
+    REQUIRE_THROWS_AS(
+        scp.receiveEnvelope(
+            makePrepare(v2SecretKey, qSetHash, 0, SCPBallot(2, yValue))),
+        std::runtime_error);
+}
+
 TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
 {
     setupValues();
