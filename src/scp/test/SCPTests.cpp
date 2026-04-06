@@ -3467,8 +3467,16 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
 
     auto const followerAcceptedNomination =
         makeNominate(v2SecretKey, qSetHash, 0, {xValue}, {xValue});
-    REQUIRE_THROWS_AS(scp.receiveEnvelope(followerAcceptedNomination),
-                      std::runtime_error);
+    // With the fix, maybeReplaceValueWithSkip replaces the invalid value
+    // with skip in bumpState, so no throw occurs
+    REQUIRE_NOTHROW(scp.receiveEnvelope(followerAcceptedNomination));
+
+    // The emitted ballot should have a skip value, not the original xValue
+    auto const& lastEnv = scp.mEnvs.back();
+    REQUIRE(lastEnv.statement.pledges.type() == SCP_ST_PREPARE);
+    auto const& ballot = lastEnv.statement.pledges.prepare().ballot;
+    REQUIRE(scp.isSkipLedgerValue(ballot.value));
+    REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
 }
 
 TEST_CASE("ballot protocol can self-generate invalid prepare after"
@@ -3515,11 +3523,17 @@ TEST_CASE("ballot protocol can self-generate invalid prepare after"
 
     // v2 sends PREPARE at higher counter — v1+v2 now form a v-blocking
     // set ahead of v0, triggering attemptBump -> abandonBallot ->
-    // bumpState with xValue (now invalid) -> throw
-    REQUIRE_THROWS_AS(
-        scp.receiveEnvelope(
-            makePrepare(v2SecretKey, qSetHash, 0, SCPBallot(2, yValue))),
-        std::runtime_error);
+    // bumpState with xValue (now invalid). With the fix,
+    // maybeReplaceValueWithSkip replaces it with skip.
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        makePrepare(v2SecretKey, qSetHash, 0, SCPBallot(2, yValue))));
+
+    // The emitted ballot should have a skip value at counter 2
+    REQUIRE(scp.mEnvs.size() == 2);
+    auto const& ballot = scp.mEnvs[1].statement.pledges.prepare().ballot;
+    REQUIRE(ballot.counter == 2);
+    REQUIRE(scp.isSkipLedgerValue(ballot.value));
+    REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
 }
 
 TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")

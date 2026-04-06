@@ -357,9 +357,26 @@ BallotProtocol::abandonBallot(uint32 n)
 bool
 BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 {
+    // TODO: refactor this. Should have a case statement over validationLevel
+    // and set some boolean "shouldReplace" or something. Then we can
+    // consolidate all of the replacement logic in one place.
+
     // Check validation value
     auto validationLevel =
         mSlot.getSCPDriver().validateValue(mSlot.getSlotIndex(), v, false);
+    if (validationLevel == SCPDriver::kInvalidValue)
+    {
+        // Value has been definitively determined to be invalid (e.g., a
+        // tx set that was downloaded and found to be unusable). Replace
+        // immediately with skip -- no timeout check needed.
+        v = mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
+        CLOG_DEBUG(Proto,
+                   "Replacing invalid value with skip for slot {}",
+                   mSlot.getSlotIndex());
+        mSlot.getSCPDriver().noteSkipValueReplaced(mSlot.getSlotIndex());
+        return true;
+    }
+
     if (validationLevel != SCPDriver::kAwaitingDownload)
     {
         // Not a value currently being downloaded. No need to replace.
