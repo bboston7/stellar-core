@@ -360,62 +360,48 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
     // Check validation value
     auto validationLevel =
         mSlot.getSCPDriver().validateValue(mSlot.getSlotIndex(), v, false);
-    if (validationLevel != SCPDriver::kAwaitingDownload)
+
+    switch (validationLevel)
     {
-        // Not a value currently being downloaded. No need to replace.
+    case SCPDriver::kInvalidValue:
+        // Value has been definitively determined to be invalid (e.g., a
+        // tx set that was downloaded and found to be unusable). Replace
+        // immediately with skip -- no timeout check needed.
+        CLOG_DEBUG(Proto, "Replacing invalid value with skip for slot {}",
+                   mSlot.getSlotIndex());
+        break;
+    case SCPDriver::kAwaitingDownload:
+    {
+        // Check how long we've been waiting
+        auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
+
+        CLOG_DEBUG(Proto, "Waiting time for {}: {}", hexAbbrev(v),
+                   waitingTime.has_value()
+                       ? std::to_string(waitingTime.value().count())
+                       : "nullopt");
+
+        // TODO(22): What do we do in this case? Maybe have some way to feed
+        // back into Herder to start a timer? I really don't think this should
+        // be possible, but if this DOES happen we should probably log an error
+        // and start the timer rather than crash.
+        releaseAssert(waitingTime.has_value());
+
+        auto timeout = mSlot.getSCPDriver().getTxSetDownloadTimeout();
+
+        if (waitingTime.value() < timeout)
+        {
+            // Haven't timed out yet waiting for the tx set
+            return false;
+        }
+    }
+    break;
+    default:
+        // Value is valid or maybe valid, so we shouldn't replace it with skip
         return false;
     }
-
-    // Check how long we've been waiting
-    auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
-
-    CLOG_DEBUG(Proto, "Waiting time for {}: {}", hexAbbrev(v),
-               waitingTime.has_value()
-                   ? std::to_string(waitingTime.value().count())
-                   : "nullopt");
-
-    // TODO(22): What do we do in this case? Maybe have some way to feed back
-    // into Herder to start a timer? I really don't think this should be
-    // possible, but if this DOES happen we should probably log an error and
-    // start the timer rather than crash.
-    releaseAssert(waitingTime.has_value());
-
-    auto timeout = mSlot.getSCPDriver().getTxSetDownloadTimeout();
-
-    if (waitingTime.value() < timeout)
-    {
-        // Haven't timed out yet. Keep waiting.
-        return false;
-    }
-
-    // We've waited too long for this value. Replace with a `skip`.
-
-    // First, check for other `skip` votes we've received and pick the highest
-    // if available.
-    // TODO(23): Remove this and related commented out code below
-    std::optional<Value> highestSkip;
-    // for (auto const& [_, env] : mLatestEnvelopes)
-    // {
-    //     auto const& p = env->getStatement().pledges;
-    //     if (p.type() != SCPStatementType::SCP_ST_PREPARE)
-    //     {
-    //         continue;
-    //     }
-
-    //     Value const& v = p.prepare().ballot.value;
-    //     if (mSlot.getSCPDriver().isSkipLedgerValue(v))
-    //     {
-    //         if (!highestSkip.has_value() || v > highestSkip.value())
-    //         {
-    //             highestSkip = v;
-    //         }
-    //     }
-    // }
 
     // Choose highest seen skip value, or create one if no such values exist.
-    v = highestSkip.has_value()
-            ? highestSkip.value()
-            : mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
+    v = mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
     CLOG_DEBUG(Proto, "Voting to skip slot {}", mSlot.getSlotIndex());
     mSlot.getSCPDriver().noteSkipValueReplaced(mSlot.getSlotIndex());
 

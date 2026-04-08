@@ -67,6 +67,10 @@ class TestSCP : public SCPDriver
     validateValue(uint64 slotIndex, Value const& value,
                   bool nomination) override
     {
+        if (mValidateValueOverride)
+        {
+            return mValidateValueOverride(slotIndex, value, nomination);
+        }
         // If we're tracking download wait time for this value, it's awaiting
         // download
         if (mDownloadWaitTimes.find(value) != mDownloadWaitTimes.end())
@@ -248,6 +252,8 @@ class TestSCP : public SCPDriver
 
     std::function<uint64(NodeID const&)> mPriorityLookup;
     std::function<uint64(Value const&)> mHashValueCalculator;
+    std::function<SCPDriver::ValidationLevel(uint64, Value const&, bool)>
+        mValidateValueOverride;
 
     std::map<Hash, SCPQuorumSetPtr> mQuorumSets;
     std::vector<SCPEnvelope> mEnvs;
@@ -3415,6 +3421,121 @@ TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
 
         testTimeouts(scp, test);
     }
+}
+
+TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
+          " turns invalid",
+          "[scp][nomination]")
+{
+    setupValues();
+    SIMULATION_CREATE_NODE(0);
+    SIMULATION_CREATE_NODE(1);
+    SIMULATION_CREATE_NODE(2);
+
+    SCPQuorumSet qSet;
+    qSet.threshold = 2;
+    qSet.validators.push_back(v0NodeID);
+    qSet.validators.push_back(v1NodeID);
+    qSet.validators.push_back(v2NodeID);
+
+    auto const qSetHash = sha256(xdr::xdr_to_opaque(qSet));
+
+    TestSCP scp(v0SecretKey.getPublicKey(), qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+
+    std::map<Value, SCPDriver::ValidationLevel> validationLevels;
+    validationLevels[xValue] = SCPDriver::kAwaitingDownload;
+    scp.mValidateValueOverride =
+        [&](uint64, Value const& value, bool) -> SCPDriver::ValidationLevel {
+        auto const it = validationLevels.find(value);
+        if (it != validationLevels.end())
+        {
+            return it->second;
+        }
+        return SCPDriver::kFullyValidatedValue;
+    };
+
+    REQUIRE(scp.nominate(0, xValue, false));
+
+    auto const followerVoteNomination =
+        makeNominate(v1SecretKey, qSetHash, 0, {xValue}, {});
+    REQUIRE_NOTHROW(scp.receiveEnvelope(followerVoteNomination));
+
+    validationLevels[xValue] = SCPDriver::kInvalidValue;
+    scp.mExpectedCandidates.emplace(xValue);
+    scp.mCompositeValue = xValue;
+
+    auto const followerAcceptedNomination =
+        makeNominate(v2SecretKey, qSetHash, 0, {xValue}, {xValue});
+    // With the fix, maybeReplaceValueWithSkip replaces the invalid value
+    // with skip in bumpState, so no throw occurs
+    REQUIRE_NOTHROW(scp.receiveEnvelope(followerAcceptedNomination));
+
+    // The emitted ballot should have a skip value, not the original xValue
+    auto const& lastEnv = scp.mEnvs.back();
+    REQUIRE(lastEnv.statement.pledges.type() == SCP_ST_PREPARE);
+    auto const& ballot = lastEnv.statement.pledges.prepare().ballot;
+    REQUIRE(scp.isSkipLedgerValue(ballot.value));
+    REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
+}
+
+// TODO(36): This needs to be fixed. This test demonstrates `p` being set to an
+// invalid value, which causes the node to crash.
+TEST_CASE("ballot protocol can self-generate invalid prepare after"
+          " awaiting value turns invalid",
+          "[scp][ballotprotocol]")
+{
+    setupValues();
+    SIMULATION_CREATE_NODE(0);
+    SIMULATION_CREATE_NODE(1);
+    SIMULATION_CREATE_NODE(2);
+
+    SCPQuorumSet qSet;
+    qSet.threshold = 2;
+    qSet.validators.push_back(v0NodeID);
+    qSet.validators.push_back(v1NodeID);
+    qSet.validators.push_back(v2NodeID);
+
+    uint256 qSetHash = sha256(xdr::xdr_to_opaque(qSet));
+
+    TestSCP scp(v0SecretKey.getPublicKey(), qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+
+    // v0 enters ballot protocol with xValue while its tx set is
+    // still being downloaded (kAwaitingDownload, not yet timed out)
+    scp.startDownload(xValue, std::chrono::milliseconds(1000));
+    REQUIRE(scp.bumpState(0, xValue));
+    REQUIRE(scp.mEnvs.size() == 1);
+    REQUIRE(scp.mEnvs[0].statement.pledges.prepare().ballot ==
+            SCPBallot(1, xValue));
+
+    // xValue becomes invalid (tx set downloaded but found unusable)
+    scp.mValidateValueOverride =
+        [](uint64, Value const& value, bool) -> SCPDriver::ValidationLevel {
+        if (value == xValue)
+        {
+            return SCPDriver::kInvalidValue;
+        }
+        return SCPDriver::kFullyValidatedValue;
+    };
+
+    // v1 sends PREPARE at higher counter with a different (valid) value
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        makePrepare(v1SecretKey, qSetHash, 0, SCPBallot(2, yValue))));
+
+    // v2 sends PREPARE at higher counter — v1+v2 now form a v-blocking
+    // set ahead of v0, triggering attemptBump -> abandonBallot ->
+    // bumpState with xValue (now invalid). With the fix,
+    // maybeReplaceValueWithSkip replaces it with skip.
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        makePrepare(v2SecretKey, qSetHash, 0, SCPBallot(2, yValue))));
+
+    // The emitted ballot should have a skip value at counter 2
+    REQUIRE(scp.mEnvs.size() == 2);
+    auto const& ballot = scp.mEnvs[1].statement.pledges.prepare().ballot;
+    REQUIRE(ballot.counter == 2);
+    REQUIRE(scp.isSkipLedgerValue(ballot.value));
+    REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
 }
 
 TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
