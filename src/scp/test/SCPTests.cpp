@@ -3479,6 +3479,8 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
     REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
 }
 
+// TODO(36): This needs to be fixed. This test demonstrates `p` being set to an
+// invalid value, which causes the node to crash.
 TEST_CASE("ballot protocol can self-generate invalid prepare after"
           " awaiting value turns invalid",
           "[scp][ballotprotocol]")
