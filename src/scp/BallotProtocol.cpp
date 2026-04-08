@@ -357,82 +357,52 @@ BallotProtocol::abandonBallot(uint32 n)
 bool
 BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 {
-    // TODO: refactor this. Should have a case statement over validationLevel
-    // and set some boolean "shouldReplace" or something. Then we can
-    // consolidate all of the replacement logic in one place.
-
     // Check validation value
     auto validationLevel =
         mSlot.getSCPDriver().validateValue(mSlot.getSlotIndex(), v, false);
-    if (validationLevel == SCPDriver::kInvalidValue)
+
+    switch (validationLevel)
     {
+    case SCPDriver::kInvalidValue:
         // Value has been definitively determined to be invalid (e.g., a
         // tx set that was downloaded and found to be unusable). Replace
         // immediately with skip -- no timeout check needed.
-        v = mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
         CLOG_DEBUG(Proto,
                    "Replacing invalid value with skip for slot {}",
                    mSlot.getSlotIndex());
-        mSlot.getSCPDriver().noteSkipValueReplaced(mSlot.getSlotIndex());
-        return true;
-    }
-
-    if (validationLevel != SCPDriver::kAwaitingDownload)
+        break;
+    case SCPDriver::kAwaitingDownload:
     {
-        // Not a value currently being downloaded. No need to replace.
-        return false;
-    }
-
     // Check how long we've been waiting
-    auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
+        auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
 
-    CLOG_DEBUG(Proto, "Waiting time for {}: {}", hexAbbrev(v),
-               waitingTime.has_value()
-                   ? std::to_string(waitingTime.value().count())
-                   : "nullopt");
+        CLOG_DEBUG(Proto, "Waiting time for {}: {}", hexAbbrev(v),
+                waitingTime.has_value()
+                    ? std::to_string(waitingTime.value().count())
+                    : "nullopt");
 
-    // TODO(22): What do we do in this case? Maybe have some way to feed back
-    // into Herder to start a timer? I really don't think this should be
-    // possible, but if this DOES happen we should probably log an error and
-    // start the timer rather than crash.
-    releaseAssert(waitingTime.has_value());
+        // TODO(22): What do we do in this case? Maybe have some way to feed back
+        // into Herder to start a timer? I really don't think this should be
+        // possible, but if this DOES happen we should probably log an error and
+        // start the timer rather than crash.
+        releaseAssert(waitingTime.has_value());
 
-    auto timeout = mSlot.getSCPDriver().getTxSetDownloadTimeout();
+        auto timeout = mSlot.getSCPDriver().getTxSetDownloadTimeout();
 
-    if (waitingTime.value() < timeout)
-    {
-        // Haven't timed out yet. Keep waiting.
+        if (waitingTime.value() < timeout)
+        {
+            // Haven't timed out yet waiting for the tx set
+            return false;
+        }
+    }
+    break;
+    default:
+        // Value is valid or maybe valid, so we shouldn't replace it with skip
         return false;
     }
-
-    // We've waited too long for this value. Replace with a `skip`.
-
-    // First, check for other `skip` votes we've received and pick the highest
-    // if available.
-    // TODO(23): Remove this and related commented out code below
-    std::optional<Value> highestSkip;
-    // for (auto const& [_, env] : mLatestEnvelopes)
-    // {
-    //     auto const& p = env->getStatement().pledges;
-    //     if (p.type() != SCPStatementType::SCP_ST_PREPARE)
-    //     {
-    //         continue;
-    //     }
-
-    //     Value const& v = p.prepare().ballot.value;
-    //     if (mSlot.getSCPDriver().isSkipLedgerValue(v))
-    //     {
-    //         if (!highestSkip.has_value() || v > highestSkip.value())
-    //         {
-    //             highestSkip = v;
-    //         }
-    //     }
-    // }
 
     // Choose highest seen skip value, or create one if no such values exist.
-    v = highestSkip.has_value()
-            ? highestSkip.value()
-            : mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
+    v = mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
     CLOG_DEBUG(Proto, "Voting to skip slot {}", mSlot.getSlotIndex());
     mSlot.getSCPDriver().noteSkipValueReplaced(mSlot.getSlotIndex());
 
