@@ -439,13 +439,6 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
                 // later when the qset is fully fetched
                 partiallyReady.insert(envelope);
             }
-
-            // TODO(16): Is this todo still relevant vv
-            // TODO: The issue is that the envelope doesn't end up in
-            // `mReadyEnvelopes` in this path, and wont until it is fetched.
-            // That's why it's still blocking. Either this needs to go into
-            // `mReadyEnvelopes`, or there needs to be a different structure
-            // with envelopes that are pending download.
         }
 
         return Herder::ENVELOPE_STATUS_FETCHING;
@@ -752,6 +745,10 @@ PendingEnvelopes::pop(uint64 slotIndex)
     return nullptr;
 }
 
+// TODO(37): This only surfaces slots with FULLY ready envelopes (tx set is
+// available). I think that's right (as this is only used when the node is not
+// tracking, and parallel downloading is only enabled for tracking nodes), but
+// we should double check that this is the right behavior.
 vector<uint64>
 PendingEnvelopes::readySlots()
 {
