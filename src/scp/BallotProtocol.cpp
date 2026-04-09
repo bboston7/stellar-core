@@ -220,8 +220,6 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
     {
         if (validationRes == SCPDriver::kMaybeValidValue)
         {
-            // TODO(21): Should we also enter this branch if validationRes ==
-            // kAwaitingDownload?
             mSlot.setFullyValidated(false);
         }
 
