@@ -373,19 +373,14 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
         // Check how long we've been waiting
         auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
 
-        CLOG_DEBUG(Proto, "Waiting time for {}: {}", hexAbbrev(v),
-                   waitingTime.has_value()
-                       ? std::to_string(waitingTime.value().count())
-                       : "nullopt");
-
-        // TODO(22): What do we do in this case? Maybe have some way to feed
-        // back into Herder to start a timer? I really don't think this should
-        // be possible, but if this DOES happen we should probably log an error
-        // and start the timer rather than crash.
+        // `waitingTime` cannot be nullopt if `validateValue` returns
+        // `kAwaitingDownload`.
         releaseAssert(waitingTime.has_value());
 
-        auto timeout = mSlot.getSCPDriver().getTxSetDownloadTimeout();
+        CLOG_DEBUG(Proto, "Waiting time for {}: {}", hexAbbrev(v),
+                   waitingTime.value().count());
 
+        auto timeout = mSlot.getSCPDriver().getTxSetDownloadTimeout();
         if (waitingTime.value() < timeout)
         {
             // Haven't timed out yet waiting for the tx set
@@ -1180,10 +1175,9 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 auto waitingTime =
                     mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
 
-                // TODO(26): Need to think more about what to do if waitingTime
-                // is nullopt (e.g., transaction set not being fetched, or some
-                // other edge case)
-
+                // `waitingTime` cannot be nullopt if `validateValue` returns
+                // `kAwaitingDownload`.
+                releaseAssert(waitingTime.has_value());
                 CLOG_DEBUG(
                     Proto,
                     "BallotProtocol::setConfirmPrepared slot:{} "
@@ -1192,7 +1186,7 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     "ballot counter:{} value:{} waiting_time:{}ms",
                     mSlot.getSlotIndex(), newC.counter,
                     mSlot.getSCP().getDriver().getValueString(newC.value),
-                    waitingTime.has_value() ? waitingTime.value().count() : -1);
+                    waitingTime.value().count());
 
                 // Stall balloting. Return false to indicate no work was done.
                 // TODO(27): Is it right to early return here? If so, should we
