@@ -714,10 +714,10 @@ PendingEnvelopes::touchFetchCache(SCPEnvelope const& envelope)
 SCPEnvelopeWrapperPtr
 PendingEnvelopes::pop(uint64 slotIndex)
 {
-    // Process fully ready envelopes first
     auto it = mEnvelopes.begin();
     while (it != mEnvelopes.end() && slotIndex >= it->first)
     {
+        // Process fully ready envelopes first
         auto& v = it->second.mReadyEnvelopes;
         if (v.size() != 0)
         {
@@ -728,8 +728,8 @@ PendingEnvelopes::pop(uint64 slotIndex)
             return ret;
         }
 
-        // TODO(17): Maybe should return all fully ready envelopes from ALL
-        // slots before proceeding to partially ready ones.
+        // If no more fully ready envelopes, proceed to processing partially
+        // ready envelopes
         auto& partial = it->second.mPartiallyReadyEnvelopes;
         if (partial.size() != 0)
         {
