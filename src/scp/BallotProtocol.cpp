@@ -1072,8 +1072,6 @@ BallotProtocol::attemptConfirmPrepared(SCPStatement const& hint)
                     std::bind(&BallotProtocol::hasPreparedBallot, ballot, _1));
                 if (ratified)
                 {
-                    // TODO(24): This is another place the check could go,
-                    // right? We would not set `newC` if the check fails?
                     newC = ballot;
                 }
                 else
@@ -1145,13 +1143,6 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
         if (newC.counter != 0)
         {
-            // TODO(25): I *think* this is the setting of `c` corresponding to
-            // step 3 in the paper, as well as that final step in PREPARE from
-            // the IETF paper. Check needs to go here, or in the caller of this
-            // function (`attemptConfirmPrepared`). Specifically, there is a
-            // comment in that function before setting `newC` that says this is
-            // step 3 from the paper.
-
             // This is step 3 from the paper - voting to commit.
             // We must ensure the transaction set value is fully validated
             // before we can vote to commit it.
@@ -1188,13 +1179,6 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     mSlot.getSCP().getDriver().getValueString(newC.value),
                     waitingTime.value().count());
 
-                // Stall balloting. Return false to indicate no work was done.
-                // TODO(27): Is it right to early return here? If so, should we
-                // return `didWork`? We may have set `mHighBallot` above.
-                // Additionally, should we proceed so that
-                // `updateCurrentIfNeeded` is called below?
-                // return false;
-                // return didWork;
             }
             // TODO(28): Is this right? This allows maybe valid / invalid values
             // through, but that's how the original code worked. I think during
