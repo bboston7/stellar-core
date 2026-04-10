@@ -2106,8 +2106,6 @@ BallotProtocol::validateValues(SCPStatement const& st)
     SCPDriver::ValidationLevel res = std::accumulate(
         values.begin(), values.end(), SCPDriver::kFullyValidatedValue,
         [&](SCPDriver::ValidationLevel lv, stellar::Value const& v) {
-            // TODO(32): Does this comparison still hold with the new validation
-            // level?
             if (lv > SCPDriver::kInvalidValue)
             {
                 auto tr = mSlot.getSCPDriver().validateValue(
@@ -2121,8 +2119,6 @@ BallotProtocol::validateValues(SCPStatement const& st)
                                mSlot.getSlotIndex());
                 }
 
-                // TODO(33): Does this `min` still make sense with the new
-                // validation level?
                 lv = std::min(tr, lv);
             }
             return lv;
