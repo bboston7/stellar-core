@@ -377,6 +377,17 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
         // our LCL. Skip values don't have a real tx set to validate.
         if (b.ext.v() == STELLAR_VALUE_SKIP)
         {
+            if (nomination)
+            {
+                // Skip values should only appear in balloting, and so are
+                // considered invalid during nomination.
+                CLOG_DEBUG(
+                    Herder,
+                    "HerderSCPDriver::validateValue i: {} rejecting "
+                    "skip value during nomination",
+                    slotIndex);
+                return SCPDriver::kInvalidValue;
+            }
             auto const& ov = b.ext.originalValue();
             if (ov.previousLedgerHash != lcl.hash ||
                 ov.previousLedgerVersion != lcl.header.ledgerVersion)
@@ -944,25 +955,7 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
             }
             // else: SkipTxSet -> cTxSet stays null, handled by existing
             // !cTxSet logic
-            // TODO(35): This treats skip hashes the same as missing tx sets. I
-            // think that's techincally fine, but in practice we might one to
-            // prefer one over the other (probably prefer missing over skip).
-            // Technically skip values shouldn't come up here (I think this is
-            // only called in nomination?), but it's worth considering what to
-            // do if one *does* end up here from a misbehaving validator.
-            // Consider making this change in `compareTxSets` instead of here,
-            // but before doing that we need to make sure that wouldn't cause
-            // any issues in other places that call `compareTxSets`.
-            // TODO(11): Combining strategy when tx sets may be missing:
-            // * Both exist: choose the largest (unchanged from before)
-            // * One exists: choose the one that exists
-            // * Neither exists: compare by hash
-            // This is safe because combineCandidates doesn't need to be
-            // deterministic across nodes -- balloting handles divergence.
-            // Note: this may bias toward smaller tx sets (they download
-            // faster and are more likely to be present), which seems
-            // acceptable but deserves further evaluation.
-            // releaseAssert(cTxSet);
+
             // Only valid applicable tx sets should be combined.
             auto cApplicableTxSet =
                 cTxSet ? cTxSet->prepareForApply(mApp, lcl.header) : nullptr;
