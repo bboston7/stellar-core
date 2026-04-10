@@ -1187,8 +1187,6 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
                 // Measure and record how long balloting was blocked on this
                 // txset
-                // TODO(30): This metric only works if we end up here only once
-                // per value. I think that's true, but I'm not 100% sure.
                 mSlot.getSCPDriver().measureAndRecordBallotBlockedOnTxSet(
                     mSlot.getSlotIndex(), newC.value);
 
