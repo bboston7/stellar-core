@@ -1180,22 +1180,8 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     waitingTime.value().count());
 
             }
-            // TODO(28): Is this right? This allows maybe valid / invalid values
-            // through, but that's how the original code worked. I think during
-            // catchup this expects maybe valid values?
             else
             {
-                // TODO(29): I don't understand why, but it seems like values
-                // can be "maybe valid" here. Looks like this code path is
-                // exercised during catchup, but before ledger manager "knows"
-                // it's in catchup mode. So I can't just assert as below. So
-                // instead I'm just checking that it's not invalid. That should
-                // pass at least?
-                // TODO: Seems like this happens when that log message about
-                // "NOT" being fully validated is emitted. Dig into that more.
-                // releaseAssert(validationLevel ==
-                //                   SCPDriver::kFullyValidatedValue ||
-                //               !nodeSynced);
                 releaseAssert(validationLevel != SCPDriver::kInvalidValue);
                 dbgAssert(!mCommit);
 
