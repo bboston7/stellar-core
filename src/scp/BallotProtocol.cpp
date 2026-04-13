@@ -1178,11 +1178,26 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     mSlot.getSlotIndex(), newC.counter,
                     mSlot.getSCP().getDriver().getValueString(newC.value),
                     waitingTime.value().count());
-
+            }
+            else if (validationLevel == SCPDriver::kInvalidValue)
+            {
+                // With parallel downloading, a confirmed-prepared value
+                // can become kInvalidValue if the tx set was downloaded
+                // and found invalid. Do not vote to commit it.
+                // TODO(37): Should ensure that the validator who proposed this
+                // value is included in this log message, as it's very likely
+                // the validator is misbehaving. Should also do this at
+                // `maybeReplaceValueWithSkip`.
+                CLOG_WARNING(
+                    Proto,
+                    "BallotProtocol::setConfirmPrepared slot:{} "
+                    "commit gate rejecting kInvalidValue - "
+                    "ballot counter:{} value:{}",
+                    mSlot.getSlotIndex(), newC.counter,
+                    mSlot.getSCP().getDriver().getValueString(newC.value));
             }
             else
             {
-                releaseAssert(validationLevel != SCPDriver::kInvalidValue);
                 dbgAssert(!mCommit);
 
                 // Measure and record how long balloting was blocked on this
@@ -2056,23 +2071,15 @@ BallotProtocol::getStatementValues(SCPStatement const& st)
     switch (st.pledges.type())
     {
     case SCPStatementType::SCP_ST_PREPARE:
-    {
-        auto const& prep = st.pledges.prepare();
-        auto const& b = prep.ballot;
-        if (b.counter != 0)
-        {
-            values.insert(prep.ballot.value);
-        }
-        if (prep.prepared)
-        {
-            values.insert(prep.prepared->value);
-        }
-        if (prep.preparedPrime)
-        {
-            values.insert(prep.preparedPrime->value);
-        }
-    }
-    break;
+        // Don't validate any values in PREPARE statements. With parallel
+        // downloading, ballot.value may be kAwaitingDownload that later
+        // becomes kInvalidValue, and prepared/preparedPrime are protocol
+        // facts (accepted-prepared ballots) that cannot be unilaterally
+        // changed. Incoming PREPAREs with invalid ballot values must be
+        // accepted so that checkHeardFromQuorum can see a quorum and arm
+        // the ballot timer. The commit gate in setConfirmPrepared
+        // independently validates values before voting to commit.
+        break;
     case SCPStatementType::SCP_ST_CONFIRM:
         values.insert(st.pledges.confirm().ballot.value);
         break;
@@ -2095,11 +2102,18 @@ BallotProtocol::validateValues(SCPStatement const& st)
 
     if (values.empty())
     {
+        if (st.pledges.type() == SCPStatementType::SCP_ST_PREPARE)
+        {
+            // PREPARE statements intentionally skip value validation (see
+            // getStatementValues). Structural sanity is checked by
+            // isStatementSane.
+            return SCPDriver::kFullyValidatedValue;
+        }
+        // Non-PREPARE statements should always have values to validate.
         CLOG_DEBUG(Proto,
                    "BallotProtocol::validateValues slot:{} "
                    "found empty value set in statement",
                    mSlot.getSlotIndex());
-        // This shouldn't happen
         return SCPDriver::kInvalidValue;
     }
 
