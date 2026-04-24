@@ -1,0 +1,146 @@
+# Component-Level Testing Plan for Parallel Tx Set Downloading
+
+This document describes the component-level testing strategy for the parallel tx set downloading SCP change. Component-level testing exercises a single node's SCP state machine with scripted sequences of SCP envelopes and tx set arrival events, and checks invariants over the node's local state.
+
+See also: `claude-protocol-testing.md` for the multi-node (protocol-level) testing plan that builds on this work.
+
+## Context and rationale
+
+The original proposal in `parallel-download-docs/testing.md` split testing into component-level (ad-hoc manual tests) and protocol-level (MBT). In discussion we concluded that:
+
+- Most of the invariants we care about for this feature are local to a single node's state (see concrete code paths in `parallel-download-docs/claude-learnings.md`).
+- An invariant-checking approach (generate scenarios, check invariants, do not predict outcomes) is dramatically cheaper than building a predictive oracle and captures the safety / liveness / performance concerns we actually have.
+- That invariant-checking approach is *more natural* at the component level than the ad-hoc approach originally proposed, because the "model" is just the node's SCP state machine. The generator produces envelope sequences and tx set arrival timings; the invariants are properties of the resulting state transitions.
+- Component-level infrastructure is an order of magnitude cheaper than protocol-level, because it avoids multi-node determinism (message ordering, cross-node timer coordination, leader progression). This makes it the right starting point.
+
+Component-level testing does not cover emergent cross-node properties (safety, liveness of the network as a whole). Those are deferred to the protocol-level plan.
+
+## Goals
+
+- Programmatically generate envelope sequences and tx set arrival timings that exercise the parallel downloading state transitions in a single node.
+- Catch local invariant violations: forbidden state transitions, forbidden validation results, skip-value construction bugs, reprocessing bugs, orphaned pending-state entries.
+- Build up in-code assertions that continue to catch bugs in every future test run (component, protocol-level, and production).
+
+## Non-goals
+
+- Test multi-node safety, liveness, or consensus emergent behavior. That's protocol-level.
+- Replace or remove existing ad-hoc SCP component tests. This plan is strictly additive: existing tests coexist with new work and may be enhanced but not removed.
+- Build a predictive oracle for a single node's outcome.
+
+## Approach
+
+A test harness drives a single node's `HerderSCPDriver` / `BallotProtocol` / `NominationProtocol` with:
+
+1. A sequence of synthetic SCP envelopes from simulated peers (controllable statement types, signatures, values).
+2. A scripted schedule of tx set arrivals (simulating `HerderSCPDriver::onTxSetReceived` at specified points in the sequence).
+3. A virtual clock for timer-based behavior (skip timer expiry, nomination leader timeout).
+
+Invariants are checked in three forms:
+
+1. **In-code assertions** — implemented with `releaseAssert` in implementation code. Running a scenario without crashing is the pass condition. These compound: they also run in protocol-level tests and in production. We use `releaseAssert` exclusively; debug-only `assert` is not used. If an assertion is too expensive to evaluate in a release build, gate it behind `#ifdef BUILD_TESTS` rather than demoting it.
+2. **Metric-based invariants** — assertions over single-node metric values at the end of a scenario.
+3. **Progress and terminal-state invariants** — the harness inspects the node's terminal state and classifies it, and asserts progress for scenarios produced by constructed cooperative generators.
+
+## Invariant catalog
+
+This is a starting list. Expect to extend it as we explore the state space.
+
+### In-code assertions
+
+- `BallotProtocol::setConfirmPrepared` (BallotProtocol.cpp ~1146): must never fire for a value currently in `kAwaitingDownload` state.
+- `HerderSCPDriver::validateValueAgainstLocalState` (HerderSCPDriver.cpp ~348): `kAwaitingDownload` is returned only when the slot is `LCL+1` and a fetch is actively in progress.
+- `HerderSCPDriver::validatePastOrFutureValue` (HerderSCPDriver.cpp ~230): must never return `kAwaitingDownload`, since "awaiting download" is only meaningful for `LCL+1`.
+- Once a node has received and successfully validated a tx set for the current slot, subsequent calls to `validateValue` for that value must never return `kAwaitingDownload`.
+- Any `STELLAR_VALUE_SKIP` value received from the network must carry a valid inner `lcValueSignature` covering `(networkID, ENVELOPE_TYPE_SCPVALUE, originalTxSetHash, closeTime)`.
+- Skip values reaching `validateValueAgainstLocalState` must have `previousLedgerHash` / `previousLedgerVersion` matching the node's LCL. (This is already enforced; an assertion documents the invariant.)
+- No entry persists indefinitely in `mPendingTxSetWrappers` / `mPendingTxSetEnvelopeWrappers`; every entry is eventually resolved by tx set arrival or slot purge.
+- `BallotProtocol::maybeReplaceValueWithSkip` (BallotProtocol.cpp ~358): invariants around when replacement is allowed (e.g. only when the download timer has expired and the value is in `kAwaitingDownload`).
+
+### Metric-based invariants (single-node)
+
+Evaluated over a single scenario execution.
+
+- `time spent blocked on tx set download` is zero when the tx set arrives before ballot `setConfirmPrepared` fires.
+- Skip count for the node is zero when the node obtains a valid tx set before its own skip timer expires.
+- Count of `kAwaitingDownload` observations per slot is finite and bounded (no infinite reprocessing loop).
+- Count of `validateValue` / `extractValidValue` calls per envelope is bounded — the `isNewerStatement` relaxation allowing reprocessing should fire at most a bounded number of times.
+
+### Progress and terminal-state invariants (single-node)
+
+These complement the scenario-agnostic metric invariants above. The deadlock check applies to any scenario; the progress invariants apply only to scenarios produced by constructed cooperative generators (see "Constructed scenario classes" below).
+
+- **Deadlock / terminal state (scenario-agnostic)**: at the end of any scenario, the node's state must be classifiable as one of: (a) externalized a value for the current slot, (b) waiting on a specific unfulfilled input (e.g. `kAwaitingDownload` plus a tx set that was not scheduled to arrive, or insufficient quorum messages for the current ballot phase), or (c) skip timer not yet expired. Any other terminal state — the node has what it needs but did not advance — is a bug.
+- **Progress under fully cooperative scenarios**: for scenarios produced by the "fully cooperative" generator class, the node externalizes a non-skip value within `K` ballot rounds. `K` is a small constant calibrated empirically (likely 2–3).
+- **Progress under cooperative-but-slow scenarios**: for scenarios produced by the "cooperative-but-slow" generator class, the node externalizes a skip value within `K` ballot rounds.
+
+**Scope and caveat**: component-level progress is a sanity check, not a liveness proof. Peer messages here are synthesized, so "progress" means "the state machine advances when the test author constructed inputs that should be sufficient." The deeper liveness question — whether the actual protocol converges under real multi-node interaction — is addressed in `claude-protocol-testing.md`.
+
+## Scenario generator
+
+### Input space
+
+Primary axes:
+
+1. **Envelope sequence**: ordering, statement types (`SCP_ST_NOMINATE`, `SCP_ST_PREPARE`, `SCP_ST_CONFIRM`, `SCP_ST_EXTERNALIZE`), and values. Does the node see `NOMINATE` before or after `PREPARE` from a peer? Does it see conflicting values from different peers?
+2. **Tx set arrival timing**: when, relative to envelope arrival and the node's ballot state, the tx set arrives at the node.
+3. **Skip timer calibration**: `TX_SET_DOWNLOAD_TIMEOUT` value and its interaction with the scenario clock.
+
+Secondary axes (fixed or drawn from a small set):
+
+- Tx set validity: valid / invalid / never-arrives.
+- Simulated peer profile per peer: cooperative, withholds tx set, sends invalid tx set, sends malformed envelope, sends skip value.
+- Peer identity and quorum configuration of the node under test (determines when the node reaches quorum internally).
+
+### Bias targets
+
+Random uniform generation hits happy paths. Bias generator toward:
+
+- Tx set arrives exactly at, just before, and just after skip timer expiry.
+- Tx set arrives at each SCP state-machine transition boundary: `vote nominate → accept nominate`, `accept nominate → vote prepare`, `vote prepare → accept prepare`, `accept prepare → confirm prepared` (the `setConfirmPrepared` gate).
+- Duplicate envelope delivery: the same envelope arrives both before and after the tx set arrives. Exercises the `isNewerStatement` reprocessing path called out in `implementation-plan.md`.
+- Envelope from a previously-silent peer tips the node into quorum at the exact moment the tx set arrives.
+- Tx set arrives after the slot has been purged / ledger advanced.
+- Invalid tx set arrives at each boundary listed above.
+- Skip value received from peer combined with valid tx set received locally (tests `combineCandidates` behavior on a single node).
+
+### Constructed scenario classes
+
+Alongside the biased-random generator, we maintain a small set of "constructed" generators whose scenarios are built by rule to satisfy a specific precondition. These exist to support the progress invariants and to give the biased-random generator known happy-path anchor points.
+
+- **Fully cooperative**: every peer sends a complete sequence of compatible envelopes (nominate → prepare → confirm) in an order that lets the node form a quorum at each step; a valid tx set arrives before the skip timer.
+- **Cooperative-but-slow**: peers cooperate as above, but the tx set either never arrives or arrives only after the skip timer expires on a quorum.
+
+The biased-random generator may perturb these starting points — shifting timing, injecting failures, or adding adversarial peers — to explore the boundary around known-good behavior.
+
+### Determinism
+
+Component-level determinism is much simpler than protocol-level because there are no inter-node ordering problems:
+
+- Single node means no multi-node message delivery order to control.
+- Virtual clock drives all timer behavior deterministically.
+- Envelope and tx set arrival events are scripted; they are not produced by a network simulator.
+
+One subtlety: the node's internal scheduling (asio post ordering, herder queue processing order) must be deterministic. We believe the existing single-node test harness is deterministic enough for our purposes and do not plan to audit this up front. If scenario reproducibility issues surface during generator or shrinking work, we revisit then.
+
+### Shrinking
+
+On invariant failure, minimize the scenario to the smallest envelope sequence and timing that still reproduces the violation. Delta-debugging / binary-search over sequence length and timing parameters is sufficient initially. No need for an integrated shrinking framework.
+
+## What this approach gives up
+
+- **Cross-node emergent behavior.** Safety, liveness, and consensus properties of a multi-node network are not exercised. Protocol-level testing covers this.
+- **Interactions with real tx set dissemination.** The harness synthesizes tx set arrival events; it does not test the real overlay / fetch path. Existing overlay tests cover that separately.
+- **Valid-but-unexpected local outcomes.** Without an oracle, a single node doing something "allowed but surprising" will not trip an invariant.
+
+## Implementation phases
+
+1. **In-code assertions.** Add to implementation. Enable in existing test suites. Immediate value.
+2. **Single-node harness extensions.** Extend the existing SCP component test harness to support scripted tx set arrival timing, controllable virtual clock, and pluggable simulated-peer profiles. Validate against a handful of hand-authored scenarios before adding the generator.
+3. **Component-level scenario generator.** Biased-random envelope and tx set arrival sequences, plus constructed generators for the cooperative and cooperative-but-slow scenario classes. Integrate with the harness from phase 2.
+4. **Shrinking.** Add minimization of failing scenarios. Include deterministic RNG seeding so failures replay exactly.
+5. **Metric, progress, and terminal-state invariants.** Evaluate per-scenario and per-suite: scenario-agnostic metric checks, the deadlock / terminal-state check, and the progress checks scoped to the constructed scenario classes. Surface regressions.
+6. **Scale and tune.** Run extended suites overnight / pre-release. Expand bias targets based on bugs found. Begin protocol-level work (see `claude-protocol-testing.md`).
+
+## Open questions
+
+- What is the right interface for "simulated peer" profiles? Ideally pluggable strategies (cooperative, withholds tx set, sends invalid, sends skip) designed so they can be reused when we move to protocol-level testing.
