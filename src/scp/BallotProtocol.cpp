@@ -522,13 +522,13 @@ BallotProtocol::bumpToBallot(SCPBallot const& ballot, bool check)
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(ballot));
 
     // `bumpToBallot` should be never called once we committed.
-    dbgAssert(mPhase != SCP_PHASE_EXTERNALIZE);
+    releaseAssert(mPhase != SCP_PHASE_EXTERNALIZE);
 
     if (check)
     {
         // We should move mCurrentBallot monotonically only
-        dbgAssert(!mCurrentBallot ||
-                  compareBallots(ballot, mCurrentBallot->getBallot()) >= 0);
+        releaseAssert(!mCurrentBallot ||
+                      compareBallots(ballot, mCurrentBallot->getBallot()) >= 0);
     }
 
     bool gotBumped = !mCurrentBallot ||
@@ -716,10 +716,10 @@ BallotProtocol::checkInvariants()
         break;
     case SCP_PHASE_CONFIRM:
     case SCP_PHASE_EXTERNALIZE:
-        dbgAssert(mCurrentBallot);
-        dbgAssert(mPrepared);
-        dbgAssert(mCommit);
-        dbgAssert(mHighBallot);
+        releaseAssert(mCurrentBallot);
+        releaseAssert(mPrepared);
+        releaseAssert(mCommit);
+        releaseAssert(mHighBallot);
         break;
     default:
         dbgAbort();
@@ -727,26 +727,26 @@ BallotProtocol::checkInvariants()
 
     if (mCurrentBallot)
     {
-        dbgAssert(mCurrentBallot->getBallot().counter != 0);
+        releaseAssert(mCurrentBallot->getBallot().counter != 0);
     }
     if (mPrepared && mPreparedPrime)
     {
-        dbgAssert(areBallotsLessAndIncompatible(mPreparedPrime->getBallot(),
-                                                mPrepared->getBallot()));
+        releaseAssert(areBallotsLessAndIncompatible(mPreparedPrime->getBallot(),
+                                                    mPrepared->getBallot()));
     }
     if (mHighBallot)
     {
-        dbgAssert(mCurrentBallot);
-        dbgAssert(areBallotsLessAndCompatible(mHighBallot->getBallot(),
-                                              mCurrentBallot->getBallot()));
+        releaseAssert(mCurrentBallot);
+        releaseAssert(areBallotsLessAndCompatible(mHighBallot->getBallot(),
+                                                  mCurrentBallot->getBallot()));
     }
     if (mCommit)
     {
-        dbgAssert(mCurrentBallot);
-        dbgAssert(areBallotsLessAndCompatible(mCommit->getBallot(),
-                                              mHighBallot->getBallot()));
-        dbgAssert(areBallotsLessAndCompatible(mHighBallot->getBallot(),
-                                              mCurrentBallot->getBallot()));
+        releaseAssert(mCurrentBallot);
+        releaseAssert(areBallotsLessAndCompatible(mCommit->getBallot(),
+                                                  mHighBallot->getBallot()));
+        releaseAssert(areBallotsLessAndCompatible(mHighBallot->getBallot(),
+                                                  mCurrentBallot->getBallot()));
     }
 }
 
@@ -1195,7 +1195,9 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             }
             else
             {
-                dbgAssert(!mCommit);
+                releaseAssert(!mCommit);
+                releaseAssert(validationLevel != SCPDriver::kInvalidValue &&
+                              validationLevel != SCPDriver::kAwaitingDownload);
 
                 // Measure and record how long balloting was blocked on this
                 // txset
@@ -1690,6 +1692,17 @@ BallotProtocol::setConfirmCommit(SCPBallot const& c, SCPBallot const& h)
     emitCurrentStateStatement();
 
     mSlot.stopNomination();
+
+    // Belt-and-suspenders: validateValue for the committed value must be
+    // neither kInvalidValue nor kAwaitingDownload at the SCP -> driver
+    // handoff. Structurally guaranteed by throwIfValueInvalidForCommit above
+    // (kInvalidValue) and the HerderImpl::recvSCPEnvelope gate
+    // (kAwaitingDownload), which holds CONFIRM/EXTERNALIZE envelopes at
+    // ENVELOPE_STATUS_FETCHING until the tx set arrives.
+    auto const externalizeVl = mSlot.getSCPDriver().validateValue(
+        mSlot.getSlotIndex(), mCommit->getBallot().value, /*nomination=*/false);
+    releaseAssert(externalizeVl != SCPDriver::kInvalidValue &&
+                  externalizeVl != SCPDriver::kAwaitingDownload);
 
     mSlot.getSCPDriver().valueExternalized(mSlot.getSlotIndex(),
                                            mCommit->getBallot().value);

@@ -436,6 +436,11 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
     {
         res = validatePastOrFutureValue(slotIndex, b, lcl);
     }
+
+    // kAwaitingDownload is only meaningful for LCL+1 and only when we are
+    // actively fetching the referenced tx set. validatePastOrFutureValue
+    // must never return it.
+    releaseAssert(res != SCPDriver::kAwaitingDownload || isCurrentLedger);
     return res;
 }
 
@@ -560,6 +565,7 @@ HerderSCPDriver::extractValidValue(uint64_t slotIndex, Value const& value)
     {
         extractValidUpgrades(b, true);
         res = wrapStellarValue(b);
+        releaseAssert(res != nullptr);
     }
 
     return res;
@@ -599,6 +605,10 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
 {
     ZoneScoped;
     StellarValue originalValue = toStellarValueOrThrow(v);
+    // Skip values are only constructed from signed values; we never build a
+    // skip-of-a-skip. The lcValueSignature access below also requires the
+    // STELLAR_VALUE_SIGNED discriminant.
+    releaseAssert(originalValue.ext.v() == STELLAR_VALUE_SIGNED);
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
 
     StellarValue sv;
@@ -1628,6 +1638,9 @@ void
 HerderSCPDriver::onTxSetReceived(Hash const& txSetHash,
                                  TxSetXDRFrameConstPtr txSet)
 {
+    releaseAssert(txSet != nullptr);
+    releaseAssert(txSet->getContentsHash() == txSetHash);
+
     // Update any ValueWrappers waiting for this tx set
     auto it = mPendingTxSetWrappers.find(txSetHash);
     if (it != mPendingTxSetWrappers.end())
