@@ -47,14 +47,18 @@ This is a starting list. Expect to extend it as we explore the state space.
 
 ### In-code assertions
 
-- `BallotProtocol::setConfirmPrepared` (BallotProtocol.cpp ~1146): must never fire for a value currently in `kAwaitingDownload` state.
+- `BallotProtocol::setConfirmPrepared` (BallotProtocol.cpp ~1146): on the `setConfirmPrepared` commit-gate path, `mCommit` must not be assigned for a value whose local `validateValue` is `kAwaitingDownload` or `kInvalidValue`. Note: `setAcceptCommit` (BallotProtocol.cpp ~1478) is a separate path that intentionally *does* assign `mCommit` for `kAwaitingDownload` values via federated accept, which is safe because the network-level accept chain guarantees the value was validated upstream. The assertion is therefore scoped to the `setConfirmPrepared` path. The existing `dbgAssert(!mCommit)` at ~line 1198 (in the branch that first sets `mCommit`) is the natural place and should be upgraded to `releaseAssert`.
 - `HerderSCPDriver::validateValueAgainstLocalState` (HerderSCPDriver.cpp ~348): `kAwaitingDownload` is returned only when the slot is `LCL+1` and a fetch is actively in progress.
 - `HerderSCPDriver::validatePastOrFutureValue` (HerderSCPDriver.cpp ~230): must never return `kAwaitingDownload`, since "awaiting download" is only meaningful for `LCL+1`.
 - Once a node has received and successfully validated a tx set for the current slot, subsequent calls to `validateValue` for that value must never return `kAwaitingDownload`.
 - Any `STELLAR_VALUE_SKIP` value received from the network must carry a valid inner `lcValueSignature` covering `(networkID, ENVELOPE_TYPE_SCPVALUE, originalTxSetHash, closeTime)`.
 - Skip values reaching `validateValueAgainstLocalState` must have `previousLedgerHash` / `previousLedgerVersion` matching the node's LCL. (This is already enforced; an assertion documents the invariant.)
-- No entry persists indefinitely in `mPendingTxSetWrappers` / `mPendingTxSetEnvelopeWrappers`; every entry is eventually resolved by tx set arrival or slot purge.
 - `BallotProtocol::maybeReplaceValueWithSkip` (BallotProtocol.cpp ~358): invariants around when replacement is allowed (e.g. only when the download timer has expired and the value is in `kAwaitingDownload`).
+- `HerderSCPDriver::onTxSetReceived` (HerderSCPDriver.cpp ~1628): on entry, assert `txSet->getContentsHash() == txSetHash`. Currently the hash is only checked downstream in `SCPHerderValueWrapper::setTxSet` after a successful `weak_ptr::lock()`; a miskeyed registry would silently write the wrong tx set or skip cleanup.
+- `HerderSCPDriver::makeSkipLedgerValueFromValue` (HerderSCPDriver.cpp ~598): assert `originalValue.ext.v() == STELLAR_VALUE_SIGNED` on entry. The function already accesses `originalValue.ext.lcValueSignature()` unconditionally (which throws on non-SIGNED), but an explicit assertion makes the precondition readable and rules out building a skip-of-a-skip.
+- `HerderSCPDriver::extractValidValue` (HerderSCPDriver.cpp ~548): when `validateValueAgainstLocalState` returned `>= kAwaitingDownload`, the returned `ValueWrapperPtr` must be non-null. Documents the postcondition now that nomination depends on `kAwaitingDownload` values being treated as acceptable (see TODO(9) in `parallel-download-docs/claude-learnings.md`).
+
+**Existing `dbgAssert` sweep**: per the "always `releaseAssert`" rule in the Approach section, the existing `dbgAssert` calls in ballot-state invariant checks — especially `BallotProtocol::checkInvariants` (BallotProtocol.cpp ~711) and scattered asserts in ballot-state transitions (e.g. ~525, ~730, ~1198) — should be upgraded to `releaseAssert` as part of this phase. These encode ballot-state consistency invariants that are cheap to evaluate.
 
 ### Metric-based invariants (single-node)
 
@@ -64,6 +68,7 @@ Evaluated over a single scenario execution.
 - Skip count for the node is zero when the node obtains a valid tx set before its own skip timer expires.
 - Count of `kAwaitingDownload` observations per slot is finite and bounded (no infinite reprocessing loop).
 - Count of `validateValue` / `extractValidValue` calls per envelope is bounded — the `isNewerStatement` relaxation allowing reprocessing should fire at most a bounded number of times.
+- `mPendingTxSetWrappers` / `mPendingTxSetEnvelopeWrappers` entries for slot `N` are all resolved or cleaned up by the time slot `N` is purged (via `eraseBelow`). This is a temporal property rather than a point invariant, so it lives here rather than as an in-code assertion: the harness verifies at scenario end that every entry observed at any point during the scenario was resolved by a corresponding tx set arrival, slot purge, or `weak_ptr` expiry.
 
 ### Progress and terminal-state invariants (single-node)
 
@@ -102,6 +107,7 @@ Random uniform generation hits happy paths. Bias generator toward:
 - Tx set arrives after the slot has been purged / ledger advanced.
 - Invalid tx set arrives at each boundary listed above.
 - Skip value received from peer combined with valid tx set received locally (tests `combineCandidates` behavior on a single node).
+- `setAcceptCommit` assigns `mCommit` for a value whose local `validateValue` is `kAwaitingDownload`, via federated accept (v-blocking set accepted-commit, or quorum voted-commit). This is a non-obvious state-machine path that bypasses the `setConfirmPrepared` commit gate and transitions `mPhase` to `SCP_PHASE_CONFIRM` with a locally-unvalidated value — safe by protocol but easy to regress on.
 
 ### Constructed scenario classes
 
@@ -144,3 +150,4 @@ On invariant failure, minimize the scenario to the smallest envelope sequence an
 ## Open questions
 
 - What is the right interface for "simulated peer" profiles? Ideally pluggable strategies (cooperative, withholds tx set, sends invalid, sends skip) designed so they can be reused when we move to protocol-level testing.
+- Where is the correct layer boundary to assert "when the node notifies the application layer that a ledger has been externalized, the committed value is either skip or the tx set is locally available"? Per `parallel-download-docs/theory.md` §6, SCP's internal `valueExternalized` may fire without the tx set; the wait happens at some handoff to Herder / `LedgerManager`. Needs investigation to locate the exact line before adding an in-code assertion.
