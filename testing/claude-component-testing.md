@@ -128,11 +128,7 @@ Component-level determinism is much simpler than protocol-level because there ar
 - Virtual clock drives all timer behavior deterministically.
 - Envelope and tx set arrival events are scripted; they are not produced by a network simulator.
 
-One subtlety: the node's internal scheduling (asio post ordering, herder queue processing order) must be deterministic. We believe the existing single-node test harness is deterministic enough for our purposes and do not plan to audit this up front. If scenario reproducibility issues surface during generator or shrinking work, we revisit then.
-
-### Shrinking
-
-On invariant failure, minimize the scenario to the smallest envelope sequence and timing that still reproduces the violation. Delta-debugging / binary-search over sequence length and timing parameters is sufficient initially. No need for an integrated shrinking framework.
+One subtlety: the node's internal scheduling (asio post ordering, herder queue processing order) must be deterministic. We believe the existing single-node test harness is deterministic enough for our purposes and do not plan to audit this up front. If scenario reproducibility issues surface during generator work, we revisit then.
 
 ## What this approach gives up
 
@@ -144,19 +140,19 @@ On invariant failure, minimize the scenario to the smallest envelope sequence an
 
 Component-level testing splits into two parallel tracks: an **SCP-level track** that uses the existing `TestSCP` mock-driver harness in `src/scp/test/SCPTests.cpp`, and a **Herder-level track** that uses a real single-node `HerderSCPDriver` / `PendingEnvelopes` built on `createTestApplication`. The SCP track exercises SCP state-machine invariants (most of the catalog); the Herder track exercises the `HerderSCPDriver`-specific invariants from the in-code list (e.g. `onTxSetReceived` hash check, `validateValueAgainstLocalState` postcondition, `makeSkipLedgerValueFromValue` precondition) that the mock driver can't reach. Both tracks share the same invariant catalog and overall approach — only the harness, the input-injection mechanism, and the observation hooks differ. The SCP track lands first because the existing infrastructure is closer to what we need; Herder-level work follows once the SCP track has shaken out the design.
 
-Each phase is intentionally scoped small. Some can be split further if any individual phase grows larger than expected when we get to it (e.g. peeling shrinking out of the generator phase, or peeling individual peer profiles out of the harness phase).
+Each phase is intentionally scoped small. Some can be split further if any individual phase grows larger than expected when we get to it (e.g. peeling individual peer profiles out of the harness phase).
 
 ### SCP-level track
 
 1. **In-code assertions.** Add to implementation. Enable in existing test suites. Immediate value.
 2. **SCP-level harness extensions.** Extend `TestSCP` with: (a) reusable peer-profile strategies — cooperative, withholds tx set, sends invalid, sends malformed envelope, sends skip — pluggable so multiple profiles can be mixed in one scenario; (b) configurable canonical quorum-set fixtures, starting with 3-node and 4-node, with a builder shape that makes it easy to add more later. Keep the existing imperative scenario style. The existing `bumpTimerOffset()` plus manual callback-firing pattern is sufficient for any clock-related needs; no fine-grained `advanceClockBy(ms)` is needed at this phase. Validate against a handful of hand-authored scenarios using the new abstractions, including the `setAcceptCommit` + `kAwaitingDownload` + CONFIRM/EXTERNALIZE-gating bias target.
-3. **SCP-level scenario generator.** Biased-random envelope sequences and tx set arrival timing against the `TestSCP` harness, plus constructed cooperative / cooperative-but-slow generators. Includes shrinking with deterministic RNG seeding so failures replay exactly. Bias targets per the catalog above.
+3. **SCP-level scenario generator.** Biased-random envelope sequences and tx set arrival timing against the `TestSCP` harness, plus constructed cooperative / cooperative-but-slow generators. Use the test suite's existing seeded random engine (`getGlobalRandomEngine()` from `util/Math.h`) — no new RNG infrastructure. Bias targets per the catalog above.
 4. **SCP-level metric, progress, and terminal-state invariants.** Implement the SCP-observable invariants — skip count, blocked-time metric, `kAwaitingDownload` observation bound, deadlock / terminal-state check, and the progress invariants for the cooperative scenario classes. Run against generated scenarios.
 
 ### Herder-level track
 
 5. **Herder-level harness extensions.** Build a lightweight single-node Herder harness on top of `createTestApplication` (single `ApplicationImpl` with real `HerderSCPDriver` / `PendingEnvelopes`, no overlay, no multi-node `Simulation`). Add helpers to: script tx-set arrival timing through real `onTxSetReceived`; trigger the `kAwaitingDownload` validation result through real `PendingEnvelopes` (start a fetch, defer arrival); exercise the `HerderSCPDriver`-specific Phase 1 assertions with edge-case inputs. Build for Herder-level needs first; sharing abstractions with the SCP-level track is not a design goal for this phase, and any shared interface can be refactored out later if it would help.
-6. **Herder-level scenario generator.** Same biased-random + constructed-class concepts as the SCP-level generator, retargeted to the Herder-level harness. Includes shrinking.
+6. **Herder-level scenario generator.** Same biased-random + constructed-class concepts as the SCP-level generator, retargeted to the Herder-level harness.
 7. **Herder-level metric, progress, and terminal-state invariants.** Implement the `HerderSCPDriver`-observable invariants (e.g. `mPendingTxSetWrappers` lifecycle), plus any cross-cutting catalog items that aren't exercisable at the SCP level.
 
 ### Wrap-up
