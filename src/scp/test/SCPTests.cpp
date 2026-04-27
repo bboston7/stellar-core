@@ -753,14 +753,32 @@ struct ScenarioEvent
 
 using Scenario = std::vector<ScenarioEvent>;
 
+// Forward declaration: formatScenarioEvent is defined later in the same
+// anonymous namespace (alongside scenarioToString and friends).
+struct ScenarioEvent;
+std::string formatScenarioEvent(ScenarioEvent const& ev,
+                                QuorumFixture const& fixture);
+
 // runScenario plays a Scenario against a TestSCP instance. The TestSCP must
 // already be configured with quorum set, downloads, validation overrides, and
 // any initial bumpState — runScenario only walks the events list.
+//
+// Each step emits an INFO (Catch2 captures it for any subsequent REQUIRE
+// failure in the same scope) and a CLOG_DEBUG (silent at default log level;
+// flushed on emit so the most-recently-logged step survives a mid-runScenario
+// releaseAssert abort). The step index aligns with the [<i>] index in
+// scenarioToString output.
 void
-runScenario(TestSCP& scp, Scenario const& scenario)
+runScenario(TestSCP& scp, Scenario const& scenario,
+            QuorumFixture const& fixture)
 {
-    for (auto const& ev : scenario)
+    for (size_t stepIdx = 0; stepIdx < scenario.size(); ++stepIdx)
     {
+        auto const& ev = scenario[stepIdx];
+        auto stepStr = formatScenarioEvent(ev, fixture);
+        INFO("Step " << stepIdx << ": " << stepStr);
+        CLOG_DEBUG(SCP, "Step {}: {}", stepIdx, stepStr);
+
         switch (ev.kind)
         {
         case ScenarioEvent::Kind::ReceiveEnvelope:
@@ -4794,7 +4812,7 @@ TEST_CASE("Generator: cooperative scenarios",
     REQUIRE(scp.bumpState(0, xValue));
 
     auto scenario = generateCooperative(fixture);
-    runScenario(scp, scenario);
+    runScenario(scp, scenario, fixture);
 
     REQUIRE(scp.mExternalizedValues.find(0) !=
             scp.mExternalizedValues.end());
@@ -4818,7 +4836,7 @@ TEST_CASE("Generator: cooperative-but-slow scenarios",
     REQUIRE(scp.bumpState(0, xValue));
 
     auto scenario = generateCooperativeButSlow(fixture, scp);
-    runScenario(scp, scenario);
+    runScenario(scp, scenario, fixture);
 
     REQUIRE(scp.mExternalizedValues.find(0) !=
             scp.mExternalizedValues.end());
@@ -4882,7 +4900,7 @@ TEST_CASE("Generator: biased-random scenarios",
         // (whether v0 externalizes, and what value) is intentionally
         // unconstrained for biased-random — Phase 4 will add richer
         // metric / progress invariants.
-        runScenario(scp, scenario);
+        runScenario(scp, scenario, fixture);
     }
 }
 }
