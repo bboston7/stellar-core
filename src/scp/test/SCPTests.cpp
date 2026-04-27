@@ -1066,6 +1066,112 @@ thresholdFor(int nodeCount)
     }
 }
 
+// === Phase 3 follow-up: scenario stringification for debug logging ===
+//
+// These helpers turn a Scenario into a human-readable multi-line string so
+// failing biased-random test iterations leave enough context in the test
+// output to reproduce and diagnose. Used via Catch2 INFO (graceful failure)
+// and CLOG_DEBUG (visible at debug log level for crash investigation).
+
+// Map a NodeID back to its "v0"/"v1"/... position in the fixture; "?" if not
+// found (e.g., a malformed envelope or a peer not in this fixture).
+std::string
+formatPeerName(NodeID const& nodeID, QuorumFixture const& fixture)
+{
+    for (size_t i = 0; i < fixture.nodeIDs.size(); ++i)
+    {
+        if (fixture.nodeIDs[i] == nodeID)
+        {
+            return fmt::format("v{}", i);
+        }
+    }
+    return "?";
+}
+
+// Single-line ballot summary: "(counter, abbrevHexValue)".
+std::string
+formatBallot(SCPBallot const& b)
+{
+    return fmt::format("({}, {})", b.counter, hexAbbrev(b.value));
+}
+
+// One-line summary of a single scenario event.
+std::string
+formatScenarioEvent(ScenarioEvent const& ev, QuorumFixture const& fixture)
+{
+    switch (ev.kind)
+    {
+    case ScenarioEvent::Kind::ReceiveEnvelope:
+    {
+        auto const& st = ev.env.statement;
+        std::string peer = formatPeerName(st.nodeID, fixture);
+        auto const& pl = st.pledges;
+        switch (pl.type())
+        {
+        case SCP_ST_PREPARE:
+        {
+            auto const& p = pl.prepare();
+            std::string prep = p.prepared ? formatBallot(*p.prepared) : "null";
+            std::string preprime =
+                p.preparedPrime
+                    ? fmt::format(" preparedPrime={}",
+                                  formatBallot(*p.preparedPrime))
+                    : "";
+            return fmt::format(
+                "ReceiveEnvelope from {}: PREPARE ballot={} prepared={} "
+                "nC={} nH={}{}",
+                peer, formatBallot(p.ballot), prep, p.nC, p.nH, preprime);
+        }
+        case SCP_ST_CONFIRM:
+        {
+            auto const& c = pl.confirm();
+            return fmt::format(
+                "ReceiveEnvelope from {}: CONFIRM ballot={} nPrepared={} "
+                "nCommit={} nH={}",
+                peer, formatBallot(c.ballot), c.nPrepared, c.nCommit, c.nH);
+        }
+        case SCP_ST_EXTERNALIZE:
+        {
+            auto const& e = pl.externalize();
+            return fmt::format(
+                "ReceiveEnvelope from {}: EXTERNALIZE commit={} nH={}", peer,
+                formatBallot(e.commit), e.nH);
+        }
+        case SCP_ST_NOMINATE:
+        {
+            auto const& n = pl.nominate();
+            return fmt::format(
+                "ReceiveEnvelope from {}: NOMINATE votes={} accepted={}", peer,
+                n.votes.size(), n.accepted.size());
+        }
+        }
+        return fmt::format("ReceiveEnvelope from {}: <unknown statement>",
+                           peer);
+    }
+    case ScenarioEvent::Kind::TxSetArrives:
+        return fmt::format("TxSetArrives: {}", hexAbbrev(ev.value));
+    case ScenarioEvent::Kind::FireBallotTimer:
+        return "FireBallotTimer";
+    case ScenarioEvent::Kind::AdvanceTimerOffset:
+        return "AdvanceTimerOffset";
+    }
+    return "<unknown event>";
+}
+
+// Multi-line dump of a scenario, prefixed with a count header and each event
+// numbered. Suitable for INFO / CLOG output.
+std::string
+scenarioToString(Scenario const& s, QuorumFixture const& fixture)
+{
+    std::string out = fmt::format("Scenario ({} events):\n", s.size());
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        out +=
+            fmt::format("  [{}] {}\n", i, formatScenarioEvent(s[i], fixture));
+    }
+    return out;
+}
+
 } // namespace
 
 TEST_CASE("vblocking and quorum", "[scp]")
@@ -4760,6 +4866,18 @@ TEST_CASE("Generator: biased-random scenarios",
         REQUIRE(scp.bumpState(0, xValue));
 
         auto scenario = generateBiasedRandom(fixture, rng);
+
+        // Debug logging: Catch2 INFO captures iteration + scenario context
+        // and prints it if a subsequent REQUIRE fails. CLOG_DEBUG is silent
+        // at the default log level; re-running with debug logging enabled
+        // surfaces the most-recently-logged scenario before any in-process
+        // releaseAssert aborts the binary.
+        INFO("Iteration " << i << " (fixture size " << fixtureSize << ")");
+        auto scenarioStr = scenarioToString(scenario, fixture);
+        INFO("Scenario:\n" << scenarioStr);
+        CLOG_DEBUG(SCP, "Iteration {} (fixture size {}) scenario:\n{}", i,
+                   fixtureSize, scenarioStr);
+
         // Pass condition: no Phase 1 in-code assertion fires. Outcome
         // (whether v0 externalizes, and what value) is intentionally
         // unconstrained for biased-random — Phase 4 will add richer
