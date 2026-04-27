@@ -705,6 +705,367 @@ skipify(TestSCP const& scp, Value const& v)
     return scp.makeSkipLedgerValueFromValue(v);
 }
 
+// === Phase 3 SCP-level scenario generator ===
+
+// ScenarioEvent: a single action within a Scenario. Four event kinds drive the
+// test harness: receiving an envelope from a peer, simulating tx-set arrival
+// (via clearDownload), and clock-related events (firing the ballot protocol
+// timer and advancing virtual time). The struct uses union-like fields (env /
+// value) populated only for the relevant kind.
+struct ScenarioEvent
+{
+    enum class Kind
+    {
+        ReceiveEnvelope,
+        TxSetArrives,
+        FireBallotTimer,
+        AdvanceTimerOffset,
+    };
+
+    Kind kind;
+    SCPEnvelope env;
+    Value value;
+
+    static ScenarioEvent
+    receive(SCPEnvelope e)
+    {
+        return ScenarioEvent{Kind::ReceiveEnvelope, std::move(e), Value{}};
+    }
+
+    static ScenarioEvent
+    txSetArrives(Value v)
+    {
+        return ScenarioEvent{Kind::TxSetArrives, SCPEnvelope{}, std::move(v)};
+    }
+
+    static ScenarioEvent
+    fireBallotTimer()
+    {
+        return ScenarioEvent{Kind::FireBallotTimer, SCPEnvelope{}, Value{}};
+    }
+
+    static ScenarioEvent
+    advanceTimerOffset()
+    {
+        return ScenarioEvent{Kind::AdvanceTimerOffset, SCPEnvelope{}, Value{}};
+    }
+};
+
+using Scenario = std::vector<ScenarioEvent>;
+
+// runScenario plays a Scenario against a TestSCP instance. The TestSCP must
+// already be configured with quorum set, downloads, validation overrides, and
+// any initial bumpState — runScenario only walks the events list.
+void
+runScenario(TestSCP& scp, Scenario const& scenario)
+{
+    for (auto const& ev : scenario)
+    {
+        switch (ev.kind)
+        {
+        case ScenarioEvent::Kind::ReceiveEnvelope:
+            scp.receiveEnvelope(ev.env);
+            break;
+        case ScenarioEvent::Kind::TxSetArrives:
+            scp.clearDownload(ev.value);
+            break;
+        case ScenarioEvent::Kind::FireBallotTimer:
+        {
+            auto cb = scp.getBallotProtocolTimer().mCallback;
+            if (cb)
+            {
+                cb();
+            }
+            break;
+        }
+        case ScenarioEvent::Kind::AdvanceTimerOffset:
+            scp.bumpTimerOffset();
+            break;
+        }
+    }
+}
+
+// generateCooperative: every peer cooperates fully on xValue, no
+// kAwaitingDownload involved. Caller must do scp.bumpState(0, xValue) before
+// runScenario. v0 should externalize xValue.
+Scenario
+generateCooperative(QuorumFixture const& fixture)
+{
+    Scenario s;
+    SCPBallot xB1(1, xValue);
+
+    // Each peer (v1..v_{N-1}) sends a single PREPARE asserting they have
+    // accepted-prepared and voted-commit at xB1, then a CONFIRM asserting
+    // accept-commit. v0 advances through prepare, accept-prepare,
+    // confirm-prepare, vote-commit, accept-commit, and confirm-commit.
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        auto p = makePeerProfile(fixture, i);
+        s.push_back(ScenarioEvent::receive(
+            p.prepare(0, xB1, &xB1, /*nC=*/1, /*nH=*/1)));
+        s.push_back(ScenarioEvent::receive(
+            p.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    }
+
+    return s;
+}
+
+// generateCooperativeButSlow: tx set never arrives. Caller must do
+// scp.startDownload(xValue, ms > timeout) and scp.bumpState(0, xValue) before
+// runScenario — bumpState replaces xValue with skip via
+// maybeReplaceValueWithSkip. Peers echo the skip value. v0 should externalize
+// the skip value.
+Scenario
+generateCooperativeButSlow(QuorumFixture const& fixture, TestSCP const& scp)
+{
+    Scenario s;
+    Value skipValue = skipify(scp, xValue);
+    SCPBallot skipB1(1, skipValue);
+
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        auto p = makePeerProfile(fixture, i);
+        s.push_back(ScenarioEvent::receive(
+            p.prepare(0, skipB1, &skipB1, /*nC=*/1, /*nH=*/1)));
+        s.push_back(ScenarioEvent::receive(
+            p.confirm(0, skipB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    }
+
+    return s;
+}
+
+// generateCooperativeWithDownload: cooperative scenario with a tx-set
+// download in progress that arrives mid-scenario via a TxSetArrives event.
+// Used as the base for the biased-random generator — exercises the
+// kAwaitingDownload paths that the catalog bias targets care about. Caller
+// must do scp.startDownload(xValue, ms < timeout) and scp.bumpState(0,
+// xValue) before runScenario.
+Scenario
+generateCooperativeWithDownload(QuorumFixture const& fixture)
+{
+    Scenario s;
+    SCPBallot xB1(1, xValue);
+
+    // First batch: peer PREPAREs that drive v0's setConfirmPrepared. With
+    // xValue still kAwaitingDownload, the commit gate stalls mCommit.
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        s.push_back(ScenarioEvent::receive(
+            makePeerProfile(fixture, i)
+                .prepare(0, xB1, &xB1, /*nC=*/1, /*nH=*/1)));
+    }
+
+    // Tx set arrives — xValue becomes kFullyValidatedValue.
+    s.push_back(ScenarioEvent::txSetArrives(xValue));
+
+    // Second batch: peer CONFIRMs — drives v0 through accept-commit (via
+    // v-blocking) and confirm-commit, externalize.
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        s.push_back(ScenarioEvent::receive(
+            makePeerProfile(fixture, i)
+                .confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    }
+
+    return s;
+}
+
+// Helper: collect indices of all ReceiveEnvelope events in the scenario.
+std::vector<size_t>
+findReceiveEnvelopeIndices(Scenario const& s)
+{
+    std::vector<size_t> idx;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        if (s[i].kind == ScenarioEvent::Kind::ReceiveEnvelope)
+        {
+            idx.push_back(i);
+        }
+    }
+    return idx;
+}
+
+// Perturbation operator 0: shift TxSetArrives to a random scenario position.
+// Covers the catalog target "tx set arrives just before / at / just after
+// skip-timer expiry" by varying ordering relative to envelopes.
+template <typename Rng>
+void
+shiftTxSetArrival(Scenario& s, Rng& rng)
+{
+    auto it = std::find_if(s.begin(), s.end(), [](ScenarioEvent const& e) {
+        return e.kind == ScenarioEvent::Kind::TxSetArrives;
+    });
+    if (it == s.end())
+    {
+        return;
+    }
+    ScenarioEvent ev = std::move(*it);
+    s.erase(it);
+    size_t newIdx = std::uniform_int_distribution<size_t>(0, s.size())(rng);
+    s.insert(s.begin() + newIdx, std::move(ev));
+}
+
+// Perturbation operator 1: duplicate one envelope. Covers the catalog target
+// "duplicate envelope delivery" — exercises the isNewerStatement reprocessing
+// path in NominationProtocol / BallotProtocol.
+template <typename Rng>
+void
+duplicateEnvelope(Scenario& s, Rng& rng)
+{
+    auto idx = findReceiveEnvelopeIndices(s);
+    if (idx.empty())
+    {
+        return;
+    }
+    size_t pick =
+        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+    ScenarioEvent dup = s[pick];
+    size_t insertAt =
+        std::uniform_int_distribution<size_t>(pick + 1, s.size())(rng);
+    s.insert(s.begin() + insertAt, std::move(dup));
+}
+
+// Perturbation operator 2: replace one peer's ballot value with yValue.
+// Covers the "sends-invalid peer" recipe — the test must configure
+// mValidateValueOverride to mark yValue as kInvalidValue.
+template <typename Rng>
+void
+replaceWithYValue(Scenario& s, Rng& rng)
+{
+    auto idx = findReceiveEnvelopeIndices(s);
+    if (idx.empty())
+    {
+        return;
+    }
+    size_t pick =
+        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+    auto& env = s[pick].env;
+    auto& pl = env.statement.pledges;
+    switch (pl.type())
+    {
+    case SCP_ST_PREPARE:
+        pl.prepare().ballot.value = yValue;
+        break;
+    case SCP_ST_CONFIRM:
+        pl.confirm().ballot.value = yValue;
+        break;
+    default:
+        break;
+    }
+}
+
+// Perturbation operator 3: wrap one envelope in corruptEnvelope. Covers the
+// "sends-malformed envelope" recipe.
+template <typename Rng>
+void
+corruptOneEnvelope(Scenario& s, Rng& rng)
+{
+    auto idx = findReceiveEnvelopeIndices(s);
+    if (idx.empty())
+    {
+        return;
+    }
+    size_t pick =
+        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+    s[pick].env = corruptEnvelope(std::move(s[pick].env));
+}
+
+// Perturbation operator 4: inject CONFIRMs from a v-blocking pair (any 2
+// peers) at a random scenario position. Covers the catalog target
+// "setAcceptCommit + CONFIRM gating" — the injected CONFIRMs may drive v0
+// through setAcceptCommit at an unexpected point.
+template <typename Rng>
+void
+injectVBlockingConfirms(Scenario& s, QuorumFixture const& fixture, Rng& rng)
+{
+    if (fixture.secretKeys.size() < 3)
+    {
+        // Need at least 2 peers (v1, v2) to form a v-blocking pair.
+        return;
+    }
+    std::vector<size_t> peerIdx;
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        peerIdx.push_back(i);
+    }
+    std::shuffle(peerIdx.begin(), peerIdx.end(), rng);
+
+    SCPBallot xB1(1, xValue);
+    auto p1 = makePeerProfile(fixture, peerIdx[0]);
+    auto p2 = makePeerProfile(fixture, peerIdx[1]);
+
+    size_t insertAt =
+        std::uniform_int_distribution<size_t>(0, s.size())(rng);
+    s.insert(s.begin() + insertAt,
+             ScenarioEvent::receive(p2.confirm(
+                 0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    s.insert(s.begin() + insertAt,
+             ScenarioEvent::receive(p1.confirm(
+                 0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+}
+
+// Apply 1-3 random perturbations to a base scenario, picking from the 5
+// operators above. Covers 5 of the 8 catalog bias targets; the other 3
+// (slot-purge timing, silent-peer tipping quorum, skip + valid combination)
+// are TODO for a follow-up extension or rolled into Phase 4.
+template <typename Rng>
+void
+applyRandomPerturbations(Scenario& s, QuorumFixture const& fixture, Rng& rng)
+{
+    int n = std::uniform_int_distribution<int>(1, 3)(rng);
+    for (int i = 0; i < n; ++i)
+    {
+        int op = std::uniform_int_distribution<int>(0, 4)(rng);
+        switch (op)
+        {
+        case 0:
+            shiftTxSetArrival(s, rng);
+            break;
+        case 1:
+            duplicateEnvelope(s, rng);
+            break;
+        case 2:
+            replaceWithYValue(s, rng);
+            break;
+        case 3:
+            corruptOneEnvelope(s, rng);
+            break;
+        case 4:
+            injectVBlockingConfirms(s, fixture, rng);
+            break;
+        }
+    }
+}
+
+// generateBiasedRandom: starts from generateCooperativeWithDownload and
+// applies 1-3 random perturbations.
+template <typename Rng>
+Scenario
+generateBiasedRandom(QuorumFixture const& fixture, Rng& rng)
+{
+    Scenario s = generateCooperativeWithDownload(fixture);
+    applyRandomPerturbations(s, fixture, rng);
+    return s;
+}
+
+// thresholdFor: standard 2/3-majority threshold for the canonical small
+// quorum sizes used by Phase 3 generator tests.
+int
+thresholdFor(int nodeCount)
+{
+    switch (nodeCount)
+    {
+    case 3:
+        return 2;
+    case 4:
+        return 3;
+    case 5:
+        return 4;
+    default:
+        return (2 * nodeCount + 2) / 3;
+    }
+}
+
 } // namespace
 
 TEST_CASE("vblocking and quorum", "[scp]")
@@ -4303,5 +4664,107 @@ TEST_CASE("Mixed peer profiles smoke test",
     REQUIRE_NOTHROW(scp.receiveEnvelope(p3.prepare(0, zSkipB1)));
     REQUIRE_NOTHROW(
         scp.receiveEnvelope(corruptEnvelope(p1.prepare(0, xB1))));
+}
+
+// === Phase 3 generator-driven scenarios ===
+//
+// Three TEST_CASEs, each parameterized over canonical small quorum sizes
+// (3, 4, 5 nodes) via Catch2 GENERATE. The cooperative and
+// cooperative-but-slow generators are deterministic per fixture (one scenario
+// each); the biased-random generator runs 50 scenarios per fixture. The
+// Phase 1 in-code assertions are the primary pass condition for biased-random
+// scenarios; cooperative and cooperative-but-slow add a terminal-state check.
+
+TEST_CASE("Generator: cooperative scenarios",
+          "[scp][parallel-download][gen]")
+{
+    setupValues();
+    auto fixtureSize = GENERATE(3, 4, 5);
+    auto fixture = makeQuorumFixture(fixtureSize, thresholdFor(fixtureSize));
+
+    TestSCP scp(fixture.id(0), fixture.qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+    REQUIRE(scp.bumpState(0, xValue));
+
+    auto scenario = generateCooperative(fixture);
+    runScenario(scp, scenario);
+
+    REQUIRE(scp.mExternalizedValues.find(0) !=
+            scp.mExternalizedValues.end());
+    REQUIRE(!scp.isSkipLedgerValue(scp.mExternalizedValues[0]));
+    REQUIRE(scp.mExternalizedValues[0] == xValue);
+}
+
+TEST_CASE("Generator: cooperative-but-slow scenarios",
+          "[scp][parallel-download][gen]")
+{
+    setupValues();
+    auto fixtureSize = GENERATE(3, 4, 5);
+    auto fixture = makeQuorumFixture(fixtureSize, thresholdFor(fixtureSize));
+
+    TestSCP scp(fixture.id(0), fixture.qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+    // Wait time past the default 5000ms timeout — the first bumpState
+    // immediately replaces xValue with skip via maybeReplaceValueWithSkip.
+    scp.startDownload(xValue, std::chrono::milliseconds(6000));
+    REQUIRE(scp.bumpState(0, xValue));
+
+    auto scenario = generateCooperativeButSlow(fixture, scp);
+    runScenario(scp, scenario);
+
+    REQUIRE(scp.mExternalizedValues.find(0) !=
+            scp.mExternalizedValues.end());
+    REQUIRE(scp.isSkipLedgerValue(scp.mExternalizedValues[0]));
+}
+
+TEST_CASE("Generator: biased-random scenarios",
+          "[scp][parallel-download][gen]")
+{
+    auto fixtureSize = GENERATE(3, 4, 5);
+    auto fixture = makeQuorumFixture(fixtureSize, thresholdFor(fixtureSize));
+
+    auto& rng = getGlobalRandomEngine();
+
+    constexpr int kNumScenarios = 50;
+    for (int i = 0; i < kNumScenarios; ++i)
+    {
+        // Fresh xValue / yValue / zValue per iteration so different scenarios
+        // exercise different value bytes (peer profiles in the perturbation
+        // operators are value-keyed).
+        setupValues();
+
+        TestSCP scp(fixture.id(0), fixture.qSet);
+        scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+        // Override validateValue: yValue is invalid (for the
+        // replaceWithYValue perturbation operator); preserve default
+        // kAwaitingDownload / kFullyValidatedValue behavior for others.
+        scp.mValidateValueOverride =
+            [&scp](uint64, Value const& v,
+                   bool) -> SCPDriver::ValidationLevel {
+            if (v == yValue)
+            {
+                return SCPDriver::kInvalidValue;
+            }
+            if (scp.mDownloadWaitTimes.find(v) !=
+                scp.mDownloadWaitTimes.end())
+            {
+                return SCPDriver::kAwaitingDownload;
+            }
+            return SCPDriver::kFullyValidatedValue;
+        };
+
+        scp.startDownload(xValue, std::chrono::milliseconds(1000));
+        REQUIRE(scp.bumpState(0, xValue));
+
+        auto scenario = generateBiasedRandom(fixture, rng);
+        // Pass condition: no Phase 1 in-code assertion fires. Outcome
+        // (whether v0 externalizes, and what value) is intentionally
+        // unconstrained for biased-random — Phase 4 will add richer
+        // metric / progress invariants.
+        runScenario(scp, scenario);
+    }
 }
 }
