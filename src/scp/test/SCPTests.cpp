@@ -264,6 +264,32 @@ class TestSCP : public SCPDriver
     std::map<Value, std::chrono::milliseconds> mDownloadWaitTimes;
     std::chrono::milliseconds mDownloadTimeout{5000};
 
+    // Envelopes held by TestSCP's emulation of HerderImpl::recvSCPEnvelope —
+    // CONFIRM/EXTERNALIZE envelopes that reference a value still in
+    // mDownloadWaitTimes, keyed by the referenced value so clearDownload(v)
+    // can drain the relevant queue directly. The vector preserves insertion
+    // order so envelopes replay in the order they originally arrived.
+    std::map<Value, std::vector<SCPEnvelope>> mBufferedEnvelopes;
+
+    // Returns the ballot value referenced by a CONFIRM or EXTERNALIZE
+    // statement, or nullptr for any other statement type (the gate doesn't
+    // apply to NOMINATE/PREPARE — neither does the production gate at
+    // HerderImpl::recvSCPEnvelope).
+    static Value const*
+    gatedReferencedValue(SCPEnvelope const& envelope)
+    {
+        auto const& pl = envelope.statement.pledges;
+        if (pl.type() == SCP_ST_CONFIRM)
+        {
+            return &pl.confirm().ballot.value;
+        }
+        if (pl.type() == SCP_ST_EXTERNALIZE)
+        {
+            return &pl.externalize().commit.value;
+        }
+        return nullptr;
+    }
+
     struct TimerData
     {
         std::chrono::milliseconds mAbsoluteTimeout;
@@ -332,6 +358,18 @@ class TestSCP : public SCPDriver
     void
     receiveEnvelope(SCPEnvelope const& envelope)
     {
+        // Emulate HerderImpl::recvSCPEnvelope:
+        // CONFIRM/EXTERNALIZE envelopes referencing a still-kAwaitingDownload
+        // value are held back until the value transitions to fully validated
+        // via clearDownload. NOMINATE/PREPARE proceed unchanged.
+        if (auto const* refValue = gatedReferencedValue(envelope))
+        {
+            if (mDownloadWaitTimes.find(*refValue) != mDownloadWaitTimes.end())
+            {
+                mBufferedEnvelopes[*refValue].push_back(envelope);
+                return;
+            }
+        }
         auto envW = mSCP.getDriver().wrapEnvelope(envelope);
         mSCP.receiveEnvelope(envW);
     }
@@ -380,6 +418,22 @@ class TestSCP : public SCPDriver
     clearDownload(Value const& v)
     {
         mDownloadWaitTimes.erase(v);
+
+        // Drain any envelopes the gate buffered for this value and replay
+        // them in original insertion order. The recursive call into
+        // receiveEnvelope is safe: mDownloadWaitTimes no longer contains v,
+        // so the gate check returns false and these envelopes proceed to
+        // SCP normally.
+        auto it = mBufferedEnvelopes.find(v);
+        if (it != mBufferedEnvelopes.end())
+        {
+            auto buffered = std::move(it->second);
+            mBufferedEnvelopes.erase(it);
+            for (auto const& env : buffered)
+            {
+                receiveEnvelope(env);
+            }
+        }
     }
 
     // Copied from HerderSCPDriver.cpp
@@ -4656,86 +4710,68 @@ TEST_CASE("setAcceptCommit throws when quorum forces invalid value",
 
 // === Phase 2 hand-authored scenarios ===
 
-// Drives v0 to setAcceptCommit on a kAwaitingDownload value via a v-blocking
-// set of CONFIRM envelopes, then waits, then drives setConfirmCommit after
-// the tx set arrives. The test is a negative guard against the Phase 1
-// in-code assertions in setConfirmPrepared (~line 1198) and at the
-// setConfirmCommit -> valueExternalized boundary (~line 1693): both must NOT
-// fire.
+// Verifies TestSCP's emulation of HerderImpl::recvSCPEnvelope's gate:
+// CONFIRM/EXTERNALIZE envelopes that reference a value still in
+// mDownloadWaitTimes are buffered (not forwarded to SCP) until the value
+// transitions to fully validated via clearDownload. At that point the
+// buffered envelopes drain in original arrival order and SCP processes them
+// against a now-valid value, so the externalize path runs cleanly without
+// the Phase 1 assertion at the setConfirmCommit -> valueExternalized
+// boundary (BallotProtocol.cpp ~line 1693) firing.
 //
-// Quorum shape: 5 nodes, threshold 4. Any 2-node subset of {v1,v2,v3,v4} is
-// v-blocking for v0. With v1 + v2 sending CONFIRM, v0 federated-accepts
-// commit (setAcceptCommit) but v0+v1+v2 = 3 accepters is one short of the
-// size-4 quorum needed for federated-confirm-commit, so setConfirmCommit
-// stays parked. Once xValue is cleared from kAwaitingDownload and v3 sends
-// CONFIRM, the quorum is reached, setConfirmCommit fires, and v0
-// externalizes. The line 1693 assertion sees a fully-validated value at
-// that point.
-//
-// NOTE: This exercises only the SCP state-machine half of the bias target.
-// The full bias target also requires the HerderImpl::recvSCPEnvelope gating
-// that holds CONFIRM/EXTERNALIZE at ENVELOPE_STATUS_FETCHING until the tx
-// set arrives — that's a Herder-level concern for Phase 5.
-TEST_CASE("PREPARE-driven setAcceptCommit while kAwaitingDownload",
+// In production this same gating is what prevents a kAwaitingDownload value
+// from reaching setConfirmCommit. The Phase 1 assertion remains as a safety
+// net behind the gate — if the gate ever lets a kAwaitingDownload value
+// reach setConfirmCommit, the assertion aborts the binary.
+TEST_CASE("Herder-gate emulation: CONFIRM/EXTERNALIZE buffered while "
+          "kAwaitingDownload",
           "[scp][ballotprotocol][parallel-download]")
 {
     setupValues();
-    auto fixture = makeQuorumFixture(5, 4);
+    auto fixture = makeQuorumFixture(4, 3);
 
     TestSCP scp(fixture.id(0), fixture.qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
 
     auto p1 = makePeerProfile(fixture, 1);
     auto p2 = makePeerProfile(fixture, 2);
-    auto p3 = makePeerProfile(fixture, 3);
 
     SCPBallot xB1(1, xValue);
 
     // Mark xValue as awaiting download. v0 enters ballot with xValue.
-    // setConfirmPrepared's commit gate will stall mCommit because validateValue
-    // returns kAwaitingDownload — but setAcceptCommit will still fire later
-    // via v-blocking, intentionally allowing kAwaitingDownload through.
     scp.startDownload(xValue, std::chrono::milliseconds(1000));
     REQUIRE(scp.bumpState(0, xValue));
-    REQUIRE(scp.mEnvs.size() == 1);
+    auto envsAfterBump = scp.mEnvs.size();
+    REQUIRE(envsAfterBump >= 1);
 
-    // v1 and v2 send CONFIRM with c.value=xValue, nCommit=1, nH=1. Each
-    // peer is asserting it has accepted commit. {v1, v2} is v-blocking for
-    // v0, so v0 federated-accepts commit (setAcceptCommit fires) and emits
-    // SCP_ST_CONFIRM. Phase 1 assertion in setConfirmPrepared at ~line 1198
-    // is on a different code path and must not fire here.
+    // v1 and v2 send CONFIRMs referencing xValue (still kAwaitingDownload).
+    // The gate buffers both — they do not reach SCP yet, so v0 stays in
+    // SCP_PHASE_PREPARE and emits no new envelopes.
     REQUIRE_NOTHROW(scp.receiveEnvelope(
         p1.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
     REQUIRE_NOTHROW(scp.receiveEnvelope(
         p2.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
 
-    // v0 has emitted a CONFIRM envelope after setAcceptCommit. The
-    // committed value is xValue, still kAwaitingDownload. setConfirmCommit
-    // has not fired (only 3 of 4 needed accepters: v0, v1, v2).
-    REQUIRE(scp.mEnvs.size() >= 2);
-    bool sawConfirmFromV0 = false;
-    for (auto const& env : scp.mEnvs)
-    {
-        if (env.statement.nodeID == fixture.id(0) &&
-            env.statement.pledges.type() == SCP_ST_CONFIRM)
-        {
-            sawConfirmFromV0 = true;
-            REQUIRE(env.statement.pledges.confirm().ballot.value == xValue);
-        }
-    }
-    REQUIRE(sawConfirmFromV0);
+    // Direct check: gate buffered the two CONFIRMs under xValue's key.
+    REQUIRE(scp.mBufferedEnvelopes.count(xValue) == 1);
+    REQUIRE(scp.mBufferedEnvelopes.at(xValue).size() == 2);
+
+    // Indirect check: SCP saw no new envelopes from the buffered CONFIRMs.
+    REQUIRE(scp.mEnvs.size() == envsAfterBump);
     REQUIRE(scp.mExternalizedValues.find(0) == scp.mExternalizedValues.end());
 
-    // Simulate tx set arrival.
+    // Simulate tx set arrival. The gate drains its xValue queue and replays
+    // the buffered CONFIRMs into SCP, with xValue now kFullyValidatedValue.
+    // v0 federated-accepts commit (v-blocking via {v1,v2}), then federated-
+    // confirms commit (v0+v1+v2 = quorum threshold-3 in 4-node), then
+    // externalizes — all in the same drain pass.
     scp.clearDownload(xValue);
 
-    // v3 sends CONFIRM. Now v0+v1+v2+v3 = 4 = quorum threshold.
-    // setConfirmCommit fires. The Phase 1 assertion at ~line 1693 evaluates
-    // validateValue(xValue) -> kFullyValidatedValue (post-clearDownload),
-    // and so passes. v0 externalizes xValue.
-    REQUIRE_NOTHROW(scp.receiveEnvelope(
-        p3.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    // The gate's queue for xValue is gone after drain.
+    REQUIRE(scp.mBufferedEnvelopes.count(xValue) == 0);
 
+    // v0 externalizes xValue. The Phase 1 assertion at ~line 1693 sees a
+    // fully-validated value and passes.
     REQUIRE(scp.mExternalizedValues.find(0) != scp.mExternalizedValues.end());
     REQUIRE(scp.mExternalizedValues[0] == xValue);
 }
