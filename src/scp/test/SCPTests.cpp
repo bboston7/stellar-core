@@ -569,6 +569,142 @@ verifyNominate(SCPEnvelope const& actual, SecretKey const& secretKey,
     auto exp = makeNominate(secretKey, qSetHash, slotIndex, votes, accepted);
     REQUIRE(exp.statement == actual.statement);
 }
+
+// === Phase 2 SCP-level harness extensions ===
+
+// QuorumFixture: a (qSet, qSetHash, secret keys, node IDs) bundle for canonical
+// quorum shapes used by hand-authored scenarios. The configurable shape is
+// makeQuorumFixture(nodeCount, threshold); canonical3Node/canonical4Node are
+// convenience helpers for the most common sizes. Adding new sizes (5-, 7-,
+// hierarchical) is a one-liner that calls makeQuorumFixture.
+struct QuorumFixture
+{
+    SCPQuorumSet qSet;
+    Hash qSetHash;
+    std::vector<SecretKey> secretKeys;
+    std::vector<NodeID> nodeIDs;
+
+    SecretKey const&
+    key(size_t i) const
+    {
+        return secretKeys.at(i);
+    }
+    NodeID const&
+    id(size_t i) const
+    {
+        return nodeIDs.at(i);
+    }
+};
+
+QuorumFixture
+makeQuorumFixture(int nodeCount, int threshold)
+{
+    QuorumFixture f;
+    f.qSet.threshold = threshold;
+    for (int i = 0; i < nodeCount; ++i)
+    {
+        // Match the SIMULATION_CREATE_NODE seed convention so fixtures are
+        // stable across runs and consistent with existing tests.
+        Hash seed = sha256(fmt::format("NODE_SEED_{}", i));
+        SecretKey sk = SecretKey::fromSeed(seed);
+        f.secretKeys.push_back(sk);
+        f.nodeIDs.push_back(sk.getPublicKey());
+        f.qSet.validators.push_back(sk.getPublicKey());
+    }
+    f.qSetHash = sha256(xdr::xdr_to_opaque(f.qSet));
+    return f;
+}
+
+[[maybe_unused]] QuorumFixture
+canonical3Node()
+{
+    return makeQuorumFixture(3, 2);
+}
+
+[[maybe_unused]] QuorumFixture
+canonical4Node()
+{
+    return makeQuorumFixture(4, 3);
+}
+
+// PeerProfile: per-peer identity bundle (secretKey, qSetHash) with thin
+// envelope-building methods that forward to the existing makeNominate /
+// makePrepare / makeConfirm / makeExternalize helpers above. Behavior twists
+// ("withholds tx set", "sends invalid", etc.) are realized via harness-side
+// configuration (mDownloadWaitTimes / mValidateValueOverride keyed on Value)
+// and the free helpers below — not via subclassing. Critically, the per-peer
+// twist is value-keyed, not NodeID-keyed: to make "v2's contribution invalid"
+// while v1's is valid, v2 must reference a distinct value (use yValue vs
+// xValue, etc.).
+struct PeerProfile
+{
+    SecretKey key;
+    Hash qSetHash;
+
+    SCPEnvelope
+    nominate(uint64 slot, std::vector<Value> votes,
+             std::vector<Value> accepted) const
+    {
+        return makeNominate(key, qSetHash, slot, std::move(votes),
+                            std::move(accepted));
+    }
+
+    SCPEnvelope
+    prepare(uint64 slot, SCPBallot const& ballot,
+            SCPBallot* prepared = nullptr, uint32 nC = 0, uint32 nH = 0,
+            SCPBallot* preparedPrime = nullptr) const
+    {
+        return makePrepare(key, qSetHash, slot, ballot, prepared, nC, nH,
+                           preparedPrime);
+    }
+
+    SCPEnvelope
+    confirm(uint64 slot, SCPBallot const& ballot, uint32 nPrepared,
+            uint32 nCommit, uint32 nH) const
+    {
+        return makeConfirm(key, qSetHash, slot, nPrepared, ballot, nCommit, nH);
+    }
+
+    SCPEnvelope
+    externalize(uint64 slot, SCPBallot const& commit, uint32 nH) const
+    {
+        return makeExternalize(key, qSetHash, slot, commit, nH);
+    }
+};
+
+PeerProfile
+makePeerProfile(QuorumFixture const& fixture, size_t index)
+{
+    return PeerProfile{fixture.key(index), fixture.qSetHash};
+}
+
+// corruptEnvelope: mutate an envelope so a real (signature-verifying) driver
+// would reject it. NOTE: TestSCP's signEnvelope is a no-op and the mock driver
+// does not verify signatures, so at the SCP-component level this corruption
+// is mostly symbolic. For cleanly-rejected envelopes today, prefer the
+// "sends invalid" recipe (configure mValidateValueOverride to return
+// kInvalidValue for the peer's value), or for nomination scenarios
+// specifically, send an envelope with empty votes/accepted (fails
+// NominationProtocol::isSane). The helper is provided for symmetry with the
+// five-profile catalog and as a hook for future Herder-level tests where
+// signature verification is real.
+SCPEnvelope
+corruptEnvelope(SCPEnvelope env)
+{
+    std::fill(env.signature.begin(), env.signature.end(), 0);
+    return env;
+}
+
+// skipify: produce the skip-value form of `v` using the harness's mock
+// makeSkipLedgerValueFromValue. At TestSCP level this is just a "SKIP:" byte
+// prefix on the original value bytes; tests can pair this with isSkipLedgerValue
+// or compare values directly.
+Value
+skipify(TestSCP const& scp, Value const& v)
+{
+    return scp.makeSkipLedgerValueFromValue(v);
+}
+
 } // namespace
 
 TEST_CASE("vblocking and quorum", "[scp]")
@@ -4031,5 +4167,141 @@ TEST_CASE("setAcceptCommit throws when quorum forces invalid value",
     }
 
     REQUIRE(threw);
+}
+
+// === Phase 2 hand-authored scenarios ===
+
+// Drives v0 to setAcceptCommit on a kAwaitingDownload value via a v-blocking
+// set of CONFIRM envelopes, then waits, then drives setConfirmCommit after
+// the tx set arrives. The test is a negative guard against the Phase 1
+// in-code assertions in setConfirmPrepared (~line 1198) and at the
+// setConfirmCommit -> valueExternalized boundary (~line 1693): both must NOT
+// fire.
+//
+// Quorum shape: 5 nodes, threshold 4. Any 2-node subset of {v1,v2,v3,v4} is
+// v-blocking for v0. With v1 + v2 sending CONFIRM, v0 federated-accepts
+// commit (setAcceptCommit) but v0+v1+v2 = 3 accepters is one short of the
+// size-4 quorum needed for federated-confirm-commit, so setConfirmCommit
+// stays parked. Once xValue is cleared from kAwaitingDownload and v3 sends
+// CONFIRM, the quorum is reached, setConfirmCommit fires, and v0
+// externalizes. The line 1693 assertion sees a fully-validated value at
+// that point.
+//
+// NOTE: This exercises only the SCP state-machine half of the bias target.
+// The full bias target also requires the HerderImpl::recvSCPEnvelope gating
+// that holds CONFIRM/EXTERNALIZE at ENVELOPE_STATUS_FETCHING until the tx
+// set arrives — that's a Herder-level concern for Phase 5.
+TEST_CASE("PREPARE-driven setAcceptCommit while kAwaitingDownload",
+          "[scp][ballotprotocol][parallel-download]")
+{
+    setupValues();
+    auto fixture = makeQuorumFixture(5, 4);
+
+    TestSCP scp(fixture.id(0), fixture.qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+    auto p1 = makePeerProfile(fixture, 1);
+    auto p2 = makePeerProfile(fixture, 2);
+    auto p3 = makePeerProfile(fixture, 3);
+
+    SCPBallot xB1(1, xValue);
+
+    // Mark xValue as awaiting download. v0 enters ballot with xValue.
+    // setConfirmPrepared's commit gate will stall mCommit because validateValue
+    // returns kAwaitingDownload — but setAcceptCommit will still fire later
+    // via v-blocking, intentionally allowing kAwaitingDownload through.
+    scp.startDownload(xValue, std::chrono::milliseconds(1000));
+    REQUIRE(scp.bumpState(0, xValue));
+    REQUIRE(scp.mEnvs.size() == 1);
+
+    // v1 and v2 send CONFIRM with c.value=xValue, nCommit=1, nH=1. Each
+    // peer is asserting it has accepted commit. {v1, v2} is v-blocking for
+    // v0, so v0 federated-accepts commit (setAcceptCommit fires) and emits
+    // SCP_ST_CONFIRM. Phase 1 assertion in setConfirmPrepared at ~line 1198
+    // is on a different code path and must not fire here.
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        p1.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        p2.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+
+    // v0 has emitted a CONFIRM envelope after setAcceptCommit. The
+    // committed value is xValue, still kAwaitingDownload. setConfirmCommit
+    // has not fired (only 3 of 4 needed accepters: v0, v1, v2).
+    REQUIRE(scp.mEnvs.size() >= 2);
+    bool sawConfirmFromV0 = false;
+    for (auto const& env : scp.mEnvs)
+    {
+        if (env.statement.nodeID == fixture.id(0) &&
+            env.statement.pledges.type() == SCP_ST_CONFIRM)
+        {
+            sawConfirmFromV0 = true;
+            REQUIRE(env.statement.pledges.confirm().ballot.value == xValue);
+        }
+    }
+    REQUIRE(sawConfirmFromV0);
+    REQUIRE(scp.mExternalizedValues.find(0) == scp.mExternalizedValues.end());
+
+    // Simulate tx set arrival.
+    scp.clearDownload(xValue);
+
+    // v3 sends CONFIRM. Now v0+v1+v2+v3 = 4 = quorum threshold.
+    // setConfirmCommit fires. The Phase 1 assertion at ~line 1693 evaluates
+    // validateValue(xValue) -> kFullyValidatedValue (post-clearDownload),
+    // and so passes. v0 externalizes xValue.
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        p3.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+
+    REQUIRE(scp.mExternalizedValues.find(0) != scp.mExternalizedValues.end());
+    REQUIRE(scp.mExternalizedValues[0] == xValue);
+}
+
+// Smoke test: mix peer profiles by combining PeerProfile envelope methods
+// with harness-side configuration (mValidateValueOverride keyed on Value)
+// and the corruptEnvelope / skipify free helpers. The test passes if all
+// receiveEnvelope calls return without throwing and no Phase 1 assertion
+// fires; we make no strong claims about v0's terminal state because the
+// mix is intentionally chaotic and each peer references a distinct value.
+TEST_CASE("Mixed peer profiles smoke test",
+          "[scp][ballotprotocol][parallel-download]")
+{
+    setupValues();
+    auto fixture = canonical4Node();
+
+    TestSCP scp(fixture.id(0), fixture.qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+    auto p1 = makePeerProfile(fixture, 1);
+    auto p2 = makePeerProfile(fixture, 2);
+    auto p3 = makePeerProfile(fixture, 3);
+
+    // Configure: yValue is invalid (sends-invalid recipe). xValue, zValue,
+    // and any skip variant remain kFullyValidatedValue (the default).
+    Value capturedY = yValue;
+    scp.mValidateValueOverride =
+        [capturedY](uint64, Value const& v,
+                    bool) -> SCPDriver::ValidationLevel {
+        return v == capturedY ? SCPDriver::kInvalidValue
+                              : SCPDriver::kFullyValidatedValue;
+    };
+
+    SCPBallot xB1(1, xValue);
+    SCPBallot yB1(1, yValue);
+    SCPBallot zSkipB1(1, skipify(scp, zValue));
+
+    // v0 enters ballot with xValue (cooperative recipe, locally validated).
+    REQUIRE(scp.bumpState(0, xValue));
+    REQUIRE(scp.mEnvs.size() == 1);
+
+    // Mix peer behaviors. Each call exercises a different recipe in the
+    // five-profile catalog:
+    //   p1 cooperative on xValue
+    //   p2 sends-invalid (yValue is configured kInvalidValue above)
+    //   p3 sends-skip (envelope references skipify(zValue))
+    //   p1 again, sends-malformed via corruptEnvelope wrapper
+    REQUIRE_NOTHROW(scp.receiveEnvelope(p1.prepare(0, xB1)));
+    REQUIRE_NOTHROW(scp.receiveEnvelope(p2.prepare(0, yB1)));
+    REQUIRE_NOTHROW(scp.receiveEnvelope(p3.prepare(0, zSkipB1)));
+    REQUIRE_NOTHROW(
+        scp.receiveEnvelope(corruptEnvelope(p1.prepare(0, xB1))));
 }
 }
