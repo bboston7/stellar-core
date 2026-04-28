@@ -1160,11 +1160,47 @@ formatPeerName(NodeID const& nodeID, QuorumFixture const& fixture)
     return "?";
 }
 
-// Single-line ballot summary: "(counter, abbrevHexValue)".
+// Symbolic name for the well-known test globals (xValue/yValue/zValue/zzValue/
+// kValue), with skip-wrapped variants printed as "skip(xValue)". Falls back to
+// hexAbbrev for unrecognized values.
+std::string
+formatValue(Value const& v)
+{
+    if (v == xValue)
+    {
+        return "xValue";
+    }
+    if (v == yValue)
+    {
+        return "yValue";
+    }
+    if (v == zValue)
+    {
+        return "zValue";
+    }
+    if (v == zzValue)
+    {
+        return "zzValue";
+    }
+    if (v == kValue)
+    {
+        return "kValue";
+    }
+    constexpr size_t skipPrefixLen = 5;
+    if (v.size() >= skipPrefixLen && v[0] == 'S' && v[1] == 'K' &&
+        v[2] == 'I' && v[3] == 'P' && v[4] == ':')
+    {
+        Value inner(v.begin() + skipPrefixLen, v.end());
+        return fmt::format("skip({})", formatValue(inner));
+    }
+    return hexAbbrev(v);
+}
+
+// Single-line ballot summary: "(counter, value)".
 std::string
 formatBallot(SCPBallot const& b)
 {
-    return fmt::format("({}, {})", b.counter, hexAbbrev(b.value));
+    return fmt::format("({}, {})", b.counter, formatValue(b.value));
 }
 
 // One-line summary of a single scenario event.
@@ -1221,7 +1257,7 @@ formatScenarioEvent(ScenarioEvent const& ev, QuorumFixture const& fixture)
                            peer);
     }
     case ScenarioEvent::Kind::TxSetArrives:
-        return fmt::format("TxSetArrives: {}", hexAbbrev(ev.value));
+        return fmt::format("TxSetArrives: {}", formatValue(ev.value));
     case ScenarioEvent::Kind::FireBallotTimer:
         return "FireBallotTimer";
     case ScenarioEvent::Kind::AdvanceTimerOffset:
