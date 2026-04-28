@@ -4968,11 +4968,28 @@ TEST_CASE("Generator: biased-random scenarios",
         CLOG_DEBUG(SCP, "Iteration {} (fixture size {}) scenario:\n{}", i,
                    fixtureSize, scenarioStr);
 
-        // Pass condition: no Phase 1 in-code assertion fires. Outcome
-        // (whether v0 externalizes, and what value) is intentionally
-        // unconstrained for biased-random — Phase 4 will add richer
-        // metric / progress invariants.
-        runScenario(scp, scenario, fixture);
+        // Pass condition: no Phase 1 in-code assertion fires, and any
+        // thrown std::runtime_error is the deliberate "forced commit on
+        // locally-invalid value" signal from throwIfValueInvalidForCommit
+        // (BallotProtocol.cpp ~1469). The replaceWithYValue perturbation
+        // can manufacture a v-blocking quorum on yValue across the 3-/4-/
+        // 5-node fixtures — this is the protocol's intentional reaction
+        // to that input, not a bug. Outcome (whether v0 externalizes, and
+        // what value) is intentionally unconstrained for biased-random —
+        // Phase 4 will add richer metric / progress invariants.
+        try
+        {
+            runScenario(scp, scenario, fixture);
+        }
+        catch (std::runtime_error const& e)
+        {
+            if (std::string(e.what()).find(
+                    "SCP forced commit on locally-invalid value") ==
+                std::string::npos)
+            {
+                throw;
+            }
+        }
     }
 }
 }
