@@ -63,9 +63,11 @@ class TestSCP : public SCPDriver
         mQuorumSets[qSetHash] = qSet;
     }
 
+    // TODO: Should any of the tests make use of `extraInfo`?
     SCPDriver::ValidationLevel
-    validateValue(uint64 slotIndex, Value const& value,
-                  bool nomination) override
+    validateValue(
+        uint64 slotIndex, Value const& value, bool nomination,
+        SCPDriver::ValidationExtraInfo* extraInfo = nullptr) const override
     {
         if (mValidateValueOverride)
         {

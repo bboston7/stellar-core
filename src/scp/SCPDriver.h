@@ -146,6 +146,9 @@ class SCPDriver
     // will abstain from emitting its position.
     // validation can be *more* restrictive during nomination as needed
     // NB: validation levels are ordered
+    // Callers who want additional information about the validation result can
+    // optionally pass a `ValidationExtraInfo` struct pointer, which will be
+    // popluated with additional information about the validation result.
     enum ValidationLevel
     {
         kInvalidValue = 0,       // value is invalid for sure
@@ -153,8 +156,21 @@ class SCPDriver
         kAwaitingDownload = 2,   // value is being fetched
         kFullyValidatedValue = 3 // value is valid for sure
     };
+    struct ValidationExtraInfo
+    {
+        // True iff the value is for the current ledger
+        bool mIsCurrentLedger = false;
+        // True iff the value is invalid because of an invalid tx set. Note that
+        // a value that is determined to be invalid due to early checks (e.g.
+        // close time too far in the future) will not have this flag set even if
+        // the transaction set it references is also invalid. This flag captures
+        // only values that are determined to be invalid specifically due to an
+        // invalid transaction set.
+        bool mIsTxSetInvalid = false;
+    };
     virtual ValidationLevel
-    validateValue(uint64 slotIndex, Value const& value, bool nomination)
+    validateValue(uint64 slotIndex, Value const& value, bool nomination,
+                  ValidationExtraInfo* extraInfo = nullptr) const
     {
         return kMaybeValidValue;
     }
