@@ -356,8 +356,14 @@ bool
 BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 {
     // Check validation value
-    auto validationLevel =
-        mSlot.getSCPDriver().validateValue(mSlot.getSlotIndex(), v, false);
+    SCPDriver::ValidationExtraInfo extraInfo = {0};
+    auto validationLevel = mSlot.getSCPDriver().validateValue(
+        mSlot.getSlotIndex(), v, false, &extraInfo);
+    if (!extraInfo.mIsCurrentLedger)
+    {
+        // Cannot replace with skip for non-current ledgers
+        return false;
+    }
 
     switch (validationLevel)
     {
@@ -389,9 +395,12 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
         }
     }
     break;
-    default:
-        // Value is valid or maybe valid, so we shouldn't replace it with skip
+    case SCPDriver::kFullyValidatedValue:
+        // Value is valid, no need to replace with skip
         return false;
+    case SCPDriver::kMaybeValidValue:
+        // This shouldn't be possible. The check for `mIsCurrentLedger` above should catch all cases where `kMaybeValidValue` is returned
+        releaseAssert(false);
     }
 
     // Choose highest seen skip value, or create one if no such values exist.
@@ -2149,6 +2158,11 @@ BallotProtocol::validateValues(SCPStatement const& st)
 {
     ZoneScoped;
 
+    // TODO: Check mIsTxSetInvalid. We should continue to reject values that are
+    // invalid for other reasons.
+    // TODO: ^ Is this true? Ensure there's no other ways for late info to come
+    // in as invalid. I *think* the other checks are all possible (and should
+    // have been done) for non-tx set related checks?
     if (st.pledges.type() == SCPStatementType::SCP_ST_PREPARE)
     {
         // Don't validate any values in PREPARE statements. With parallel
