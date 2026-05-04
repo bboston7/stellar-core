@@ -37,9 +37,6 @@ struct SlotEnvelopes
     // envelopes we are fetching right now
     std::map<SCPEnvelope, VirtualClock::time_point> mFetchingEnvelopes;
 
-    // TODO: This needs a better name and descriptor
-    std::set<SCPEnvelope> mPartiallyReadyEnvelopes;
-
     // list of ready envelopes that haven't been sent to SCP yet
     std::vector<SCPEnvelopeWrapperPtr> mReadyEnvelopes;
 
@@ -119,10 +116,6 @@ class PendingEnvelopes
     // extending the lifetime of the result
     TxSetResult getKnownTxSet(Hash const& hash, uint64 slot, bool touch);
 
-    // Returns true if the tx set is available locally (either in cache or
-    // is a skip ledger hash which doesn't need fetching).
-    bool hasTxSet(Hash const& hash) const;
-
     void cleanKnownData();
 
     void recordReceivedCost(SCPEnvelope const& env);
@@ -193,6 +186,10 @@ class PendingEnvelopes
      * Return true if TxSet useful (was asked for).
      */
     bool recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset);
+
+    // Returns true if the tx set is available locally (either in cache or
+    // is a skip ledger hash which doesn't need fetching).
+    bool hasTxSet(Hash const& hash) const;
 
     void peerDoesntHave(MessageType type, Hash const& itemID,
                         Peer::pointer peer);

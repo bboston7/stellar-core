@@ -200,6 +200,47 @@ HerderSCPDriver::emitEnvelope(SCPEnvelope const& envelope)
     mHerder.emitEnvelope(envelope);
 }
 
+bool
+HerderSCPDriver::isEnvelopeReady(SCPEnvelope const& env) const
+{
+    // Qset must be locally available regardless of statement type. We
+    // reuse our own getQSet override (which delegates to PE's qset
+    // cache) so the lookup matches every other application-side query.
+    auto qsetHash =
+        Slot::getCompanionQuorumSetHashFromStatement(env.statement);
+    if (!mPendingEnvelopes.getQSet(qsetHash))
+    {
+        return false;
+    }
+
+    // Once every referenced tx set is available, the envelope is fully
+    // resolvable.
+    auto const txSetHashes = getValidatedTxSetHashes(env);
+    bool const allTxSetsPresent = std::all_of(
+        txSetHashes.begin(), txSetHashes.end(),
+        [&](Hash const& h) { return mPendingEnvelopes.hasTxSet(h); });
+    if (allTxSetsPresent)
+    {
+        return true;
+    }
+
+    // Parallel tx-set download: NOMINATE/PREPARE may proceed with just
+    // the qset (their tx sets can finish downloading while SCP holds
+    // the value with kAwaitingDownload). CONFIRM/EXTERNALIZE must wait
+    // for the tx set, since there's no work for SCP to do without it.
+    auto const type = env.statement.pledges.type();
+    if (type != SCP_ST_NOMINATE && type != SCP_ST_PREPARE)
+    {
+        return false;
+    }
+
+    // Early-release is also gated on being in sync. If we're catching
+    // up or otherwise out of sync, holding the envelope until its tx
+    // set lands keeps the pipeline simple and matches today's behavior.
+    return mHerder.isTracking() &&
+           mApp.getState() == Application::State::APP_SYNCED_STATE;
+}
+
 // value validation
 
 bool

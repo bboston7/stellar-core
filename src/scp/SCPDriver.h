@@ -120,6 +120,22 @@ class SCPDriver
     // value whose transaction set has not finished downloading.
     virtual std::chrono::milliseconds getTxSetDownloadTimeout() const = 0;
 
+    // Decide whether @p env is ready to be fed to SCP. This is a contract
+    // between the application's envelope-feed pipeline and the
+    // application-specific notion of "all dependencies resolved" (e.g.
+    // qset and tx sets fetched, plus any policy that defers some
+    // statement types until those resources land). SCP itself never
+    // calls this; it is queried by the caller before driving an envelope
+    // through `SCP::receiveEnvelope`.
+    //
+    // Default returns true, which is the right answer for drivers that
+    // do not fetch external resources (notably test fixtures).
+    virtual bool
+    isEnvelopeReady(SCPEnvelope const& env) const
+    {
+        return true;
+    }
+
     // Users of the SCP library should inherit from SCPDriver and implement the
     // virtual methods which are called by the SCP implementation to
     // abstract the transport layer used from the implementation of the SCP

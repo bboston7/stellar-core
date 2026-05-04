@@ -374,7 +374,6 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
         auto& envs = mEnvelopes[envelope.statement.slotIndex];
         auto& fetching = envs.mFetchingEnvelopes;
         auto& processed = envs.mProcessedEnvelopes;
-        auto& partiallyReady = envs.mPartiallyReadyEnvelopes;
 
         auto fetchIt = fetching.find(envelope);
 
@@ -395,28 +394,37 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             }
         }
 
-        // we are fetching this envelope
-        // check if we are done fetching it
-        if (isFullyFetched(envelope))
+        // The driver owns the per-statement-type / tracking-state policy
+        // that decides whether this envelope can be fed to SCP yet. PE
+        // just asks; if the answer is yes, we wrap and push onto the
+        // ready queue. If the answer is no, we keep fetching.
+        bool const ready =
+            mHerder.getHerderSCPDriver().isEnvelopeReady(envelope);
+        if (ready)
         {
-            std::chrono::nanoseconds durationNano =
-                mApp.getClock().now() - fetchIt->second;
-            mFetchDuration.Update(durationNano);
-            Hash h = Slot::getCompanionQuorumSetHashFromStatement(
-                envelope.statement);
-            CLOG_TRACE(Perf,
-                       "Herder fetched for envelope {} with txsets {} and "
-                       "qset {} in {} seconds",
-                       hexAbbrev(xdrSha256(envelope)), txSetsToStr(envelope),
-                       hexAbbrev(h),
-                       std::chrono::duration<double>(durationNano).count());
+            // Move from fetching → processed only once every dependency
+            // is locally available. Early-release (qset present, some
+            // tx set still in flight) leaves the entry in fetching so
+            // the ItemFetcher outer cycle re-feeds the envelope when
+            // its tx set arrives.
+            if (isFullyFetched(envelope))
+            {
+                std::chrono::nanoseconds durationNano =
+                    mApp.getClock().now() - fetchIt->second;
+                mFetchDuration.Update(durationNano);
+                Hash h = Slot::getCompanionQuorumSetHashFromStatement(
+                    envelope.statement);
+                CLOG_TRACE(
+                    Perf,
+                    "Herder fetched for envelope {} with txsets {} and "
+                    "qset {} in {} seconds",
+                    hexAbbrev(xdrSha256(envelope)), txSetsToStr(envelope),
+                    hexAbbrev(h),
+                    std::chrono::duration<double>(durationNano).count());
 
-            // move the item from fetching to processed
-            processed.emplace(envelope);
-            fetching.erase(fetchIt);
-
-            // Remove from partially ready envelopes if it was there
-            partiallyReady.erase(envelope);
+                processed.emplace(envelope);
+                fetching.erase(fetchIt);
+            }
 
             envelopeReady(envelope);
             updateMetrics();
@@ -424,16 +432,8 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
         }
         else
         {
-            // else just keep waiting for it to come in
-            // and refresh fetchers as needed
+            // Keep waiting; refresh fetchers as needed.
             startFetch(envelope);
-
-            SCPStatementType type = envelope.statement.pledges.type();
-            if (isPartiallyFetched(envelope) &&
-                (type == SCP_ST_NOMINATE || type == SCP_ST_PREPARE))
-            {
-                partiallyReady.insert(envelope);
-            }
         }
 
         return Herder::ENVELOPE_STATUS_FETCHING;
@@ -605,16 +605,24 @@ PendingEnvelopes::envelopeReady(SCPEnvelope const& envelope)
                hexAbbrev(xdrSha256(envelope)), slot,
                envelope.statement.pledges.type());
 
-    // envelope has been fetched completely, but SCP has not done
-    // any validation on values yet. Regardless, record cost of this
-    // envelope.
-    recordReceivedCost(envelope);
+    // Under parallel-DL early-release, this function runs twice for the
+    // same envelope: once when the qset arrives (tx set still in
+    // flight) and again when the tx set arrives via the ItemFetcher
+    // outer cycle. Broadcast and cost-record on the fully-fetched
+    // transition only — same observable behavior as the pre-refactor
+    // code, which only ran envelopeReady once (at full-fetch time).
+    if (isFullyFetched(envelope))
+    {
+        recordReceivedCost(envelope);
 
-    auto msg = std::make_shared<StellarMessage>();
-    msg->type(SCP_MESSAGE);
-    msg->envelope() = envelope;
-    mApp.getOverlayManager().broadcastMessage(msg);
+        auto msg = std::make_shared<StellarMessage>();
+        msg->type(SCP_MESSAGE);
+        msg->envelope() = envelope;
+        mApp.getOverlayManager().broadcastMessage(msg);
+    }
 
+    // Always wrap and push: each ready transition produces a fresh
+    // wrapper that reflects whatever resources are currently cached.
     auto envW = mHerder.getHerderSCPDriver().wrapEnvelope(envelope);
     mEnvelopes[slot].mReadyEnvelopes.push_back(envW);
 }
@@ -712,7 +720,6 @@ PendingEnvelopes::pop(uint64 slotIndex)
     auto it = mEnvelopes.begin();
     while (it != mEnvelopes.end() && slotIndex >= it->first)
     {
-        // Process fully ready envelopes first
         auto& v = it->second.mReadyEnvelopes;
         if (v.size() != 0)
         {
@@ -720,19 +727,6 @@ PendingEnvelopes::pop(uint64 slotIndex)
             v.pop_back();
 
             updateMetrics();
-            return ret;
-        }
-
-        // If no more fully ready envelopes, proceed to processing partially
-        // ready envelopes
-        auto& partial = it->second.mPartiallyReadyEnvelopes;
-        if (partial.size() != 0)
-        {
-            // If we have partially ready envelopes, we can return the first one
-            auto it = partial.begin();
-            SCPEnvelopeWrapperPtr ret =
-                mHerder.getHerderSCPDriver().wrapEnvelope(*it);
-            partial.erase(it);
             return ret;
         }
         it++;
