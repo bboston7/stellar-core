@@ -627,6 +627,8 @@ PendingEnvelopes::envelopeReady(SCPEnvelope const& envelope)
     mEnvelopes[slot].mReadyEnvelopes.push_back(envW);
 }
 
+
+// TODO: Does anyone even call this anymore? Should we just remove it?
 bool
 PendingEnvelopes::isPartiallyFetched(SCPEnvelope const& envelope)
 {

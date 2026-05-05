@@ -234,6 +234,9 @@ HerderSCPDriver::isEnvelopeReady(SCPEnvelope const& env) const
         return false;
     }
 
+    // TODO: I think we also need a check that this is for LCL+1, as we still
+    // don't want parallel downloading for future envelopes.
+
     // Early-release is also gated on being in sync. If we're catching
     // up or otherwise out of sync, holding the envelope until its tx
     // set lands keeps the pipeline simple and matches today's behavior.
