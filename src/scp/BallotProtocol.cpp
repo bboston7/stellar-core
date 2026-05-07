@@ -399,7 +399,8 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
         // Value is valid, no need to replace with skip
         return false;
     case SCPDriver::kMaybeValidValue:
-        // This shouldn't be possible. The check for `mIsCurrentLedger` above should catch all cases where `kMaybeValidValue` is returned
+        // This shouldn't be possible. The check for `mIsCurrentLedger` above
+        // should catch all cases where `kMaybeValidValue` is returned
         releaseAssert(false);
     }
 
@@ -2158,24 +2159,6 @@ BallotProtocol::validateValues(SCPStatement const& st)
 {
     ZoneScoped;
 
-    // TODO: Check mIsTxSetInvalid. We should continue to reject values that are
-    // invalid for other reasons.
-    // TODO: ^ Is this true? Ensure there's no other ways for late info to come
-    // in as invalid. I *think* the other checks are all possible (and should
-    // have been done) for non-tx set related checks?
-    if (st.pledges.type() == SCPStatementType::SCP_ST_PREPARE)
-    {
-        // Don't validate any values in PREPARE statements. With parallel
-        // downloading, ballot.value may be kAwaitingDownload that later
-        // becomes kInvalidValue, and prepared/preparedPrime are protocol
-        // facts (accepted-prepared ballots) that cannot be unilaterally
-        // changed. Incoming PREPAREs with invalid ballot values must be
-        // accepted so that checkHeardFromQuorum can see a quorum and arm
-        // the ballot timer. The commit gate in setConfirmPrepared
-        // independently validates values before voting to commit.
-        return SCPDriver::kFullyValidatedValue;
-    }
-
     std::set<Value> values;
 
     values = getStatementValues(st);
@@ -2190,13 +2173,17 @@ BallotProtocol::validateValues(SCPStatement const& st)
         return SCPDriver::kInvalidValue;
     }
 
+    bool validForPrepare =
+        st.pledges.type() == SCPStatementType::SCP_ST_PREPARE;
+
     SCPDriver::ValidationLevel res = std::accumulate(
         values.begin(), values.end(), SCPDriver::kFullyValidatedValue,
         [&](SCPDriver::ValidationLevel lv, stellar::Value const& v) {
             if (lv > SCPDriver::kInvalidValue)
             {
+                SCPDriver::ValidationExtraInfo extraInfo{};
                 auto tr = mSlot.getSCPDriver().validateValue(
-                    mSlot.getSlotIndex(), v, false);
+                    mSlot.getSlotIndex(), v, false, &extraInfo);
 
                 if (tr == SCPDriver::kAwaitingDownload)
                 {
@@ -2205,18 +2192,25 @@ BallotProtocol::validateValues(SCPStatement const& st)
                                "found kAwaitingDownload value in statement",
                                mSlot.getSlotIndex());
                 }
+                else if (tr == SCPDriver::kInvalidValue && validForPrepare &&
+                         (!extraInfo.mIsCurrentLedger ||
+                          !extraInfo.mIsTxSetInvalid))
+                {
+                    // This statement is not valid for PREPARE if it contains
+                    // any single invalid value where:
+                    // * The invalid value is NOT due to an invalid tx set, or
+                    // * The statement is for the known next ledger
+                    validForPrepare = false;
+                }
 
                 lv = std::min(tr, lv);
             }
             return lv;
         });
 
-    if (res == SCPDriver::kInvalidValue)
+    if (res == SCPDriver::kInvalidValue && validForPrepare)
     {
-        CLOG_DEBUG(Proto,
-                   "BallotProtocol::validateValues slot:{} found "
-                   "kInvalidValue value in statement",
-                   mSlot.getSlotIndex());
+        return SCPDriver::kFullyValidatedValue;
     }
 
     return res;
