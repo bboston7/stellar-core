@@ -349,8 +349,11 @@ BallotProtocol::abandonBallot(uint32 n)
 bool
 BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 {
+
+    // TODO: Guard this with a check for the PREPARE phase
+
     // Check validation value
-    SCPDriver::ValidationExtraInfo extraInfo = {0};
+    SCPDriver::ValidationExtraInfo extraInfo;
     auto validationLevel = mSlot.getSCPDriver().validateValue(
         mSlot.getSlotIndex(), v, false, &extraInfo);
     if (!extraInfo.mIsCurrentLedger)
@@ -2193,7 +2196,7 @@ BallotProtocol::validateValues(SCPStatement const& st)
                     // This statement is not valid for PREPARE if it contains
                     // any single invalid value where:
                     // * The invalid value is NOT due to an invalid tx set, or
-                    // * The statement is for the known next ledger
+                    // * The statement is not for the known next ledger
                     validForPrepare = false;
                 }
 
@@ -2210,7 +2213,6 @@ BallotProtocol::validateValues(SCPStatement const& st)
     case SCPDriver::kMaybeValidValue:
         return ValidateValuesResult::kMaybeValidNotCurrent;
     case SCPDriver::kAwaitingDownload:
-        releaseAssert(validForPrepare);
         return ValidateValuesResult::kValidForPrepare;
     case SCPDriver::kFullyValidatedValue:
         return ValidateValuesResult::kFullyValid;
