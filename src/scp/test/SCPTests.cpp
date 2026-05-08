@@ -63,12 +63,10 @@ class TestSCP : public SCPDriver
         mQuorumSets[qSetHash] = qSet;
     }
 
-    // TODO: Add tests for the following:
-    // * Peer sends invalid prepare message. Should be dropped
+    // TODO: A test somewhere else for:
     // * Awaiting download message is invalid (due to close time or something).
     //   this might not be the right test layer for this one, since this layer
     //   leans so heavily on a simulated validation function.
-    // * Something where `mIsCurrentLedger` is false
 
     SCPDriver::ValidationLevel
     validateValue(
@@ -347,11 +345,11 @@ class TestSCP : public SCPDriver
             ->getValue();
     }
 
-    void
+    SCP::EnvelopeState
     receiveEnvelope(SCPEnvelope const& envelope)
     {
         auto envW = mSCP.getDriver().wrapEnvelope(envelope);
-        mSCP.receiveEnvelope(envW);
+        return mSCP.receiveEnvelope(envW);
     }
 
     Slot&
@@ -610,6 +608,36 @@ xValueInvalidValidationOverride(uint64, Value const& v, bool,
         return SCPDriver::kInvalidValue;
     }
     return SCPDriver::kFullyValidatedValue;
+}
+
+// Returns kInvalidValue for xValue, leaving mIsTxSetInvalid at the
+// fixture's default of false — i.e., this value is invalid for some
+// reason *other* than a bad tx set (e.g. bad close time or signature).
+SCPDriver::ValidationLevel
+xValueNonTxSetInvalidValidationOverride(uint64, Value const& v, bool,
+                                        SCPDriver::ValidationExtraInfo*)
+{
+    if (v == xValue)
+    {
+        return SCPDriver::kInvalidValue;
+    }
+    return SCPDriver::kFullyValidatedValue;
+}
+
+// Returns kMaybeValidValue for xValue and reports that the value is
+// NOT for the current ledger.
+SCPDriver::ValidationLevel
+xValueNotCurrentLedgerOverride(uint64, Value const& v, bool,
+                               SCPDriver::ValidationExtraInfo* extraInfo)
+{
+    if (v == xValue)
+    {
+        if (extraInfo)
+        {
+            extraInfo->mIsCurrentLedger = false;
+        }
+    }
+    return SCPDriver::kMaybeValidValue;
 }
 } // namespace
 
@@ -3739,6 +3767,35 @@ TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
     }
 }
 
+TEST_CASE("Proper handling of non-current ledger value",
+          "[scp][ballotprotocol]")
+{
+    setupValues();
+    SIMULATION_CREATE_NODE(0);
+    SIMULATION_CREATE_NODE(1);
+    SIMULATION_CREATE_NODE(2);
+
+    SCPQuorumSet qSet;
+    qSet.threshold = 2;
+    qSet.validators.push_back(v0NodeID);
+    qSet.validators.push_back(v1NodeID);
+    qSet.validators.push_back(v2NodeID);
+
+    TestSCP scp(v0SecretKey.getPublicKey(), qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+
+    // validateValue reports xValue is not for the current ledger.
+    scp.mValidateValueOverride = xValueNotCurrentLedgerOverride;
+
+    REQUIRE(scp.bumpState(0, xValue));
+    REQUIRE(scp.mEnvs.size() == 1);
+
+    auto const& emittedBallot = scp.mEnvs[0].statement.pledges.prepare().ballot;
+    REQUIRE(emittedBallot.counter == 1);
+    REQUIRE(!scp.isSkipLedgerValue(emittedBallot.value));
+    REQUIRE(emittedBallot.value == xValue);
+}
+
 TEST_CASE("setConfirmPrepared stalls on kAwaitingDownload value",
           "[scp][ballotprotocol]")
 {
@@ -3869,6 +3926,42 @@ TEST_CASE("incoming PREPARE with invalid prepared value is accepted",
     SCPBallot xB1(1, xValue);
     REQUIRE_NOTHROW(
         scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, yB1, &xB1)));
+}
+
+TEST_CASE("incoming PREPARE with non-tx-set-invalid value is dropped",
+          "[scp][ballotprotocol]")
+{
+    setupValues();
+    SIMULATION_CREATE_NODE(0);
+    SIMULATION_CREATE_NODE(1);
+    SIMULATION_CREATE_NODE(2);
+
+    SCPQuorumSet qSet;
+    qSet.threshold = 2;
+    qSet.validators.push_back(v0NodeID);
+    qSet.validators.push_back(v1NodeID);
+    qSet.validators.push_back(v2NodeID);
+
+    uint256 qSetHash = sha256(xdr::xdr_to_opaque(qSet));
+
+    TestSCP scp(v0SecretKey.getPublicKey(), qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+
+    // xValue is invalid for some non-tx-set reason (close time, signature,
+    // ...). Per the relaxed PREPARE validation, this should NOT be
+    // accepted as kValidForPrepare; the statement should be dropped.
+    scp.mValidateValueOverride = xValueNonTxSetInvalidValidationOverride;
+
+    SCPBallot xB1(1, xValue);
+
+    // Envelope should be rejected as invalid
+    REQUIRE(scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, xB1)) ==
+            SCP::EnvelopeState::INVALID);
+
+    // Envelope was not recorded — recordEnvelope only runs for non-kInvalid.
+    REQUIRE(scp.mSCP.getLatestMessage(v1NodeID) == nullptr);
+    // No local emit triggered.
+    REQUIRE(scp.mEnvs.empty());
 }
 
 TEST_CASE("self-envelope with invalid mPrepared does not crash",
