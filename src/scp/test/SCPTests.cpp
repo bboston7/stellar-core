@@ -63,6 +63,13 @@ class TestSCP : public SCPDriver
         mQuorumSets[qSetHash] = qSet;
     }
 
+    // TODO: Add tests for the following:
+    // * Peer sends invalid prepare message. Should be dropped
+    // * Awaiting download message is invalid (due to close time or something).
+    //   this might not be the right test layer for this one, since this layer
+    //   leans so heavily on a simulated validation function.
+    // * Something where `mIsCurrentLedger` is false
+
     SCPDriver::ValidationLevel
     validateValue(
         uint64 slotIndex, Value const& value, bool nomination,
@@ -70,7 +77,15 @@ class TestSCP : public SCPDriver
     {
         if (mValidateValueOverride)
         {
-            return mValidateValueOverride(slotIndex, value, nomination);
+            SCPDriver::ValidationLevel res =
+                mValidateValueOverride(slotIndex, value, nomination);
+            // TODO: mValidateValueOverride should handle extraInfo
+            if (res == SCPDriver::kInvalidValue && extraInfo)
+            {
+                extraInfo->mIsCurrentLedger = true;
+                extraInfo->mIsTxSetInvalid = true;
+            }
+            return res;
         }
         // If we're tracking download wait time for this value, it's awaiting
         // download
@@ -411,7 +426,8 @@ class TestSCP : public SCPDriver
         return std::chrono::milliseconds(timeoutMS);
     }
 
-    bool isEnvelopeReady(SCPEnvelope const& envelope) const override
+    bool
+    isEnvelopeReady(SCPEnvelope const& envelope) const override
     {
         // Not implemented. These tests do not use PendingEnvelopes, and so do
         // not require this method.
