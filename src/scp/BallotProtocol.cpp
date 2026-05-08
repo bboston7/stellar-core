@@ -350,7 +350,11 @@ bool
 BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 {
 
-    // TODO: Guard this with a check for the PREPARE phase
+    if (mPhase != SCP_PHASE_PREPARE)
+    {
+        // Can only replace with skip in the PREPARE phase
+        return false;
+    }
 
     // Check validation value
     SCPDriver::ValidationExtraInfo extraInfo;
