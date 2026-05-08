@@ -75,6 +75,14 @@ class TestSCP : public SCPDriver
         uint64 slotIndex, Value const& value, bool nomination,
         SCPDriver::ValidationExtraInfo* extraInfo = nullptr) const override
     {
+        if (extraInfo)
+        {
+            // By default, treat all values as for the current ledger
+            extraInfo->mIsCurrentLedger = true;
+            // By default, all values are valid or awaiting download
+            extraInfo->mIsTxSetInvalid = false;
+        }
+
         if (mValidateValueOverride)
         {
             SCPDriver::ValidationLevel res =
@@ -82,7 +90,6 @@ class TestSCP : public SCPDriver
             // TODO: mValidateValueOverride should handle extraInfo
             if (res == SCPDriver::kInvalidValue && extraInfo)
             {
-                extraInfo->mIsCurrentLedger = true;
                 extraInfo->mIsTxSetInvalid = true;
             }
             return res;
