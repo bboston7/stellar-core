@@ -594,7 +594,7 @@ verifyNominate(SCPEnvelope const& actual, SecretKey const& secretKey,
     REQUIRE(exp.statement == actual.statement);
 }
 
-// TODO: Docs
+// Simulate xValue being invalid due to an invalid tx set
 SCPDriver::ValidationLevel
 xValueInvalidValidationOverride(uint64, Value const& v, bool,
                                 SCPDriver::ValidationExtraInfo* extraInfo)
