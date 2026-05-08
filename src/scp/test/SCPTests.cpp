@@ -85,14 +85,8 @@ class TestSCP : public SCPDriver
 
         if (mValidateValueOverride)
         {
-            SCPDriver::ValidationLevel res =
-                mValidateValueOverride(slotIndex, value, nomination);
-            // TODO: mValidateValueOverride should handle extraInfo
-            if (res == SCPDriver::kInvalidValue && extraInfo)
-            {
-                extraInfo->mIsTxSetInvalid = true;
-            }
-            return res;
+            return mValidateValueOverride(slotIndex, value, nomination,
+                                          extraInfo);
         }
         // If we're tracking download wait time for this value, it's awaiting
         // download
@@ -275,7 +269,8 @@ class TestSCP : public SCPDriver
 
     std::function<uint64(NodeID const&)> mPriorityLookup;
     std::function<uint64(Value const&)> mHashValueCalculator;
-    std::function<SCPDriver::ValidationLevel(uint64, Value const&, bool)>
+    std::function<SCPDriver::ValidationLevel(uint64, Value const&, bool,
+                                             SCPDriver::ValidationExtraInfo*)>
         mValidateValueOverride;
 
     std::map<Hash, SCPQuorumSetPtr> mQuorumSets;
@@ -599,6 +594,22 @@ verifyNominate(SCPEnvelope const& actual, SecretKey const& secretKey,
 {
     auto exp = makeNominate(secretKey, qSetHash, slotIndex, votes, accepted);
     REQUIRE(exp.statement == actual.statement);
+}
+
+// TODO: Docs
+SCPDriver::ValidationLevel
+xValueInvalidValidationOverride(uint64, Value const& v, bool,
+                                SCPDriver::ValidationExtraInfo* extraInfo)
+{
+    if (v == xValue)
+    {
+        if (extraInfo)
+        {
+            extraInfo->mIsTxSetInvalid = true;
+        }
+        return SCPDriver::kInvalidValue;
+    }
+    return SCPDriver::kFullyValidatedValue;
 }
 } // namespace
 
@@ -3476,12 +3487,18 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
 
     std::map<Value, SCPDriver::ValidationLevel> validationLevels;
     validationLevels[xValue] = SCPDriver::kAwaitingDownload;
-    scp.mValidateValueOverride = [&](uint64, Value const& value,
-                                     bool) -> SCPDriver::ValidationLevel {
+    scp.mValidateValueOverride = [&](uint64, Value const& value, bool,
+                                     SCPDriver::ValidationExtraInfo* extraInfo)
+        -> SCPDriver::ValidationLevel {
         auto const it = validationLevels.find(value);
         if (it != validationLevels.end())
         {
-            return it->second;
+            SCPDriver::ValidationLevel const level = it->second;
+            if (level == SCPDriver::kInvalidValue && extraInfo)
+            {
+                extraInfo->mIsTxSetInvalid = true;
+            }
+            return level;
         }
         return SCPDriver::kFullyValidatedValue;
     };
@@ -3538,15 +3555,7 @@ TEST_CASE("ballot protocol can self-generate invalid prepare after"
     REQUIRE(scp.mEnvs[0].statement.pledges.prepare().ballot ==
             SCPBallot(1, xValue));
 
-    // xValue becomes invalid (tx set downloaded but found unusable)
-    scp.mValidateValueOverride = [](uint64, Value const& value,
-                                    bool) -> SCPDriver::ValidationLevel {
-        if (value == xValue)
-        {
-            return SCPDriver::kInvalidValue;
-        }
-        return SCPDriver::kFullyValidatedValue;
-    };
+    scp.mValidateValueOverride = xValueInvalidValidationOverride;
 
     // v1 sends PREPARE at higher counter with a different (valid) value
     REQUIRE_NOTHROW(scp.receiveEnvelope(
@@ -3852,14 +3861,7 @@ TEST_CASE("incoming PREPARE with invalid prepared value is accepted",
     REQUIRE(scp.mEnvs.size() == 1);
 
     // Set xValue to kInvalidValue
-    scp.mValidateValueOverride = [](uint64, Value const& value,
-                                    bool) -> SCPDriver::ValidationLevel {
-        if (value == xValue)
-        {
-            return SCPDriver::kInvalidValue;
-        }
-        return SCPDriver::kFullyValidatedValue;
-    };
+    scp.mValidateValueOverride = xValueInvalidValidationOverride;
 
     // v1 sends PREPARE with valid ballot value but invalid prepared value.
     // With relaxed PREPARE validation, this should be accepted.
@@ -3903,14 +3905,7 @@ TEST_CASE("self-envelope with invalid mPrepared does not crash",
     REQUIRE(*scp.mEnvs[1].statement.pledges.prepare().prepared == xB1);
 
     // xValue transitions to kInvalidValue
-    scp.mValidateValueOverride = [](uint64, Value const& value,
-                                    bool) -> SCPDriver::ValidationLevel {
-        if (value == xValue)
-        {
-            return SCPDriver::kInvalidValue;
-        }
-        return SCPDriver::kFullyValidatedValue;
-    };
+    scp.mValidateValueOverride = xValueInvalidValidationOverride;
 
     // v1 and v2 send PREPAREs at higher counter to trigger v-blocking bump.
     // This causes bumpState, which replaces xValue with skip via
@@ -3954,14 +3949,7 @@ TEST_CASE("self-envelope with invalid mCurrentBallot does not crash",
 
     // xValue transitions to kInvalidValue — mCurrentBallot now holds an
     // invalid value
-    scp.mValidateValueOverride = [](uint64, Value const& value,
-                                    bool) -> SCPDriver::ValidationLevel {
-        if (value == xValue)
-        {
-            return SCPDriver::kInvalidValue;
-        }
-        return SCPDriver::kFullyValidatedValue;
-    };
+    scp.mValidateValueOverride = xValueInvalidValidationOverride;
 
     // v1 and v2 send PREPAREs with yValue and prepared=(1,yValue).
     // When the quorum {v1,v2} accepts-prepared yValue, v0 calls
@@ -4011,14 +3999,7 @@ TEST_CASE("setAcceptCommit throws when quorum forces invalid value",
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
-    scp.mValidateValueOverride = [](uint64, Value const& value,
-                                    bool) -> SCPDriver::ValidationLevel {
-        if (value == xValue)
-        {
-            return SCPDriver::kInvalidValue;
-        }
-        return SCPDriver::kFullyValidatedValue;
-    };
+    scp.mValidateValueOverride = xValueInvalidValidationOverride;
 
     SCPBallot xB1(1, xValue);
 
