@@ -3788,12 +3788,9 @@ TEST_CASE("Proper handling of non-current ledger value",
     scp.mValidateValueOverride = xValueNotCurrentLedgerOverride;
 
     REQUIRE(scp.bumpState(0, xValue));
-    REQUIRE(scp.mEnvs.size() == 1);
 
-    auto const& emittedBallot = scp.mEnvs[0].statement.pledges.prepare().ballot;
-    REQUIRE(emittedBallot.counter == 1);
-    REQUIRE(!scp.isSkipLedgerValue(emittedBallot.value));
-    REQUIRE(emittedBallot.value == xValue);
+    // Do not emit a ballot with a kMaybeValid value
+    REQUIRE(scp.mEnvs.size() == 0);
 }
 
 TEST_CASE("setConfirmPrepared stalls on kAwaitingDownload value",
