@@ -473,10 +473,19 @@ HerderSCPDriver::validateValueAgainstLocalState(
                        slotIndex, hexAbbrev(txSetHash));
             res = SCPDriver::kFullyValidatedValue;
         }
+
+        // kMaybeValidValue should never be returned for LCL+1 values, as these
+        // values should always be fully valid/invalid, or awaiting download
+        releaseAssert(res != SCPDriver::kMaybeValidValue);
     }
     else
     {
         res = validatePastOrFutureValue(slotIndex, b, lcl);
+
+        // Non-LCL+1 values cannot be fully validated and are not eligible for
+        // parallel downloading.
+        releaseAssert(res != SCPDriver::kAwaitingDownload &&
+                      res != SCPDriver::kFullyValidatedValue);
     }
     return res;
 }
@@ -558,8 +567,8 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
         auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
         extraInfo->mIsCurrentLedger = slotIndex == lcl.header.ledgerSeq + 1;
 
-        // Set mIsTxSetInvalid to `false` by default. Downstream code can set it
-        // to `true` if it determines that the value is invalid.
+        // Set mIsTxSetInvalid to `false` by default. Downstream code will set
+        // it to `true` if it determines that the value is invalid.
         extraInfo->mIsTxSetInvalid = false;
     }
 

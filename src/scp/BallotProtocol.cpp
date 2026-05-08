@@ -201,7 +201,7 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
                mSlot.getSCP().getDriver().toShortString(statement.nodeID));
 
     // If the value is not valid, we just ignore it.
-    if (validationRes == SCPDriver::kInvalidValue)
+    if (validationRes == ValidateValuesResult::kInvalid)
     {
         if (self)
         {
@@ -218,13 +218,16 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
 
     if (mPhase != SCP_PHASE_EXTERNALIZE)
     {
-        if (validationRes == SCPDriver::kMaybeValidValue)
+        if (validationRes == ValidateValuesResult::kMaybeValidNotCurrent)
         {
+            // We will not be able to fully validate this, as it's not for LCL+1
             mSlot.setFullyValidated(false);
         }
 
         recordEnvelope(envelope);
         advanceSlot(statement);
+        releaseAssert(validationRes == ValidateValuesResult::kFullyValid ||
+                      validationRes == ValidateValuesResult::kValidForPrepare);
         return SCP::EnvelopeState::VALID;
     }
 
@@ -2154,7 +2157,7 @@ BallotProtocol::getStatementValues(SCPStatement const& st)
     return values;
 }
 
-SCPDriver::ValidationLevel
+BallotProtocol::ValidateValuesResult
 BallotProtocol::validateValues(SCPStatement const& st)
 {
     ZoneScoped;
@@ -2170,13 +2173,13 @@ BallotProtocol::validateValues(SCPStatement const& st)
                    "found empty value set in statement",
                    mSlot.getSlotIndex());
         // This shouldn't happen
-        return SCPDriver::kInvalidValue;
+        return ValidateValuesResult::kInvalid;
     }
 
     bool validForPrepare =
         st.pledges.type() == SCPStatementType::SCP_ST_PREPARE;
 
-    SCPDriver::ValidationLevel res = std::accumulate(
+    SCPDriver::ValidationLevel minValidationLevel = std::accumulate(
         values.begin(), values.end(), SCPDriver::kFullyValidatedValue,
         [&](SCPDriver::ValidationLevel lv, stellar::Value const& v) {
             if (lv > SCPDriver::kInvalidValue)
@@ -2208,12 +2211,21 @@ BallotProtocol::validateValues(SCPStatement const& st)
             return lv;
         });
 
-    if (res == SCPDriver::kInvalidValue && validForPrepare)
+    switch (minValidationLevel)
     {
-        return SCPDriver::kFullyValidatedValue;
+    case SCPDriver::kInvalidValue:
+        return validForPrepare ? ValidateValuesResult::kValidForPrepare
+                               : ValidateValuesResult::kInvalid;
+    case SCPDriver::kMaybeValidValue:
+        return ValidateValuesResult::kMaybeValidNotCurrent;
+    case SCPDriver::kAwaitingDownload:
+        releaseAssert(validForPrepare);
+        return ValidateValuesResult::kValidForPrepare;
+    case SCPDriver::kFullyValidatedValue:
+        return ValidateValuesResult::kFullyValid;
+    default:
+        releaseAssert(false);
     }
-
-    return res;
 }
 
 void

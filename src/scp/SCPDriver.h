@@ -139,16 +139,22 @@ class SCPDriver
     // is done. It should be used to filter out values that are not compatible
     // with the current state of that node. Invalid values can never
     // externalize.
-    // If the value cannot be validated (node is missing some context) but
+    // If the value cannot be validated (node is missing some context due to
+    // the value belonging to a ledger other than LCL+1) but
     // passes
     // the validity checks, kMaybeValidValue can be returned. This will cause
     // the current slot to be marked as a non validating slot: the local node
     // will abstain from emitting its position.
+    // kMaybeValidValue should only be returned if the value is for a ledger
+    // other than current ledger (that is, not LCL+1). If a value cannot be
+    // validated due to parallel downloading (e.g. it's for LCL+1 but the node
+    // is still downloading the tx set), then kAwaitingDownload should be
+    // used.
     // validation can be *more* restrictive during nomination as needed
     // NB: validation levels are ordered
     // Callers who want additional information about the validation result can
     // optionally pass a `ValidationExtraInfo` struct pointer, which will be
-    // popluated with additional information about the validation result.
+    // populated with additional information about the validation result.
     enum ValidationLevel
     {
         kInvalidValue = 0,       // value is invalid for sure
