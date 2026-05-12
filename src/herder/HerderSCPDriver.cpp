@@ -550,8 +550,6 @@ HerderSCPDriver::deserializeAndValidateStellarValue(Value const& value,
         return false;
     }
 
-    // TODO(8): Grep for signature checks and update them for SKIP values
-
     if (sv.ext.v() != STELLAR_VALUE_SIGNED && sv.ext.v() != STELLAR_VALUE_SKIP)
     {
         return false;
