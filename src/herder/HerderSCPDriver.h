@@ -64,6 +64,7 @@ class HerderSCPDriver : public SCPDriver
     SCPEnvelopeWrapperPtr wrapEnvelope(SCPEnvelope const& envelope) override;
     void signEnvelope(SCPEnvelope& envelope) override;
     void emitEnvelope(SCPEnvelope const& envelope) override;
+    // Returns true if `env` is ready to hand off to SCP?
     bool isEnvelopeReady(SCPEnvelope const& env) const override;
 
     // value validation

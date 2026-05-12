@@ -684,6 +684,7 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
 {
     ZoneScoped;
     StellarValue originalValue = toStellarValueOrThrow(v);
+    releaseAssert(originalValue.ext.v() == STELLAR_VALUE_SIGNED);
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
 
     StellarValue sv;
@@ -854,18 +855,12 @@ compareTxSets(ApplicableTxSetFrameConstPtr const& l,
 {
     if (!l && !r)
     {
-        CLOG_TRACE(Proto, "Comparing tx sets but both are null");
         // Do not have either tx set. Compare hashes
         return lessThanXored(lh, rh, s);
     }
 
     if (!l || !r)
     {
-        CLOG_TRACE(
-            Proto,
-            "Comparing tx sets but one is null: l: {}, r: {}, lh: {}, rh: {}",
-            l ? "exists" : "null", r ? "exists" : "null", hexAbbrev(lh),
-            hexAbbrev(rh));
         // If one exists, choose it
         return !l;
     }
@@ -1039,20 +1034,10 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
                 cTxSet = *ptr;
             }
             // else: SkipTxSet -> cTxSet stays null, handled by existing
-            // !cTxSet logic
 
             // Only valid applicable tx sets should be combined.
             auto cApplicableTxSet =
                 cTxSet ? cTxSet->prepareForApply(mApp, lcl.header) : nullptr;
-            // releaseAssert(cApplicableTxSet);
-            // TODO(12): When cTxSet is null we skip the previousLedgerHash
-            // check here, but it will be caught later: once the tx set is
-            // downloaded, checkAndCacheTxSetValid (called from validateValue)
-            // checks previousLedgerHash == lcl.hash before prepareForApply.
-            // A mismatch makes validateValue return kInvalidValue, preventing
-            // the node from voting to commit.
-            // Should write a test that causes combineCandidates to use a tx
-            // set with a bad previous ledger hash to verify this.
             if (!cTxSet || cTxSet->previousLedgerHash() == lcl.hash)
             {
 
@@ -1699,12 +1684,6 @@ HerderSCPDriver::purgeSlotsOutsideRange(std::optional<uint64_t> minSlotIndex,
     getSCP().purgeSlotsOutsideRange(minSlotIndex, maxSlotIndex, slotToKeep);
 
     // Clean up expired weak_ptrs from the pending tx set registries.
-    // This cleanup is correct because:
-    // 1. When SCP purges a slot via getSCP().purgeSlots() above, it destroys
-    //    the Slot object along with its NominationProtocol/BallotProtocol
-    // 2. This destroys the ValueWrapperPtrs/EnvelopeWrapperPtrs stored there
-    // 3. If those were the only remaining references, the weak_ptrs here expire
-    // 4. We remove expired entries to prevent unbounded growth of the map
     purgeExpiredWeakPtrs(mPendingTxSetWrappers);
     purgeExpiredWeakPtrs(mPendingTxSetEnvelopeWrappers);
 }
