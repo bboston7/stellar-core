@@ -385,36 +385,6 @@ HerderSCPDriver::validatePastOrFutureValue(
     return SCPDriver::kMaybeValidValue;
 }
 
-// TODO(rebase): Consider just folding this into
-// deserializeAndValidateStellarValue.
-bool
-HerderSCPDriver::checkValueTypeAndSkipHashInvariant(StellarValue const& b) const
-{
-    if (!protocolAllowsSkipValues())
-    {
-        // Before SKIP_LEDGER_PROTOCOL_VERSION, skip values are not valid at
-        // all, so we can just check that the value is a normal signed value.
-        return b.ext.v() == STELLAR_VALUE_SIGNED;
-    }
-
-    // Only signed and skip values participate in SCP.
-    // TODO(8): Grep for signature checks and update them for SKIP values
-    if (b.ext.v() != STELLAR_VALUE_SIGNED && b.ext.v() != STELLAR_VALUE_SKIP)
-    {
-        return false;
-    }
-
-    // Skip values must have the skip hash, and non-skip values must not have
-    // the skip hash
-    if ((b.txSetHash == Herder::SKIP_LEDGER_HASH) !=
-        (b.ext.v() == STELLAR_VALUE_SKIP))
-    {
-        return false;
-    }
-
-    return true;
-}
-
 SCPDriver::ValidationLevel
 HerderSCPDriver::validateValueAgainstLocalState(
     uint64_t slotIndex, StellarValue const& b, bool nomination,
@@ -544,13 +514,28 @@ HerderSCPDriver::deserializeAndValidateStellarValue(Value const& value,
         return false;
     }
 
-    // TODO(rebase): Remove slot index after rebase
-    if (!checkValueTypeAndSkipHashInvariant(sv))
+    bool const skipsAllowed = protocolAllowsSkipValues();
+    if (sv.ext.v() != STELLAR_VALUE_SIGNED)
     {
-        return false;
+        if (!skipsAllowed)
+        {
+            // Skip values are not allowed, and the value is not a signed value,
+            // so it is invalid.
+            return false;
+        }
+
+        if (sv.ext.v() != STELLAR_VALUE_SKIP)
+        {
+            // The value is not a signed value or a skip value, so it is
+            // invalid.
+            return false;
+        }
     }
 
-    if (sv.ext.v() != STELLAR_VALUE_SIGNED && sv.ext.v() != STELLAR_VALUE_SKIP)
+    // Skip values must have the skip hash, and non-skip values must not have
+    // the skip hash
+    if (skipsAllowed && (sv.txSetHash == Herder::SKIP_LEDGER_HASH) !=
+                            (sv.ext.v() == STELLAR_VALUE_SKIP))
     {
         return false;
     }
