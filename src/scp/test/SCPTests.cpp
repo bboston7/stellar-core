@@ -161,16 +161,12 @@ class TestSCP : public SCPDriver
                v[4] == ':';
     }
 
-    // TODO: Make configurable? Mix-and-match different nodes with this
-    // enabled/disabled?
     bool
     isParallelTxSetDownloadEnabled() const override
     {
         return true;
     }
 
-    // TODO: Make this configurable? Test that we reject skip values prior to
-    // protocol upgrade?
     bool
     protocolAllowsSkipValues() const override
     {
@@ -3554,8 +3550,8 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
 
     auto const followerAcceptedNomination =
         makeNominate(v2SecretKey, qSetHash, 0, {xValue}, {xValue});
-    // With the fix, maybeReplaceValueWithSkip replaces the invalid value
-    // with skip in bumpState, so no throw occurs
+    // maybeReplaceValueWithSkip replaces the invalid value with skip in
+    // bumpState
     REQUIRE_NOTHROW(scp.receiveEnvelope(followerAcceptedNomination));
 
     // The emitted ballot should have a skip value, not the original xValue
