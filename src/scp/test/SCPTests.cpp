@@ -3782,7 +3782,6 @@ TEST_CASE("setConfirmPrepared stalls on kAwaitingDownload value",
 
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
-    uint256 qSetHash0 = scp.mSCP.getLocalNode()->getQuorumSetHash();
 
     SECTION("commit gate stalls mCommit but mHighBallot is set")
     {
