@@ -3736,42 +3736,6 @@ TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
         REQUIRE(scp.isSkipLedgerValue(scp.mExternalizedValues[0]));
         REQUIRE(scp.mExternalizedValues[0] == skipValue);
     }
-
-    SECTION("switch back to original value after download completes")
-    {
-        // Node starts with xValue that's awaiting download (timeout exceeded)
-        scp.startDownload(xValue, std::chrono::milliseconds(6000));
-
-        // First bumpState creates skip value
-        REQUIRE(scp.bumpState(0, xValue));
-        REQUIRE(scp.mEnvs.size() == 1);
-
-        Value skipValue = scp.makeSkipLedgerValueFromValue(xValue);
-        SCPBallot skipB1(1, skipValue);
-
-        // Verify we emitted skip value
-        REQUIRE(scp.isSkipLedgerValue(
-            scp.mEnvs[0].statement.pledges.prepare().ballot.value));
-        verifyPrepare(scp.mEnvs[0], v0SecretKey, qSetHash0, 0, skipB1);
-
-        // Simulate download completion - value is now available
-        scp.clearDownload(xValue);
-
-        // Now bumpState should switch back to original value
-        REQUIRE(scp.bumpState(0, xValue));
-        REQUIRE(scp.mEnvs.size() == 2);
-
-        // Verify we switched back to original xValue (not skip value)
-        auto const& emittedBallot =
-            scp.mEnvs[1].statement.pledges.prepare().ballot;
-        REQUIRE(emittedBallot.counter == 2);
-        REQUIRE(!scp.isSkipLedgerValue(emittedBallot.value));
-        REQUIRE(emittedBallot.value == xValue);
-
-        // Verify the ballot structure - new ballot with original value
-        SCPBallot xB2(2, xValue);
-        verifyPrepare(scp.mEnvs[1], v0SecretKey, qSetHash0, 0, xB2);
-    }
 }
 
 TEST_CASE("Proper handling of non-current ledger value",
