@@ -185,7 +185,7 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
         return SCP::EnvelopeState::INVALID;
     }
 
-    auto validationRes = validateValues(statement);
+    auto validationRes = statementValidationLevel(statement);
 
     switch (validationRes)
     {
@@ -212,16 +212,17 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
         case SCP_ST_CONFIRM:
             // Generally, CONFIRM messages cannot just be structurally valid.
             // However, there is one exception: if a v-blocking set of
-            // validators confirms PREPARE for a value that the local node does
-            // not have, then the local node will still accept-commit that
-            // value. The local node will then generate a CONFIRM message for
-            // that value, even though it is only structurally valid.  This is
-            // safe to do, because an honest node must have downloaded and
-            // validated the value at that point.  The consequence of this is
-            // that we must allow self-generated CONFIRM messages to be
-            // structurally valid. We still reject CONFIRM messages from peers
-            // that are only structurally valid, and the local node will stall
-            // at this point until it can download and validate the value.
+            // validators votes-to-commit a value that the local node does not
+            // have, then the local node will still accept-commit that value.
+            // The local node will then generate a CONFIRM message for that
+            // value, even though it is only structurally valid.  This is safe
+            // to do, because an honest validator in the v-blocking set must
+            // have downloaded and validated the value at that point.  The
+            // consequence of this is that we must allow self-generated CONFIRM
+            // messages to be structurally valid.  We still reject CONFIRM
+            // messages from peers that are only structurally valid, and the
+            // local node will stall at this point until it can download and
+            // validate the value.
             if (!self)
             {
                 return SCP::EnvelopeState::INVALID;
@@ -233,6 +234,8 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
         default:
             releaseAssert(false);
         }
+    default:
+        break;
     }
 
     if (mPhase != SCP_PHASE_EXTERNALIZE)
@@ -2115,7 +2118,7 @@ BallotProtocol::getStatementValues(SCPStatement const& st)
 }
 
 SCPDriver::ValidationLevel
-BallotProtocol::validateValues(SCPStatement const& st)
+BallotProtocol::statementValidationLevel(SCPStatement const& st)
 {
     ZoneScoped;
     std::set<Value> values;

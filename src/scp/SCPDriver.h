@@ -135,6 +135,7 @@ class SCPDriver
 
     // methods to hand over the validation and ordering of values and ballots.
 
+    // TODO: Update this comment vv
     // `validateValue` is called on each message received before any processing
     // is done. It should be used to filter out values that are not compatible
     // with the current state of that node. Invalid values can never
@@ -171,14 +172,8 @@ class SCPDriver
         kStructurallyValidValue = 2,   // value is being fetched
         kFullyValidatedValue = 3 // value is valid for sure
     };
-    struct ValidationExtraInfo
-    {
-        // True iff the value is for the current ledger
-        bool mIsCurrentLedger = false;
-    };
     virtual ValidationLevel
-    validateValue(uint64 slotIndex, Value const& value, bool nomination,
-                  ValidationExtraInfo* extraInfo = nullptr) const
+    validateValue(uint64 slotIndex, Value const& value, bool nomination) const
     {
         return kMaybeValidValue;
     }

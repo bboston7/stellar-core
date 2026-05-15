@@ -386,9 +386,9 @@ HerderSCPDriver::validatePastOrFutureValue(
 }
 
 SCPDriver::ValidationLevel
-HerderSCPDriver::validateValueAgainstLocalState(
-    uint64_t slotIndex, StellarValue const& b, bool nomination,
-    SCPDriver::ValidationExtraInfo* extraInfo) const
+HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
+                                                StellarValue const& b,
+                                                bool nomination) const
 {
     ZoneScoped;
     releaseAssert(threadIsMain());
@@ -469,8 +469,9 @@ HerderSCPDriver::validateValueAgainstLocalState(
             CLOG_DEBUG(Herder,
                        "HerderSCPDriver::validateValue i: {} invalid txSet {}",
                        slotIndex, hexAbbrev(txSetHash));
-            res = protocolAllowsSkipValues() ? SCPDriver::kStructurallyValidValue
-                                             : SCPDriver::kInvalidValue;
+            res = protocolAllowsSkipValues()
+                      ? SCPDriver::kStructurallyValidValue
+                      : SCPDriver::kInvalidValue;
         }
         else
         {
@@ -575,21 +576,10 @@ HerderSCPDriver::extractValidUpgrades(StellarValue& sv, bool nomination) const
 
 SCPDriver::ValidationLevel
 HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
-                               bool nomination,
-                               SCPDriver::ValidationExtraInfo* extraInfo) const
+                               bool nomination) const
 {
     ZoneScoped;
     releaseAssert(threadIsMain());
-
-    if (extraInfo)
-    {
-        auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
-        extraInfo->mIsCurrentLedger = slotIndex == lcl.header.ledgerSeq + 1;
-
-        // Set mIsTxSetInvalid to `false` by default. Downstream code will set
-        // it to `true` if it determines that the value is invalid.
-        extraInfo->mIsTxSetInvalid = false;
-    }
 
     StellarValue b;
     if (!deserializeAndValidateStellarValue(value, b))
@@ -599,7 +589,7 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
     }
 
     SCPDriver::ValidationLevel res =
-        validateValueAgainstLocalState(slotIndex, b, nomination, extraInfo);
+        validateValueAgainstLocalState(slotIndex, b, nomination);
     if (res != SCPDriver::kInvalidValue)
     {
         auto origSize = b.upgrades.size();
@@ -636,8 +626,7 @@ HerderSCPDriver::extractValidValue(uint64_t slotIndex, Value const& value)
     }
 
     ValueWrapperPtr res;
-    if (validateValueAgainstLocalState(slotIndex, b, true,
-                                       /*extraInfo=*/nullptr) >=
+    if (validateValueAgainstLocalState(slotIndex, b, true) >=
         SCPDriver::kStructurallyValidValue)
     {
         extractValidUpgrades(b, true);

@@ -178,7 +178,7 @@ class BallotProtocol
     // returns true if all values in statement are valid
     // TODO: Rename this function and fix the comment above. Rename to something
     // like: minimumValidationLevelForStatement.
-    SCPDriver::ValidationLevel validateValues(SCPStatement const& st);
+    SCPDriver::ValidationLevel statementValidationLevel(SCPStatement const& st);
 
     // send latest envelope if needed
     void sendLatestEnvelope();
