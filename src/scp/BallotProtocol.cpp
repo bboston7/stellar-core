@@ -397,7 +397,7 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 
     // Check if we're awaiting download on the value
     auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
-    if (waitingTime.hasValue())
+    if (waitingTime.has_value())
     {
         CLOG_TRACE(SCP, "Waiting time for {}: {}", hexAbbrev(v),
                    waitingTime.value().count());
