@@ -469,6 +469,9 @@ HerderSCPDriver::validateValueAgainstLocalState(
             CLOG_DEBUG(Herder,
                        "HerderSCPDriver::validateValue i: {} invalid txSet {}",
                        slotIndex, hexAbbrev(txSetHash));
+            // TODO: THis should return whatever the replacement is for
+            // kAwaitingDownload when parallel downloading is enabled, and
+            // invalid otherwise.
             res = SCPDriver::kInvalidValue;
             if (extraInfo)
             {

@@ -158,7 +158,16 @@ class SCPDriver
     enum ValidationLevel
     {
         kInvalidValue = 0,       // value is invalid for sure
+        // TODO: Rename. Something like `kMaybeValidNotCurrentLedgerValue`. Or
+        // something less wordy.
         kMaybeValidValue = 1,    // value may be valid
+        // TODO: Rename. Ideas include:
+        // * kAwaitingValidValue
+        // * kValidThroughPrepare
+        // * kStructurallyValidValue
+        //   * Describe as something like "value is structurally valid (has
+        //     valid close time, etc), but the transaction set it references is
+        //     either missing or invalid."
         kAwaitingDownload = 2,   // value is being fetched
         kFullyValidatedValue = 3 // value is valid for sure
     };
