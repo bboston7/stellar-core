@@ -1148,33 +1148,12 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 mSlot.getSCPDriver().recordBallotBlockedOnTxSet(
                     mSlot.getSlotIndex(), newC.value);
 
-                // Check how long we've been waiting for the transaction set
-                auto waitingTime =
-                    mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
-
-                // `waitingTime` cannot be nullopt if `validateValue` returns
-                // `kStructurallyValidValue`.
-                releaseAssert(waitingTime.has_value());
                 CLOG_TRACE(
                     SCP,
                     "BallotProtocol::setConfirmPrepared slot:{} "
                     "attempting to vote to commit with kStructurallyValidValue "
                     "value "
                     "- "
-                    "ballot counter:{} value:{} waiting_time:{}ms",
-                    mSlot.getSlotIndex(), newC.counter,
-                    mSlot.getSCP().getDriver().getValueString(newC.value),
-                    waitingTime.value().count());
-            }
-            else if (validationLevel == SCPDriver::kInvalidValue)
-            {
-                // With parallel downloading, a confirmed-prepared value
-                // can become kInvalidValue if the tx set was downloaded
-                // and found invalid. Do not vote to commit it.
-                CLOG_INFO(
-                    SCP,
-                    "BallotProtocol::setConfirmPrepared slot:{} "
-                    "commit gate rejecting kInvalidValue - "
                     "ballot counter:{} value:{}",
                     mSlot.getSlotIndex(), newC.counter,
                     mSlot.getSCP().getDriver().getValueString(newC.value));
@@ -1182,6 +1161,9 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             else
             {
                 dbgAssert(!mCommit);
+                releaseAssert(validationLevel ==
+                                  SCPDriver::kFullyValidatedValue ||
+                              validationLevel == SCPDriver::kMaybeValidValue);
 
                 // Measure and record how long balloting was blocked on this
                 // txset
