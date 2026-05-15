@@ -148,7 +148,7 @@ class SCPDriver
     // kMaybeValidValue should only be returned if the value is for a ledger
     // other than current ledger (that is, not LCL+1). If a value cannot be
     // validated due to parallel downloading (e.g. it's for LCL+1 but the node
-    // is still downloading the tx set), then kAwaitingDownload should be
+    // is still downloading the tx set), then kStructurallyValidValue should be
     // used.
     // validation can be *more* restrictive during nomination as needed
     // NB: validation levels are ordered
@@ -168,20 +168,13 @@ class SCPDriver
         //   * Describe as something like "value is structurally valid (has
         //     valid close time, etc), but the transaction set it references is
         //     either missing or invalid."
-        kAwaitingDownload = 2,   // value is being fetched
+        kStructurallyValidValue = 2,   // value is being fetched
         kFullyValidatedValue = 3 // value is valid for sure
     };
     struct ValidationExtraInfo
     {
         // True iff the value is for the current ledger
         bool mIsCurrentLedger = false;
-        // True iff the value is invalid because of an invalid tx set. Note that
-        // a value that is determined to be invalid due to early checks (e.g.
-        // close time too far in the future) will not have this flag set even if
-        // the transaction set it references is also invalid. This flag captures
-        // only values that are determined to be invalid specifically due to an
-        // invalid transaction set.
-        bool mIsTxSetInvalid = false;
     };
     virtual ValidationLevel
     validateValue(uint64 slotIndex, Value const& value, bool nomination,

@@ -85,7 +85,7 @@ class TestSCP : public SCPDriver
         // download
         if (mDownloadWaitTimes.find(value) != mDownloadWaitTimes.end())
         {
-            return SCPDriver::kAwaitingDownload;
+            return SCPDriver::kStructurallyValidValue;
         }
         return SCPDriver::kFullyValidatedValue;
     }
@@ -3521,7 +3521,7 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
     std::map<Value, SCPDriver::ValidationLevel> validationLevels;
-    validationLevels[xValue] = SCPDriver::kAwaitingDownload;
+    validationLevels[xValue] = SCPDriver::kStructurallyValidValue;
     scp.mValidateValueOverride = [&](uint64, Value const& value, bool,
                                      SCPDriver::ValidationExtraInfo* extraInfo)
         -> SCPDriver::ValidationLevel {
@@ -3583,7 +3583,7 @@ TEST_CASE("ballot protocol can self-generate invalid prepare after"
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
     // v0 enters ballot protocol with xValue while its tx set is
-    // still being downloaded (kAwaitingDownload, not yet timed out)
+    // still being downloaded (kStructurallyValidValue, not yet timed out)
     scp.startDownload(xValue, std::chrono::milliseconds(1000));
     REQUIRE(scp.bumpState(0, xValue));
     REQUIRE(scp.mEnvs.size() == 1);
@@ -3764,7 +3764,7 @@ TEST_CASE("Proper handling of non-current ledger value",
     REQUIRE(scp.mEnvs.size() == 0);
 }
 
-TEST_CASE("setConfirmPrepared stalls on kAwaitingDownload value",
+TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
           "[scp][ballotprotocol]")
 {
     setupValues();
@@ -3790,7 +3790,7 @@ TEST_CASE("setConfirmPrepared stalls on kAwaitingDownload value",
         REQUIRE(scp.mEnvs.size() == 1);
         SCPBallot xB1(1, xValue);
 
-        // Switch xValue to kAwaitingDownload
+        // Switch xValue to kStructurallyValidValue
         scp.startDownload(xValue, std::chrono::milliseconds(1000));
 
         // v1 and v2 send PREPAREs with prepared — quorum confirms prepared
@@ -3800,7 +3800,7 @@ TEST_CASE("setConfirmPrepared stalls on kAwaitingDownload value",
             makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)));
 
         // setConfirmPrepared sets mHighBallot (nH > 0) but the commit gate
-        // stalls mCommit (nC == 0) because xValue is kAwaitingDownload.
+        // stalls mCommit (nC == 0) because xValue is kStructurallyValidValue.
         // Check the latest emitted PREPARE.
         REQUIRE(scp.mEnvs.size() >= 2);
         auto const& lastPrep = scp.mEnvs.back().statement.pledges.prepare();
@@ -3950,7 +3950,7 @@ TEST_CASE("self-envelope with invalid mPrepared does not crash",
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
-    // v0 enters ballot protocol with xValue (kAwaitingDownload, not timed out)
+    // v0 enters ballot protocol with xValue (kStructurallyValidValue, not timed out)
     scp.startDownload(xValue, std::chrono::milliseconds(1000));
     REQUIRE(scp.bumpState(0, xValue));
     REQUIRE(scp.mEnvs.size() == 1);

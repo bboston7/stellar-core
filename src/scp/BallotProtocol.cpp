@@ -354,53 +354,30 @@ BallotProtocol::abandonBallot(uint32 n)
 bool
 BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 {
-    if (!mSlot.getSCPDriver().protocolAllowsSkipValues())
-    {
-        // Protocol does not allow skip values
-        return false;
-    }
-
     if (mPhase != SCP_PHASE_PREPARE)
     {
         // Can only replace with skip in the PREPARE phase
         return false;
     }
 
-    if (mSlot.getSCPDriver().isSkipLedgerValue(v))
-    {
-        // Already a skip value. Nothing to replace.
-        return false;
-    }
-
     // Check validation value
-    SCPDriver::ValidationExtraInfo extraInfo;
-    auto validationLevel = mSlot.getSCPDriver().validateValue(
-        mSlot.getSlotIndex(), v, false, &extraInfo);
-    if (!extraInfo.mIsCurrentLedger)
+    auto validationLevel =
+        mSlot.getSCPDriver().validateValue(mSlot.getSlotIndex(), v, false);
+
+    if (validationLevel != SCPDriver::kStructurallyValidValue)
     {
-        // Cannot replace with skip for non-current ledgers
+        // Only replace with skip if the value is structurally valid
         return false;
     }
 
-    switch (validationLevel)
-    {
-    case SCPDriver::kInvalidValue:
-        // Value has been definitively determined to be invalid (e.g., a
-        // tx set that was downloaded and found to be unusable). Replace
-        // immediately with skip -- no timeout check needed.
-        CLOG_TRACE(SCP, "Replacing invalid value '{}' with skip for slot {}",
-                   mSlot.getSCPDriver().getValueString(v),
-                   mSlot.getSlotIndex());
-        break;
-    case SCPDriver::kAwaitingDownload:
-    {
-        // Check how long we've been waiting
-        auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
+    // Implied by `validationLevel == kStructurallyValidValue`
+    releaseAssert(mSlot.getSCPDriver().protocolAllowsSkipValues());
+    releaseAssert(!mSlot.getSCPDriver().isSkipLedgerValue(v));
 
-        // `waitingTime` cannot be nullopt if `validateValue` returns
-        // `kAwaitingDownload`.
-        releaseAssert(waitingTime.has_value());
-
+    // Check if we're awaiting download on the value
+    auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
+    if (waitingTime.hasValue())
+    {
         CLOG_TRACE(SCP, "Waiting time for {}: {}", hexAbbrev(v),
                    waitingTime.value().count());
 
@@ -411,15 +388,9 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
             return false;
         }
     }
-    break;
-    case SCPDriver::kFullyValidatedValue:
-        // Value is valid, no need to replace with skip
-        return false;
-    case SCPDriver::kMaybeValidValue:
-        // This shouldn't be possible. The check for `mIsCurrentLedger` above
-        // should catch all cases where `kMaybeValidValue` is returned
-        releaseAssert(false);
-    }
+    // If there is no waiting time for this value, then the value must
+    // reference an invalid tx set that the node already had prior to
+    // receiving the SCP envelope. Replace with skip.
 
     // Choose highest seen skip value, or create one if no such values exist.
     v = mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
@@ -1165,10 +1136,10 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             auto validationLevel = mSlot.getSCPDriver().validateValue(
                 mSlot.getSlotIndex(), newC.value, false);
 
-            if (validationLevel == SCPDriver::kAwaitingDownload)
+            if (validationLevel == SCPDriver::kStructurallyValidValue)
             {
-                // It should not be possible to get `kAwaitingDownload` without
-                // parallel downloading enabled.
+                // It should not be possible to get `kStructurallyValidValue`
+                // without parallel downloading enabled.
                 releaseAssert(
                     mSlot.getSCPDriver().isParallelTxSetDownloadEnabled());
 
@@ -1182,12 +1153,13 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                     mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
 
                 // `waitingTime` cannot be nullopt if `validateValue` returns
-                // `kAwaitingDownload`.
+                // `kStructurallyValidValue`.
                 releaseAssert(waitingTime.has_value());
                 CLOG_TRACE(
                     SCP,
                     "BallotProtocol::setConfirmPrepared slot:{} "
-                    "attempting to vote to commit with kAwaitingDownload value "
+                    "attempting to vote to commit with kStructurallyValidValue "
+                    "value "
                     "- "
                     "ballot counter:{} value:{} waiting_time:{}ms",
                     mSlot.getSlotIndex(), newC.counter,
@@ -2200,7 +2172,7 @@ BallotProtocol::validateValues(SCPStatement const& st)
         // Value may or may not be valid, but we cannot tell because it is for
         // some ledger other than LCL+1
         return ValidateValuesResult::kMaybeValidNotCurrent;
-    case SCPDriver::kAwaitingDownload:
+    case SCPDriver::kStructurallyValidValue:
         // Still waiting on some values, but none we have so far are invalid.
         return ValidateValuesResult::kValidAwaitingDownload;
     case SCPDriver::kFullyValidatedValue:

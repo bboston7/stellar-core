@@ -454,7 +454,7 @@ HerderSCPDriver::validateValueAgainstLocalState(
             if (isParallelTxSetDownloadEnabled() &&
                 mPendingEnvelopes.getTxSetWaitingTime(txSetHash).has_value())
             {
-                res = SCPDriver::kAwaitingDownload;
+                res = SCPDriver::kStructurallyValidValue;
             }
             else
             {
@@ -469,14 +469,8 @@ HerderSCPDriver::validateValueAgainstLocalState(
             CLOG_DEBUG(Herder,
                        "HerderSCPDriver::validateValue i: {} invalid txSet {}",
                        slotIndex, hexAbbrev(txSetHash));
-            // TODO: THis should return whatever the replacement is for
-            // kAwaitingDownload when parallel downloading is enabled, and
-            // invalid otherwise.
-            res = SCPDriver::kInvalidValue;
-            if (extraInfo)
-            {
-                extraInfo->mIsTxSetInvalid = true;
-            }
+            res = protocolAllowsSkipValues() ? SCPDriver::kStructurallyValidValue
+                                             : SCPDriver::kInvalidValue;
         }
         else
         {
@@ -496,7 +490,7 @@ HerderSCPDriver::validateValueAgainstLocalState(
 
         // Non-LCL+1 values cannot be fully validated and are not eligible for
         // parallel downloading.
-        releaseAssert(res != SCPDriver::kAwaitingDownload &&
+        releaseAssert(res != SCPDriver::kStructurallyValidValue &&
                       res != SCPDriver::kFullyValidatedValue);
     }
     return res;
@@ -644,7 +638,7 @@ HerderSCPDriver::extractValidValue(uint64_t slotIndex, Value const& value)
     ValueWrapperPtr res;
     if (validateValueAgainstLocalState(slotIndex, b, true,
                                        /*extraInfo=*/nullptr) >=
-        SCPDriver::kAwaitingDownload)
+        SCPDriver::kStructurallyValidValue)
     {
         extractValidUpgrades(b, true);
         res = wrapStellarValue(b);
