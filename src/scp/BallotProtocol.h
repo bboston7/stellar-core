@@ -248,7 +248,8 @@ class BallotProtocol
     // invalid. Used to provide a useful error message in this case, which is
     // most likely caused by a failure to update stellar-core prior to a
     // protocol upgrade.
-    void throwIfValueInvalidForCommit(Value const& value, char const* caller);
+    void throwIfValueInvalidForConfirmCommit(Value const& value,
+                                             char const* caller);
 
     // step 9 from the SCP paper
     bool attemptBump();

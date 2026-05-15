@@ -1408,15 +1408,19 @@ BallotProtocol::attemptAcceptCommit(SCPStatement const& hint)
 }
 
 void
-BallotProtocol::throwIfValueInvalidForCommit(Value const& value,
-                                             char const* caller)
+BallotProtocol::throwIfValueInvalidForConfirmCommit(Value const& value,
+                                                    char const* caller)
 {
     auto validationLevel = mSlot.getSCPDriver().validateValue(
         mSlot.getSlotIndex(), value, /*nomination=*/false);
-    if (validationLevel != SCPDriver::kInvalidValue)
+    if (validationLevel != SCPDriver::kStructurallyValidValue)
     {
         return;
     }
+    // If a value validates to `kStructurallyValidValue` at confirm-commit, then
+    // it must be invalid because PendingEnvelopes witholds CONFIRM envelopes
+    // for which we do not have the corresponding transaction sets. Therefore,
+    // the network has accepted a value that this node considers invalid
 
     uint64 const slotIndex = mSlot.getSlotIndex();
     std::string const valueStr =
@@ -1442,8 +1446,6 @@ BallotProtocol::setAcceptCommit(SCPBallot const& c, SCPBallot const& h)
     CLOG_TRACE(SCP, "BallotProtocol::setAcceptCommit i: {} new c: {} new h: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(c),
                mSlot.getSCP().ballotToStr(h));
-
-    throwIfValueInvalidForCommit(c.value, "setAcceptCommit");
 
     bool didWork = false;
 
@@ -1647,7 +1649,7 @@ BallotProtocol::setConfirmCommit(SCPBallot const& c, SCPBallot const& h)
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(c),
                mSlot.getSCP().ballotToStr(h));
 
-    throwIfValueInvalidForCommit(c.value, "setConfirmCommit");
+    throwIfValueInvalidForConfirmCommit(c.value, "setConfirmCommit");
 
     mCommit = makeBallot(c);
     mHighBallot = makeBallot(h);
