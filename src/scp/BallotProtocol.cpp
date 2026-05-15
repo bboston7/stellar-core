@@ -189,7 +189,7 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
 
     switch (validationRes)
     {
-    case ValidateValuesResult::kInvalid:
+    case SCPDriver::kInvalidValue:
         // If the value is not valid, we just ignore it.
         if (self)
         {
@@ -202,30 +202,48 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
         }
 
         return SCP::EnvelopeState::INVALID;
-    case ValidateValuesResult::kValidForPrepare:
-        // Sanity check: This should only happen if the protocol allows it
+    case SCPDriver::kStructurallyValidValue:
         releaseAssert(mSlot.getSCPDriver().protocolAllowsSkipValues());
-        break;
-    case ValidateValuesResult::kValidAwaitingDownload:
-        // Sanity check: This should only happen if parallel tx set download is
-        // enabled
-        releaseAssert(mSlot.getSCPDriver().isParallelTxSetDownloadEnabled());
-        break;
-    default:
-        break;
+        switch (statement.pledges.type())
+        {
+        case SCP_ST_PREPARE:
+            // Structurally valid PREPARE messages are valid
+            break;
+        case SCP_ST_CONFIRM:
+            // Generally, CONFIRM messages cannot just be structurally valid.
+            // However, there is one exception: if a v-blocking set of
+            // validators confirms PREPARE for a value that the local node does
+            // not have, then the local node will still accept-commit that
+            // value. The local node will then generate a CONFIRM message for
+            // that value, even though it is only structurally valid.  This is
+            // safe to do, because an honest node must have downloaded and
+            // validated the value at that point.  The consequence of this is
+            // that we must allow self-generated CONFIRM messages to be
+            // structurally valid. We still reject CONFIRM messages from peers
+            // that are only structurally valid, and the local node will stall
+            // at this point until it can download and validate the value.
+            if (!self)
+            {
+                return SCP::EnvelopeState::INVALID;
+            }
+            break;
+        case SCP_ST_EXTERNALIZE:
+            // EXTERNALIZE messages may not be only structurally valid
+            return SCP::EnvelopeState::INVALID;
+        default:
+            releaseAssert(false);
+        }
     }
 
     if (mPhase != SCP_PHASE_EXTERNALIZE)
     {
-        if (validationRes == ValidateValuesResult::kMaybeValidNotCurrent)
+        if (validationRes == SCPDriver::kMaybeValidValue)
         {
-            // We will not be able to fully validate this, as it's not for LCL+1
             mSlot.setFullyValidated(false);
         }
 
         recordEnvelope(envelope);
         advanceSlot(statement);
-        releaseAssert(validationRes != ValidateValuesResult::kInvalid);
         return SCP::EnvelopeState::VALID;
     }
 
@@ -1407,6 +1425,8 @@ BallotProtocol::attemptAcceptCommit(SCPStatement const& hint)
     return res;
 }
 
+// TODO: I don't think `caller` is necessary anymore. This couls also just be
+// inlined in the confirm-commit function
 void
 BallotProtocol::throwIfValueInvalidForConfirmCommit(Value const& value,
                                                     char const* caller)
@@ -2094,7 +2114,7 @@ BallotProtocol::getStatementValues(SCPStatement const& st)
     return values;
 }
 
-BallotProtocol::ValidateValuesResult
+SCPDriver::ValidationLevel
 BallotProtocol::validateValues(SCPStatement const& st)
 {
     ZoneScoped;
@@ -2105,66 +2125,22 @@ BallotProtocol::validateValues(SCPStatement const& st)
     if (values.empty())
     {
         // This shouldn't happen
-        return ValidateValuesResult::kInvalid;
+        return SCPDriver::kInvalidValue;
     }
 
-    // Whether or not this value qualifies for relaxed validation of prepare
-    // messages (allows certain types of invalid values in the PREPARE
-    // statement).
-    bool relaxedValidationForPrepare =
-        // Skip votes must be allowed at the protocol level
-        mSlot.getSCPDriver().protocolAllowsSkipValues() &&
-        // Must be a PREPARE statement
-        st.pledges.type() == SCPStatementType::SCP_ST_PREPARE;
-
-    SCPDriver::ValidationLevel minValidationLevel = std::accumulate(
+    SCPDriver::ValidationLevel res = std::accumulate(
         values.begin(), values.end(), SCPDriver::kFullyValidatedValue,
         [&](SCPDriver::ValidationLevel lv, stellar::Value const& v) {
             if (lv > SCPDriver::kInvalidValue)
             {
-                SCPDriver::ValidationExtraInfo extraInfo{};
                 auto tr = mSlot.getSCPDriver().validateValue(
-                    mSlot.getSlotIndex(), v, false, &extraInfo);
-
-                if (tr == SCPDriver::kInvalidValue &&
-                    relaxedValidationForPrepare &&
-                    (!extraInfo.mIsCurrentLedger || !extraInfo.mIsTxSetInvalid))
-                {
-                    // This statement does not satisfy relaxed PREPARE
-                    // validation rules if:
-                    // * it contains any single invalid value where the invalid
-                    //   value is NOT due to an invalid tx set, or
-                    // * The statement is not for the known next ledger
-                    relaxedValidationForPrepare = false;
-                }
-
+                    mSlot.getSlotIndex(), v, false);
                 lv = std::min(tr, lv);
             }
             return lv;
         });
 
-    switch (minValidationLevel)
-    {
-    case SCPDriver::kInvalidValue:
-        // Statement contains an invalid value. If all values have been
-        // determined to be sufficiently valid for PREPARE, then return
-        // kValidForPrepare, otherwise return kInvalid.
-        return relaxedValidationForPrepare
-                   ? ValidateValuesResult::kValidForPrepare
-                   : ValidateValuesResult::kInvalid;
-    case SCPDriver::kMaybeValidValue:
-        // Value may or may not be valid, but we cannot tell because it is for
-        // some ledger other than LCL+1
-        return ValidateValuesResult::kMaybeValidNotCurrent;
-    case SCPDriver::kStructurallyValidValue:
-        // Still waiting on some values, but none we have so far are invalid.
-        return ValidateValuesResult::kValidAwaitingDownload;
-    case SCPDriver::kFullyValidatedValue:
-        // All values within the statement are downloaded and valid.
-        return ValidateValuesResult::kFullyValid;
-    default:
-        releaseAssert(false);
-    }
+    return res;
 }
 
 void

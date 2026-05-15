@@ -175,37 +175,10 @@ class BallotProtocol
     // to make progress
     void advanceSlot(SCPStatement const& hint);
 
-    // `validateValues` aggregates validation results for all values referenced
-    // by `st` and returns an overall validation result for the statement
-    // itself.
-    enum class ValidateValuesResult
-    {
-        // All values are downloaded and fully valid. `validateValues` will only
-        // return this if `st` is for the current ledger (LCL+1).
-        kFullyValid,
-        // All values are sufficiently valid for the PREPARE phase, but at least
-        // one value contained in the statement is invalid. The protocol allows
-        // this and validators must treat these statements as fully valid (see
-        // CAP-0083). `validateValues` will only return this if `st` is for the
-        // current ledger (LCL+1) and `st` is a PREPARE statement.
-        kValidForPrepare,
-        // All values are either fully valid or awaiting download, but at least
-        // one value is still awaiting download. CAP-0083 dictates that nodes
-        // may choose to accept PREPARE statements in this state, but they are
-        // not required to. `validateValues` will only return this if `st` is
-        // for the current ledger (LCL+1).
-        kValidAwaitingDownload,
-        // All values are considered "maybe valid". `validateValues` will only
-        // return this if `st` is for some ledger other than the current ledger
-        // (not LCL+1).
-        kMaybeValidNotCurrent,
-        // At least one value is known to be invalid or not downloaded. If
-        // `validateValues` returns `kInvalid`, then `st` is not valid for any
-        // phase of the protocol (including PREPARE).
-        kInvalid
-
-    };
-    ValidateValuesResult validateValues(SCPStatement const& st);
+    // returns true if all values in statement are valid
+    // TODO: Rename this function and fix the comment above. Rename to something
+    // like: minimumValidationLevelForStatement.
+    SCPDriver::ValidationLevel validateValues(SCPStatement const& st);
 
     // send latest envelope if needed
     void sendLatestEnvelope();
