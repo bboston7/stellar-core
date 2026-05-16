@@ -3526,10 +3526,9 @@ TEST_CASE("nomination times out structurally-valid value into skip",
     REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
 }
 
-TEST_CASE(
-    "ballot protocol self-emits CONFIRM after federated accept-commit on "
-    "structurally-valid value",
-    "[scp][ballotprotocol]")
+TEST_CASE("ballot protocol self-emits CONFIRM after federated accept-commit on "
+          "structurally-valid value",
+          "[scp][ballotprotocol]")
 {
     setupValues();
     SIMULATION_CREATE_NODE(0);
@@ -3573,45 +3572,29 @@ TEST_CASE(
     REQUIRE_NOTHROW(
         scp.receiveEnvelope(makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)));
 
-    SECTION("self-emits CONFIRM on federated accept-commit")
-    {
-        // v1, v2 vote-to-commit (1, xValue) via nC/nH on their PREPAREs.
-        // {v1, v2} is a quorum in v0's qSet. federatedAccept fires via the
-        // "quorum voted-or-accepted" path (consulted externally — v0 does
-        // not need to be a voter). v0 accept-commits, transitions mPhase
-        // to CONFIRM, and self-emits a CONFIRM with xValue.
-        REQUIRE_NOTHROW(scp.receiveEnvelope(
-            makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
-        REQUIRE_NOTHROW(scp.receiveEnvelope(
-            makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
+    // v1, v2 vote-to-commit (1, xValue) via nC/nH on their PREPAREs.
+    // federatedAccept fires via the "quorum voted-or-accepted" path v0
+    // accept-commits, transitions mPhase to CONFIRM, and self-emits a CONFIRM
+    // with xValue.
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
+    REQUIRE_NOTHROW(scp.receiveEnvelope(
+        makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
 
-        // Last emitted envelope should be a CONFIRM carrying xValue — proves
-        // the new processEnvelope inner switch correctly accepts self-emitted
-        // CONFIRMs with kStructurallyValidValue.
-        auto const& lastEnv = scp.mEnvs.back();
-        REQUIRE(lastEnv.statement.pledges.type() == SCP_ST_CONFIRM);
-        auto const& cBallot = lastEnv.statement.pledges.confirm().ballot;
-        REQUIRE(cBallot.value == xValue);
-        REQUIRE(!scp.isSkipLedgerValue(cBallot.value));
-    }
+    // Last emitted envelope should be a CONFIRM carrying xValue — proves that
+    // processEnvelope correctly accepts self-emitted CONFIRMs with
+    // kStructurallyValidValue.
+    auto const& lastEnv = scp.mEnvs.back();
+    REQUIRE(lastEnv.statement.pledges.type() == SCP_ST_CONFIRM);
+    auto const& cBallot = lastEnv.statement.pledges.confirm().ballot;
+    REQUIRE(cBallot.value == xValue);
+    REQUIRE(!scp.isSkipLedgerValue(cBallot.value));
 
-    SECTION("rejects peer CONFIRM with structurally-valid value")
-    {
-        // Drive v0 to CONFIRM phase first (same setup as above).
-        REQUIRE_NOTHROW(scp.receiveEnvelope(
-            makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
-        REQUIRE_NOTHROW(scp.receiveEnvelope(
-            makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
-
-        // A peer CONFIRM whose value v0 considers kStructurallyValidValue is
-        // rejected by processEnvelope's inner switch (`if (!self) return
-        // INVALID;`). In production PE would have gated this peer CONFIRM
-        // out before reaching SCP; this test exercises the defensive
-        // rejection at the SCP layer directly.
-        auto const res = scp.receiveEnvelope(
-            makeConfirm(v1SecretKey, qSetHash, 0, 1, xB1, 1, 1));
-        REQUIRE(res == SCP::EnvelopeState::INVALID);
-    }
+    // A peer CONFIRM whose value v0 considers kStructurallyValidValue is
+    // rejected by processEnvelope
+    auto const res = scp.receiveEnvelope(
+        makeConfirm(v1SecretKey, qSetHash, 0, 1, xB1, 1, 1));
+    REQUIRE(res == SCP::EnvelopeState::INVALID);
 }
 
 TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
