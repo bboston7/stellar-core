@@ -3553,7 +3553,7 @@ TEST_CASE(
     scp.startDownload(xValue, std::chrono::milliseconds(1000));
     scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
-    SCPBallot const xB1(1, xValue);
+    SCPBallot xB1(1, xValue);
 
     // v0 enters ballot protocol with xValue.
     REQUIRE(scp.bumpState(0, xValue));
