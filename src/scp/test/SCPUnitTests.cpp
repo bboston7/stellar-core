@@ -45,9 +45,8 @@ class TestNominationSCP : public SCPDriver
     }
 
     SCPDriver::ValidationLevel
-    validateValue(
-        uint64 slotIndex, Value const& value, bool nomination,
-        SCPDriver::ValidationExtraInfo* extraInfo = nullptr) const override
+    validateValue(uint64 slotIndex, Value const& value,
+                  bool nomination) const override
     {
         return SCPDriver::kFullyValidatedValue;
     }
@@ -190,7 +189,8 @@ class TestNominationSCP : public SCPDriver
         return std::chrono::milliseconds(timeoutMS);
     }
 
-    bool isEnvelopeReady(SCPEnvelope const& envelope) const override
+    bool
+    isEnvelopeReady(SCPEnvelope const& envelope) const override
     {
         // Not implemented. These tests do not use PendingEnvelopes, and so do
         // not require this method.

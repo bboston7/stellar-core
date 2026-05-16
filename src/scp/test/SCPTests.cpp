@@ -64,22 +64,12 @@ class TestSCP : public SCPDriver
     }
 
     SCPDriver::ValidationLevel
-    validateValue(
-        uint64 slotIndex, Value const& value, bool nomination,
-        SCPDriver::ValidationExtraInfo* extraInfo = nullptr) const override
+    validateValue(uint64 slotIndex, Value const& value,
+                  bool nomination) const override
     {
-        if (extraInfo)
-        {
-            // By default, treat all values as for the current ledger
-            extraInfo->mIsCurrentLedger = true;
-            // By default, all values are valid or awaiting download
-            extraInfo->mIsTxSetInvalid = false;
-        }
-
         if (mValidateValueOverride)
         {
-            return mValidateValueOverride(slotIndex, value, nomination,
-                                          extraInfo);
+            return mValidateValueOverride(slotIndex, value, nomination);
         }
         // If we're tracking download wait time for this value, it's awaiting
         // download
@@ -274,8 +264,7 @@ class TestSCP : public SCPDriver
 
     std::function<uint64(NodeID const&)> mPriorityLookup;
     std::function<uint64(Value const&)> mHashValueCalculator;
-    std::function<SCPDriver::ValidationLevel(uint64, Value const&, bool,
-                                             SCPDriver::ValidationExtraInfo*)>
+    std::function<SCPDriver::ValidationLevel(uint64, Value const&, bool)>
         mValidateValueOverride;
 
     std::map<Hash, SCPQuorumSetPtr> mQuorumSets;
@@ -601,28 +590,22 @@ verifyNominate(SCPEnvelope const& actual, SecretKey const& secretKey,
     REQUIRE(exp.statement == actual.statement);
 }
 
-// Simulate xValue being invalid due to an invalid tx set
+// Simulate xValue being only structurally valid (e.g., due to an invalid tx
+// set)
 SCPDriver::ValidationLevel
-xValueInvalidValidationOverride(uint64, Value const& v, bool,
-                                SCPDriver::ValidationExtraInfo* extraInfo)
+xValueStructurallyValidValidationOverride(uint64, Value const& v, bool)
 {
     if (v == xValue)
     {
-        if (extraInfo)
-        {
-            extraInfo->mIsTxSetInvalid = true;
-        }
-        return SCPDriver::kInvalidValue;
+        return SCPDriver::kStructurallyValidValue;
     }
     return SCPDriver::kFullyValidatedValue;
 }
 
-// Returns kInvalidValue for xValue, leaving mIsTxSetInvalid at the
-// fixture's default of false — i.e., this value is invalid for some
-// reason *other* than a bad tx set (e.g. bad close time or signature).
+// Returns kInvalidValue for xValue This simulates a value being invalid for
+// some reason *other* than a bad tx set (e.g. bad close time or signature).
 SCPDriver::ValidationLevel
-xValueNonTxSetInvalidValidationOverride(uint64, Value const& v, bool,
-                                        SCPDriver::ValidationExtraInfo*)
+xValueNonTxSetInvalidValidationOverride(uint64, Value const& v, bool)
 {
     if (v == xValue)
     {
@@ -631,19 +614,11 @@ xValueNonTxSetInvalidValidationOverride(uint64, Value const& v, bool,
     return SCPDriver::kFullyValidatedValue;
 }
 
-// Returns kMaybeValidValue for xValue and reports that the value is
+// Returns kMaybeValidValue for xValue, simulating that the value is
 // NOT for the current ledger.
 SCPDriver::ValidationLevel
-xValueNotCurrentLedgerOverride(uint64, Value const& v, bool,
-                               SCPDriver::ValidationExtraInfo* extraInfo)
+xValueNotCurrentLedgerOverride(uint64, Value const& v, bool)
 {
-    if (v == xValue)
-    {
-        if (extraInfo)
-        {
-            extraInfo->mIsCurrentLedger = false;
-        }
-    }
     return SCPDriver::kMaybeValidValue;
 }
 } // namespace
@@ -3500,8 +3475,7 @@ TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
     }
 }
 
-TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
-          " turns invalid",
+TEST_CASE("nomination times out structurally-valid value into skip",
           "[scp][nomination]")
 {
     setupValues();
@@ -3520,23 +3494,12 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
-    std::map<Value, SCPDriver::ValidationLevel> validationLevels;
-    validationLevels[xValue] = SCPDriver::kStructurallyValidValue;
-    scp.mValidateValueOverride = [&](uint64, Value const& value, bool,
-                                     SCPDriver::ValidationExtraInfo* extraInfo)
-        -> SCPDriver::ValidationLevel {
-        auto const it = validationLevels.find(value);
-        if (it != validationLevels.end())
-        {
-            SCPDriver::ValidationLevel const level = it->second;
-            if (level == SCPDriver::kInvalidValue && extraInfo)
-            {
-                extraInfo->mIsTxSetInvalid = true;
-            }
-            return level;
-        }
-        return SCPDriver::kFullyValidatedValue;
-    };
+    // xValue is structurally-valid throughout — its tx set is either still in
+    // flight or has been downloaded-and-found-invalid.  Seed a wait time past
+    // the download timeout so maybeReplaceValueWithSkip triggers skip
+    // replacement at bumpState time.
+    scp.startDownload(xValue, std::chrono::milliseconds(6000));
+    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
     REQUIRE(scp.nominate(0, xValue, false));
 
@@ -3544,17 +3507,18 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
         makeNominate(v1SecretKey, qSetHash, 0, {xValue}, {});
     REQUIRE_NOTHROW(scp.receiveEnvelope(followerVoteNomination));
 
-    validationLevels[xValue] = SCPDriver::kInvalidValue;
     scp.mExpectedCandidates.emplace(xValue);
     scp.mCompositeValue = xValue;
 
     auto const followerAcceptedNomination =
         makeNominate(v2SecretKey, qSetHash, 0, {xValue}, {xValue});
-    // maybeReplaceValueWithSkip replaces the invalid value with skip in
-    // bumpState
+    // Quorum accept-nominated xValue → composite value flows to
+    // bumpState → maybeReplaceValueWithSkip sees kStructurallyValidValue
+    // with the wait time past the timeout and substitutes a skip value.
     REQUIRE_NOTHROW(scp.receiveEnvelope(followerAcceptedNomination));
 
-    // The emitted ballot should have a skip value, not the original xValue
+    // The emitted ballot should carry the skip value derived from
+    // xValue, not xValue itself.
     auto const& lastEnv = scp.mEnvs.back();
     REQUIRE(lastEnv.statement.pledges.type() == SCP_ST_PREPARE);
     auto const& ballot = lastEnv.statement.pledges.prepare().ballot;
@@ -3562,9 +3526,10 @@ TEST_CASE("nomination can self-generate invalid prepare after awaiting value"
     REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
 }
 
-TEST_CASE("ballot protocol can self-generate invalid prepare after"
-          " awaiting value turns invalid",
-          "[scp][ballotprotocol]")
+TEST_CASE(
+    "ballot protocol self-emits CONFIRM after federated accept-commit on "
+    "structurally-valid value",
+    "[scp][ballotprotocol]")
 {
     setupValues();
     SIMULATION_CREATE_NODE(0);
@@ -3582,33 +3547,71 @@ TEST_CASE("ballot protocol can self-generate invalid prepare after"
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
-    // v0 enters ballot protocol with xValue while its tx set is
-    // still being downloaded (kStructurallyValidValue, not yet timed out)
+    // xValue stays kStructurallyValidValue throughout, with a wait time
+    // below the download timeout so maybeReplaceValueWithSkip does not
+    // skip-replace.
     scp.startDownload(xValue, std::chrono::milliseconds(1000));
+    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
+
+    SCPBallot const xB1(1, xValue);
+
+    // v0 enters ballot protocol with xValue.
     REQUIRE(scp.bumpState(0, xValue));
     REQUIRE(scp.mEnvs.size() == 1);
-    REQUIRE(scp.mEnvs[0].statement.pledges.prepare().ballot ==
-            SCPBallot(1, xValue));
 
-    scp.mValidateValueOverride = xValueInvalidValidationOverride;
+    // v1, v2 vote-prepare for (1, xValue) → v0 accept-prepared (1, xValue).
+    REQUIRE_NOTHROW(
+        scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, xB1)));
+    REQUIRE_NOTHROW(
+        scp.receiveEnvelope(makePrepare(v2SecretKey, qSetHash, 0, xB1)));
 
-    // v1 sends PREPARE at higher counter with a different (valid) value
-    REQUIRE_NOTHROW(scp.receiveEnvelope(
-        makePrepare(v1SecretKey, qSetHash, 0, SCPBallot(2, yValue))));
+    // v1, v2 signal accept-prepared (1, xValue). v0 would normally
+    // confirm-prepared here, but setConfirmPrepared stalls on
+    // kStructurallyValidValue so c/h stay unset on v0's side.
+    REQUIRE_NOTHROW(
+        scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)));
+    REQUIRE_NOTHROW(
+        scp.receiveEnvelope(makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)));
 
-    // v2 sends PREPARE at higher counter — v1+v2 now form a v-blocking
-    // set ahead of v0, triggering attemptBump -> abandonBallot ->
-    // bumpState with xValue (now invalid). With the fix,
-    // maybeReplaceValueWithSkip replaces it with skip.
-    REQUIRE_NOTHROW(scp.receiveEnvelope(
-        makePrepare(v2SecretKey, qSetHash, 0, SCPBallot(2, yValue))));
+    SECTION("self-emits CONFIRM on federated accept-commit")
+    {
+        // v1, v2 vote-to-commit (1, xValue) via nC/nH on their PREPAREs.
+        // {v1, v2} is a quorum in v0's qSet. federatedAccept fires via the
+        // "quorum voted-or-accepted" path (consulted externally — v0 does
+        // not need to be a voter). v0 accept-commits, transitions mPhase
+        // to CONFIRM, and self-emits a CONFIRM with xValue.
+        REQUIRE_NOTHROW(scp.receiveEnvelope(
+            makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
+        REQUIRE_NOTHROW(scp.receiveEnvelope(
+            makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
 
-    // The emitted ballot should have a skip value at counter 2
-    REQUIRE(scp.mEnvs.size() == 2);
-    auto const& ballot = scp.mEnvs[1].statement.pledges.prepare().ballot;
-    REQUIRE(ballot.counter == 2);
-    REQUIRE(scp.isSkipLedgerValue(ballot.value));
-    REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
+        // Last emitted envelope should be a CONFIRM carrying xValue — proves
+        // the new processEnvelope inner switch correctly accepts self-emitted
+        // CONFIRMs with kStructurallyValidValue.
+        auto const& lastEnv = scp.mEnvs.back();
+        REQUIRE(lastEnv.statement.pledges.type() == SCP_ST_CONFIRM);
+        auto const& cBallot = lastEnv.statement.pledges.confirm().ballot;
+        REQUIRE(cBallot.value == xValue);
+        REQUIRE(!scp.isSkipLedgerValue(cBallot.value));
+    }
+
+    SECTION("rejects peer CONFIRM with structurally-valid value")
+    {
+        // Drive v0 to CONFIRM phase first (same setup as above).
+        REQUIRE_NOTHROW(scp.receiveEnvelope(
+            makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
+        REQUIRE_NOTHROW(scp.receiveEnvelope(
+            makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1, 1, 1)));
+
+        // A peer CONFIRM whose value v0 considers kStructurallyValidValue is
+        // rejected by processEnvelope's inner switch (`if (!self) return
+        // INVALID;`). In production PE would have gated this peer CONFIRM
+        // out before reaching SCP; this test exercises the defensive
+        // rejection at the SCP layer directly.
+        auto const res = scp.receiveEnvelope(
+            makeConfirm(v1SecretKey, qSetHash, 0, 1, xB1, 1, 1));
+        REQUIRE(res == SCP::EnvelopeState::INVALID);
+    }
 }
 
 TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
@@ -3885,7 +3888,7 @@ TEST_CASE("incoming PREPARE with invalid prepared value is accepted",
     REQUIRE(scp.mEnvs.size() == 1);
 
     // Set xValue to kInvalidValue
-    scp.mValidateValueOverride = xValueInvalidValidationOverride;
+    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
     // v1 sends PREPARE with valid ballot value but invalid prepared value.
     // With relaxed PREPARE validation, this should be accepted.
@@ -3950,7 +3953,8 @@ TEST_CASE("self-envelope with invalid mPrepared does not crash",
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
-    // v0 enters ballot protocol with xValue (kStructurallyValidValue, not timed out)
+    // v0 enters ballot protocol with xValue (kStructurallyValidValue, not timed
+    // out)
     scp.startDownload(xValue, std::chrono::milliseconds(1000));
     REQUIRE(scp.bumpState(0, xValue));
     REQUIRE(scp.mEnvs.size() == 1);
@@ -3965,7 +3969,7 @@ TEST_CASE("self-envelope with invalid mPrepared does not crash",
     REQUIRE(*scp.mEnvs[1].statement.pledges.prepare().prepared == xB1);
 
     // xValue transitions to kInvalidValue
-    scp.mValidateValueOverride = xValueInvalidValidationOverride;
+    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
     // v1 and v2 send PREPAREs at higher counter to trigger v-blocking bump.
     // This causes bumpState, which replaces xValue with skip via
@@ -4009,7 +4013,7 @@ TEST_CASE("self-envelope with invalid mCurrentBallot does not crash",
 
     // xValue transitions to kInvalidValue — mCurrentBallot now holds an
     // invalid value
-    scp.mValidateValueOverride = xValueInvalidValidationOverride;
+    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
     // v1 and v2 send PREPAREs with yValue and prepared=(1,yValue).
     // When the quorum {v1,v2} accepts-prepared yValue, v0 calls
@@ -4059,7 +4063,7 @@ TEST_CASE("setAcceptCommit throws when quorum forces invalid value",
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
-    scp.mValidateValueOverride = xValueInvalidValidationOverride;
+    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
     SCPBallot xB1(1, xValue);
 
@@ -4105,3 +4109,8 @@ TEST_CASE("setAcceptCommit throws when quorum forces invalid value",
     REQUIRE(threw);
 }
 }
+
+// TODO: Add a test for a structurally-valid value without a timestamp. Should
+// be replaced with skip.
+// TODO: Add TIMEOUT, OVER_TIMEOUT, and UNDER_TIMEOUT constants. Use those
+// instead of hard coded values.
