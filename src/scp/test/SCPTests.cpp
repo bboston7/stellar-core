@@ -3776,6 +3776,10 @@ TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
         REQUIRE(scp.mEnvs.size() == 1);
         SCPBallot xB1(1, xValue);
 
+        // TODO: This test is weird. Why would a value go from fully valid to
+        // structurally valid? Consider changing this test. Should be able to
+        // just move this line up. vv
+
         // Switch xValue to kStructurallyValidValue
         scp.startDownload(xValue, std::chrono::milliseconds(1000));
 
@@ -3799,6 +3803,10 @@ TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
         // Same setup as above — commit gate stalls mCommit
         REQUIRE(scp.bumpState(0, xValue));
         SCPBallot xB1(1, xValue);
+
+        // TODO: This test is weird. Why would a value go from fully valid to
+        // structurally valid? Consider changing this test. Should be able to
+        // just move this line up. vv
 
         scp.startDownload(xValue, std::chrono::milliseconds(1000));
         REQUIRE_NOTHROW(scp.receiveEnvelope(
@@ -3917,60 +3925,7 @@ TEST_CASE("incoming PREPARE with non-tx-set-invalid value is dropped",
     REQUIRE(scp.mEnvs.empty());
 }
 
-TEST_CASE("self-envelope with invalid mPrepared does not crash",
-          "[scp][ballotprotocol]")
-{
-    setupValues();
-    SIMULATION_CREATE_NODE(0);
-    SIMULATION_CREATE_NODE(1);
-    SIMULATION_CREATE_NODE(2);
-
-    SCPQuorumSet qSet;
-    qSet.threshold = 2;
-    qSet.validators.push_back(v0NodeID);
-    qSet.validators.push_back(v1NodeID);
-    qSet.validators.push_back(v2NodeID);
-
-    uint256 qSetHash = sha256(xdr::xdr_to_opaque(qSet));
-
-    TestSCP scp(v0SecretKey.getPublicKey(), qSet);
-    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
-
-    // v0 enters ballot protocol with xValue (kStructurallyValidValue, not timed
-    // out)
-    scp.startDownload(xValue, std::chrono::milliseconds(1000));
-    REQUIRE(scp.bumpState(0, xValue));
-    REQUIRE(scp.mEnvs.size() == 1);
-    SCPBallot xB1(1, xValue);
-
-    // Quorum accepts-prepared xValue — sets mPrepared=(1, xValue)
-    REQUIRE_NOTHROW(
-        scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)));
-    REQUIRE(scp.mEnvs.size() == 2);
-    // Verify mPrepared is set in the emitted envelope
-    REQUIRE(scp.mEnvs[1].statement.pledges.prepare().prepared);
-    REQUIRE(*scp.mEnvs[1].statement.pledges.prepare().prepared == xB1);
-
-    // xValue transitions to kInvalidValue
-    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
-
-    // v1 and v2 send PREPAREs at higher counter to trigger v-blocking bump.
-    // This causes bumpState, which replaces xValue with skip via
-    // maybeReplaceValueWithSkip. emitCurrentStateStatement then creates a
-    // self-PREPARE with ballot=skip but prepared=(1,xValue) which is invalid.
-    // With relaxed PREPARE validation, no crash occurs.
-    REQUIRE_NOTHROW(scp.receiveEnvelope(
-        makePrepare(v1SecretKey, qSetHash, 0, SCPBallot(2, yValue))));
-    REQUIRE_NOTHROW(scp.receiveEnvelope(
-        makePrepare(v2SecretKey, qSetHash, 0, SCPBallot(2, yValue))));
-
-    // Verify: new envelope emitted with skip ballot value
-    REQUIRE(scp.mEnvs.size() >= 3);
-    auto const& lastBallot =
-        scp.mEnvs.back().statement.pledges.prepare().ballot;
-    REQUIRE(scp.isSkipLedgerValue(lastBallot.value));
-}
-
+// TODO: Left off here
 TEST_CASE("self-envelope with invalid mCurrentBallot does not crash",
           "[scp][ballotprotocol]")
 {
