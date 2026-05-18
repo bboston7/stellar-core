@@ -3777,10 +3777,6 @@ TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
     REQUIRE(scp.mEnvs.size() == 1);
     SCPBallot xB1(1, xValue);
 
-    // TODO: This test is weird. Why would a value go from fully valid to
-    // structurally valid? Consider changing this test. Should be able to
-    // just move this line up. vv
-
     // v1 and v2 send PREPAREs with prepared — quorum confirms prepared
     REQUIRE_NOTHROW(
         scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)));
@@ -3933,14 +3929,13 @@ TEST_CASE("self-envelope with structurally valid mCurrentBallot does not crash",
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
-    // v0 enters ballot protocol with xValue (fully validated)
+    // Mark xValue as structurally-valid, but without a download time. Simulates
+    // an invalid tx set
+    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
+
+    // v0 enters ballot protocol with xValue
     REQUIRE(scp.bumpState(0, xValue));
     REQUIRE(scp.mEnvs.size() == 1);
-
-    // TODO: THis also has the weird backwards pattern
-    // xValue transitions to kInvalidValue — mCurrentBallot now holds an
-    // invalid value
-    scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
     // v1 and v2 send PREPAREs with yValue and prepared=(1,yValue).
     // When the quorum {v1,v2} accepts-prepared yValue, v0 calls
