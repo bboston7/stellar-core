@@ -7,6 +7,7 @@
 #include "Slot.h"
 #include "crypto/Hex.h"
 #include "lib/json/json.h"
+#include "main/ErrorMessages.h"
 #include "scp/LocalNode.h"
 #include "scp/QuorumSetUtils.h"
 #include "util/GlobalChecks.h"
@@ -1428,37 +1429,34 @@ BallotProtocol::attemptAcceptCommit(SCPStatement const& hint)
     return res;
 }
 
-// TODO: I don't think `caller` is necessary anymore. This couls also just be
-// inlined in the confirm-commit function
 void
-BallotProtocol::throwIfValueInvalidForConfirmCommit(Value const& value,
-                                                    char const* caller)
+BallotProtocol::throwIfValueInvalidForConfirmCommit(Value const& value)
 {
     auto validationLevel = mSlot.getSCPDriver().validateValue(
         mSlot.getSlotIndex(), value, /*nomination=*/false);
-    if (validationLevel != SCPDriver::kStructurallyValidValue)
+
+    if (validationLevel == SCPDriver::kFullyValidatedValue ||
+        validationLevel == SCPDriver::kMaybeValidValue)
     {
+        // This is the expected case: kFullyValidatedValue for LCL+1, and
+        // kMaybeValidValue for all other slots.
         return;
     }
-    // If a value validates to `kStructurallyValidValue` at confirm-commit, then
-    // it must be invalid because PendingEnvelopes witholds CONFIRM envelopes
-    // for which we do not have the corresponding transaction sets. Therefore,
-    // the network has accepted a value that this node considers invalid
+
+    // If we end up here, something has gone seriously wrong.
 
     uint64 const slotIndex = mSlot.getSlotIndex();
     std::string const valueStr =
         mSlot.getSCP().getDriver().getValueString(value);
     CLOG_FATAL(SCP,
-               "BallotProtocol::{} slot:{} SCP federated accept is forcing a "
-               "commit on a value this node considers invalid (value:{}). "
-               "The most likely cause is that this stellar-core binary is "
-               "incompatible with the network's current protocol version. "
-               "Please check that you are running the latest stellar-core "
-               "release.",
-               caller, slotIndex, valueStr);
+               "BallotProtocol slot:{} federated ratify succeeded for a "
+               "value this node considers invalid or only structurally valid "
+               "(value:{}).",
+               slotIndex, valueStr);
+    CLOG_FATAL(SCP, "{}", REPORT_INTERNAL_BUG);
     std::ostringstream oss;
-    oss << "SCP forced commit on locally-invalid value (slot=" << slotIndex
-        << ", caller=" << caller << ")";
+    oss << "SCP confirm-commit on locally-invalid value (slot=" << slotIndex
+        << ")";
     throw std::runtime_error(oss.str());
 }
 
@@ -1672,7 +1670,7 @@ BallotProtocol::setConfirmCommit(SCPBallot const& c, SCPBallot const& h)
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(c),
                mSlot.getSCP().ballotToStr(h));
 
-    throwIfValueInvalidForConfirmCommit(c.value, "setConfirmCommit");
+    throwIfValueInvalidForConfirmCommit(c.value);
 
     mCommit = makeBallot(c);
     mHighBallot = makeBallot(h);

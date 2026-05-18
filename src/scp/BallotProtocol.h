@@ -217,12 +217,10 @@ class BallotProtocol
     bool setConfirmCommit(SCPBallot const& acceptCommitLow,
                           SCPBallot const& acceptCommitHigh);
 
-    // Throws if a quorum pulls a node into committing a value that it sees as
-    // invalid. Used to provide a useful error message in this case, which is
-    // most likely caused by a failure to update stellar-core prior to a
-    // protocol upgrade.
-    void throwIfValueInvalidForConfirmCommit(Value const& value,
-                                             char const* caller);
+    // The final invariant check before confirm-commit. Checks whether `value`
+    // is valid, and throws otherwise. This should never happen and indicates a
+    // bug in envelope processing.
+    void throwIfValueInvalidForConfirmCommit(Value const& value);
 
     // step 9 from the SCP paper
     bool attemptBump();
