@@ -3769,25 +3769,26 @@ TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
     TestSCP scp(v0SecretKey.getPublicKey(), qSet);
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
+    // Simulate parallel downloading
+    scp.startDownload(xValue, std::chrono::milliseconds(1000));
+
+    // v0 enters ballot protocol
+    REQUIRE(scp.bumpState(0, xValue));
+    REQUIRE(scp.mEnvs.size() == 1);
+    SCPBallot xB1(1, xValue);
+
+    // TODO: This test is weird. Why would a value go from fully valid to
+    // structurally valid? Consider changing this test. Should be able to
+    // just move this line up. vv
+
+    // v1 and v2 send PREPAREs with prepared — quorum confirms prepared
+    REQUIRE_NOTHROW(
+        scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)));
+    REQUIRE_NOTHROW(
+        scp.receiveEnvelope(makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)));
+
     SECTION("commit gate stalls mCommit but mHighBallot is set")
     {
-        // v0 enters ballot protocol with xValue fully validated
-        REQUIRE(scp.bumpState(0, xValue));
-        REQUIRE(scp.mEnvs.size() == 1);
-        SCPBallot xB1(1, xValue);
-
-        // TODO: This test is weird. Why would a value go from fully valid to
-        // structurally valid? Consider changing this test. Should be able to
-        // just move this line up. vv
-
-        // Switch xValue to kStructurallyValidValue
-        scp.startDownload(xValue, std::chrono::milliseconds(1000));
-
-        // v1 and v2 send PREPAREs with prepared — quorum confirms prepared
-        REQUIRE_NOTHROW(scp.receiveEnvelope(
-            makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)));
-        REQUIRE_NOTHROW(scp.receiveEnvelope(
-            makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)));
 
         // setConfirmPrepared sets mHighBallot (nH > 0) but the commit gate
         // stalls mCommit (nC == 0) because xValue is kStructurallyValidValue.
@@ -3800,19 +3801,6 @@ TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
 
     SECTION("proceeds after value becomes validated")
     {
-        // Same setup as above — commit gate stalls mCommit
-        REQUIRE(scp.bumpState(0, xValue));
-        SCPBallot xB1(1, xValue);
-
-        // TODO: This test is weird. Why would a value go from fully valid to
-        // structurally valid? Consider changing this test. Should be able to
-        // just move this line up. vv
-
-        scp.startDownload(xValue, std::chrono::milliseconds(1000));
-        REQUIRE_NOTHROW(scp.receiveEnvelope(
-            makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)));
-        REQUIRE_NOTHROW(scp.receiveEnvelope(
-            makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)));
         auto envsBeforeClear = scp.mEnvs.size();
 
         // Simulate tx set arrival — value becomes fully validated
@@ -3926,7 +3914,7 @@ TEST_CASE("incoming PREPARE with non-tx-set-invalid value is dropped",
 }
 
 // TODO: Left off here
-TEST_CASE("self-envelope with invalid mCurrentBallot does not crash",
+TEST_CASE("self-envelope with structurally valid mCurrentBallot does not crash",
           "[scp][ballotprotocol]")
 {
     setupValues();
@@ -3949,6 +3937,7 @@ TEST_CASE("self-envelope with invalid mCurrentBallot does not crash",
     REQUIRE(scp.bumpState(0, xValue));
     REQUIRE(scp.mEnvs.size() == 1);
 
+    // TODO: THis also has the weird backwards pattern
     // xValue transitions to kInvalidValue — mCurrentBallot now holds an
     // invalid value
     scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
@@ -3982,7 +3971,7 @@ TEST_CASE("self-envelope with invalid mCurrentBallot does not crash",
     REQUIRE(foundYPrepared);
 }
 
-TEST_CASE("setAcceptCommit throws when quorum forces invalid value",
+TEST_CASE("setAcceptCommit throws when quorum forces structurally valid value",
           "[scp][ballotprotocol]")
 {
     setupValues();
@@ -4048,7 +4037,5 @@ TEST_CASE("setAcceptCommit throws when quorum forces invalid value",
 }
 }
 
-// TODO: Add a test for a structurally-valid value without a timestamp. Should
-// be replaced with skip.
 // TODO: Add TIMEOUT, OVER_TIMEOUT, and UNDER_TIMEOUT constants. Use those
 // instead of hard coded values.
