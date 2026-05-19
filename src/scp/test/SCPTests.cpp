@@ -27,6 +27,14 @@
 namespace stellar
 {
 
+// Tx set download timeout value for tests.
+constexpr std::chrono::milliseconds TX_SET_TIMEOUT{5000};
+
+// UNDER and OVER are below and above TX_SET_TIMEOUT for tests that want to
+// control whether a tx set download has timed out or not.
+constexpr std::chrono::milliseconds UNDER_TX_SET_TIMEOUT{1000};
+constexpr std::chrono::milliseconds OVER_TX_SET_TIMEOUT{6000};
+
 class TestSCP : public SCPDriver
 {
   public:
@@ -121,7 +129,7 @@ class TestSCP : public SCPDriver
     std::chrono::milliseconds
     getTxSetDownloadTimeout() const override
     {
-        return mDownloadTimeout;
+        return TX_SET_TIMEOUT;
     }
 
     Value
@@ -274,7 +282,6 @@ class TestSCP : public SCPDriver
 
     // Skip ledger support
     std::map<Value, std::chrono::milliseconds> mDownloadWaitTimes;
-    std::chrono::milliseconds mDownloadTimeout{5000};
 
     struct TimerData
     {
@@ -3498,7 +3505,7 @@ TEST_CASE("nomination times out structurally-valid value into skip",
     // flight or has been downloaded-and-found-invalid.  Seed a wait time past
     // the download timeout so maybeReplaceValueWithSkip triggers skip
     // replacement at bumpState time.
-    scp.startDownload(xValue, std::chrono::milliseconds(6000));
+    scp.startDownload(xValue, OVER_TX_SET_TIMEOUT);
     scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
     REQUIRE(scp.nominate(0, xValue, false));
@@ -3549,7 +3556,7 @@ TEST_CASE("ballot protocol self-emits CONFIRM after federated accept-commit on "
     // xValue stays kStructurallyValidValue throughout, with a wait time
     // below the download timeout so maybeReplaceValueWithSkip does not
     // skip-replace.
-    scp.startDownload(xValue, std::chrono::milliseconds(1000));
+    scp.startDownload(xValue, UNDER_TX_SET_TIMEOUT);
     scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
     SCPBallot xB1(1, xValue);
@@ -3621,7 +3628,7 @@ TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
     {
         // Node v0 starts ballot protocol with xValue
         // Simulate that xValue is awaiting download with timeout exceeded
-        scp.startDownload(xValue, std::chrono::milliseconds(6000));
+        scp.startDownload(xValue, OVER_TX_SET_TIMEOUT);
 
         // Now call bumpState which should trigger maybeReplaceValueWithSkip
         REQUIRE(scp.bumpState(0, xValue));
@@ -3651,7 +3658,7 @@ TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
         SCPBallot b1(1, xValue);
 
         // Simulate that xValue is awaiting download but wait time is still low
-        scp.startDownload(xValue, std::chrono::milliseconds(1000));
+        scp.startDownload(xValue, UNDER_TX_SET_TIMEOUT);
 
         // Try to bump state - should NOT replace with skip value
         REQUIRE(scp.bumpState(0, xValue));
@@ -3668,7 +3675,7 @@ TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
     SECTION("skip value can be prepared and confirmed")
     {
         // Start with xValue and timeout to skip value
-        scp.startDownload(xValue, std::chrono::milliseconds(6000));
+        scp.startDownload(xValue, OVER_TX_SET_TIMEOUT);
 
         REQUIRE(scp.bumpState(0, xValue));
         REQUIRE(scp.mEnvs.size() == 1);
@@ -3770,7 +3777,7 @@ TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
     // Simulate parallel downloading
-    scp.startDownload(xValue, std::chrono::milliseconds(1000));
+    scp.startDownload(xValue, UNDER_TX_SET_TIMEOUT);
 
     // v0 enters ballot protocol
     REQUIRE(scp.bumpState(0, xValue));
@@ -3911,5 +3918,3 @@ TEST_CASE("incoming PREPARE with non-tx-set-invalid value is dropped",
 
 }
 
-// TODO: Add TIMEOUT, OVER_TIMEOUT, and UNDER_TIMEOUT constants. Use those
-// instead of hard coded values.
