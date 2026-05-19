@@ -7,6 +7,7 @@
 #include "Slot.h"
 #include "crypto/Hex.h"
 #include "lib/json/json.h"
+#include "main/ErrorMessages.h"
 #include "scp/LocalNode.h"
 #include "scp/QuorumSetUtils.h"
 #include "util/GlobalChecks.h"
@@ -185,11 +186,11 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
         return SCP::EnvelopeState::INVALID;
     }
 
-    auto validationRes = validateValues(statement);
+    auto validationRes = statementValidationLevel(statement);
 
     switch (validationRes)
     {
-    case ValidateValuesResult::kInvalid:
+    case SCPDriver::kInvalidValue:
         // If the value is not valid, we just ignore it.
         if (self)
         {
@@ -202,30 +203,51 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
         }
 
         return SCP::EnvelopeState::INVALID;
-    case ValidateValuesResult::kValidForPrepare:
-        // Sanity check: This should only happen if the protocol allows it
+    case SCPDriver::kStructurallyValidValue:
         releaseAssert(mSlot.getSCPDriver().protocolAllowsSkipValues());
-        break;
-    case ValidateValuesResult::kValidAwaitingDownload:
-        // Sanity check: This should only happen if parallel tx set download is
-        // enabled
-        releaseAssert(mSlot.getSCPDriver().isParallelTxSetDownloadEnabled());
-        break;
+        switch (statement.pledges.type())
+        {
+        case SCP_ST_PREPARE:
+            // Structurally valid PREPARE messages are valid
+            break;
+        case SCP_ST_CONFIRM:
+            // Generally, CONFIRM messages cannot just be structurally valid.
+            // However, there is one exception: if a v-blocking set of
+            // validators votes-to-commit a value that the local node does not
+            // have, then the local node will still accept-commit that value.
+            // The local node will then generate a CONFIRM message for that
+            // value, even though it is only structurally valid.  This is safe
+            // to do, because an honest validator in the v-blocking set must
+            // have downloaded and validated the value at that point.  The
+            // consequence of this is that we must allow self-generated CONFIRM
+            // messages to be structurally valid.  We still reject CONFIRM
+            // messages from peers that are only structurally valid, and the
+            // local node will stall at this point until it can download and
+            // validate the value.
+            if (!self)
+            {
+                return SCP::EnvelopeState::INVALID;
+            }
+            break;
+        case SCP_ST_EXTERNALIZE:
+            // EXTERNALIZE messages may not be only structurally valid
+            return SCP::EnvelopeState::INVALID;
+        default:
+            releaseAssert(false);
+        }
     default:
         break;
     }
 
     if (mPhase != SCP_PHASE_EXTERNALIZE)
     {
-        if (validationRes == ValidateValuesResult::kMaybeValidNotCurrent)
+        if (validationRes == SCPDriver::kMaybeValidNotCurrentValue)
         {
-            // We will not be able to fully validate this, as it's not for LCL+1
             mSlot.setFullyValidated(false);
         }
 
         recordEnvelope(envelope);
         advanceSlot(statement);
-        releaseAssert(validationRes != ValidateValuesResult::kInvalid);
         return SCP::EnvelopeState::VALID;
     }
 
@@ -354,53 +376,30 @@ BallotProtocol::abandonBallot(uint32 n)
 bool
 BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 {
-    if (!mSlot.getSCPDriver().protocolAllowsSkipValues())
-    {
-        // Protocol does not allow skip values
-        return false;
-    }
-
     if (mPhase != SCP_PHASE_PREPARE)
     {
         // Can only replace with skip in the PREPARE phase
         return false;
     }
 
-    if (mSlot.getSCPDriver().isSkipLedgerValue(v))
-    {
-        // Already a skip value. Nothing to replace.
-        return false;
-    }
-
     // Check validation value
-    SCPDriver::ValidationExtraInfo extraInfo;
-    auto validationLevel = mSlot.getSCPDriver().validateValue(
-        mSlot.getSlotIndex(), v, false, &extraInfo);
-    if (!extraInfo.mIsCurrentLedger)
+    auto validationLevel =
+        mSlot.getSCPDriver().validateValue(mSlot.getSlotIndex(), v, false);
+
+    if (validationLevel != SCPDriver::kStructurallyValidValue)
     {
-        // Cannot replace with skip for non-current ledgers
+        // Only replace with skip if the value is structurally valid
         return false;
     }
 
-    switch (validationLevel)
-    {
-    case SCPDriver::kInvalidValue:
-        // Value has been definitively determined to be invalid (e.g., a
-        // tx set that was downloaded and found to be unusable). Replace
-        // immediately with skip -- no timeout check needed.
-        CLOG_TRACE(SCP, "Replacing invalid value '{}' with skip for slot {}",
-                   mSlot.getSCPDriver().getValueString(v),
-                   mSlot.getSlotIndex());
-        break;
-    case SCPDriver::kAwaitingDownload:
-    {
-        // Check how long we've been waiting
-        auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
+    // Implied by `validationLevel == kStructurallyValidValue`
+    releaseAssert(mSlot.getSCPDriver().protocolAllowsSkipValues());
+    releaseAssert(!mSlot.getSCPDriver().isSkipLedgerValue(v));
 
-        // `waitingTime` cannot be nullopt if `validateValue` returns
-        // `kAwaitingDownload`.
-        releaseAssert(waitingTime.has_value());
-
+    // Check if we're awaiting download on the value
+    auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
+    if (waitingTime.has_value())
+    {
         CLOG_TRACE(SCP, "Waiting time for {}: {}", hexAbbrev(v),
                    waitingTime.value().count());
 
@@ -411,15 +410,9 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
             return false;
         }
     }
-    break;
-    case SCPDriver::kFullyValidatedValue:
-        // Value is valid, no need to replace with skip
-        return false;
-    case SCPDriver::kMaybeValidValue:
-        // This shouldn't be possible. The check for `mIsCurrentLedger` above
-        // should catch all cases where `kMaybeValidValue` is returned
-        releaseAssert(false);
-    }
+    // If there is no waiting time for this value, then the value must
+    // reference an invalid tx set that the node already had prior to
+    // receiving the SCP envelope. Replace with skip.
 
     // Choose highest seen skip value, or create one if no such values exist.
     v = mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
@@ -1165,10 +1158,10 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             auto validationLevel = mSlot.getSCPDriver().validateValue(
                 mSlot.getSlotIndex(), newC.value, false);
 
-            if (validationLevel == SCPDriver::kAwaitingDownload)
+            if (validationLevel == SCPDriver::kStructurallyValidValue)
             {
-                // It should not be possible to get `kAwaitingDownload` without
-                // parallel downloading enabled.
+                // It should not be possible to get `kStructurallyValidValue`
+                // without parallel downloading enabled.
                 releaseAssert(
                     mSlot.getSCPDriver().isParallelTxSetDownloadEnabled());
 
@@ -1177,32 +1170,12 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 mSlot.getSCPDriver().recordBallotBlockedOnTxSet(
                     mSlot.getSlotIndex(), newC.value);
 
-                // Check how long we've been waiting for the transaction set
-                auto waitingTime =
-                    mSlot.getSCPDriver().getTxSetDownloadWaitTime(newC.value);
-
-                // `waitingTime` cannot be nullopt if `validateValue` returns
-                // `kAwaitingDownload`.
-                releaseAssert(waitingTime.has_value());
                 CLOG_TRACE(
                     SCP,
                     "BallotProtocol::setConfirmPrepared slot:{} "
-                    "attempting to vote to commit with kAwaitingDownload value "
+                    "attempting to vote to commit with kStructurallyValidValue "
+                    "value "
                     "- "
-                    "ballot counter:{} value:{} waiting_time:{}ms",
-                    mSlot.getSlotIndex(), newC.counter,
-                    mSlot.getSCP().getDriver().getValueString(newC.value),
-                    waitingTime.value().count());
-            }
-            else if (validationLevel == SCPDriver::kInvalidValue)
-            {
-                // With parallel downloading, a confirmed-prepared value
-                // can become kInvalidValue if the tx set was downloaded
-                // and found invalid. Do not vote to commit it.
-                CLOG_INFO(
-                    SCP,
-                    "BallotProtocol::setConfirmPrepared slot:{} "
-                    "commit gate rejecting kInvalidValue - "
                     "ballot counter:{} value:{}",
                     mSlot.getSlotIndex(), newC.counter,
                     mSlot.getSCP().getDriver().getValueString(newC.value));
@@ -1210,6 +1183,9 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             else
             {
                 dbgAssert(!mCommit);
+                releaseAssert(validationLevel ==
+                                  SCPDriver::kFullyValidatedValue ||
+                              validationLevel == SCPDriver::kMaybeValidNotCurrentValue);
 
                 // Measure and record how long balloting was blocked on this
                 // txset
@@ -1454,30 +1430,33 @@ BallotProtocol::attemptAcceptCommit(SCPStatement const& hint)
 }
 
 void
-BallotProtocol::throwIfValueInvalidForCommit(Value const& value,
-                                             char const* caller)
+BallotProtocol::throwIfValueInvalidForConfirmCommit(Value const& value)
 {
     auto validationLevel = mSlot.getSCPDriver().validateValue(
         mSlot.getSlotIndex(), value, /*nomination=*/false);
-    if (validationLevel != SCPDriver::kInvalidValue)
+
+    if (validationLevel == SCPDriver::kFullyValidatedValue ||
+        validationLevel == SCPDriver::kMaybeValidNotCurrentValue)
     {
+        // This is the expected case: kFullyValidatedValue for LCL+1, and
+        // kMaybeValidNotCurrentValue for all other slots.
         return;
     }
+
+    // If we end up here, something has gone seriously wrong.
 
     uint64 const slotIndex = mSlot.getSlotIndex();
     std::string const valueStr =
         mSlot.getSCP().getDriver().getValueString(value);
     CLOG_FATAL(SCP,
-               "BallotProtocol::{} slot:{} SCP federated accept is forcing a "
-               "commit on a value this node considers invalid (value:{}). "
-               "The most likely cause is that this stellar-core binary is "
-               "incompatible with the network's current protocol version. "
-               "Please check that you are running the latest stellar-core "
-               "release.",
-               caller, slotIndex, valueStr);
+               "BallotProtocol slot:{} federated ratify succeeded for a "
+               "value this node considers invalid or only structurally valid "
+               "(value:{}).",
+               slotIndex, valueStr);
+    CLOG_FATAL(SCP, "{}", REPORT_INTERNAL_BUG);
     std::ostringstream oss;
-    oss << "SCP forced commit on locally-invalid value (slot=" << slotIndex
-        << ", caller=" << caller << ")";
+    oss << "SCP confirm-commit on locally-invalid value (slot=" << slotIndex
+        << ")";
     throw std::runtime_error(oss.str());
 }
 
@@ -1488,8 +1467,6 @@ BallotProtocol::setAcceptCommit(SCPBallot const& c, SCPBallot const& h)
     CLOG_TRACE(SCP, "BallotProtocol::setAcceptCommit i: {} new c: {} new h: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(c),
                mSlot.getSCP().ballotToStr(h));
-
-    throwIfValueInvalidForCommit(c.value, "setAcceptCommit");
 
     bool didWork = false;
 
@@ -1693,7 +1670,7 @@ BallotProtocol::setConfirmCommit(SCPBallot const& c, SCPBallot const& h)
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(c),
                mSlot.getSCP().ballotToStr(h));
 
-    throwIfValueInvalidForCommit(c.value, "setConfirmCommit");
+    throwIfValueInvalidForConfirmCommit(c.value);
 
     mCommit = makeBallot(c);
     mHighBallot = makeBallot(h);
@@ -2138,8 +2115,8 @@ BallotProtocol::getStatementValues(SCPStatement const& st)
     return values;
 }
 
-BallotProtocol::ValidateValuesResult
-BallotProtocol::validateValues(SCPStatement const& st)
+SCPDriver::ValidationLevel
+BallotProtocol::statementValidationLevel(SCPStatement const& st)
 {
     ZoneScoped;
     std::set<Value> values;
@@ -2149,66 +2126,22 @@ BallotProtocol::validateValues(SCPStatement const& st)
     if (values.empty())
     {
         // This shouldn't happen
-        return ValidateValuesResult::kInvalid;
+        return SCPDriver::kInvalidValue;
     }
 
-    // Whether or not this value qualifies for relaxed validation of prepare
-    // messages (allows certain types of invalid values in the PREPARE
-    // statement).
-    bool relaxedValidationForPrepare =
-        // Skip votes must be allowed at the protocol level
-        mSlot.getSCPDriver().protocolAllowsSkipValues() &&
-        // Must be a PREPARE statement
-        st.pledges.type() == SCPStatementType::SCP_ST_PREPARE;
-
-    SCPDriver::ValidationLevel minValidationLevel = std::accumulate(
+    SCPDriver::ValidationLevel res = std::accumulate(
         values.begin(), values.end(), SCPDriver::kFullyValidatedValue,
         [&](SCPDriver::ValidationLevel lv, stellar::Value const& v) {
             if (lv > SCPDriver::kInvalidValue)
             {
-                SCPDriver::ValidationExtraInfo extraInfo{};
                 auto tr = mSlot.getSCPDriver().validateValue(
-                    mSlot.getSlotIndex(), v, false, &extraInfo);
-
-                if (tr == SCPDriver::kInvalidValue &&
-                    relaxedValidationForPrepare &&
-                    (!extraInfo.mIsCurrentLedger || !extraInfo.mIsTxSetInvalid))
-                {
-                    // This statement does not satisfy relaxed PREPARE
-                    // validation rules if:
-                    // * it contains any single invalid value where the invalid
-                    //   value is NOT due to an invalid tx set, or
-                    // * The statement is not for the known next ledger
-                    relaxedValidationForPrepare = false;
-                }
-
+                    mSlot.getSlotIndex(), v, false);
                 lv = std::min(tr, lv);
             }
             return lv;
         });
 
-    switch (minValidationLevel)
-    {
-    case SCPDriver::kInvalidValue:
-        // Statement contains an invalid value. If all values have been
-        // determined to be sufficiently valid for PREPARE, then return
-        // kValidForPrepare, otherwise return kInvalid.
-        return relaxedValidationForPrepare
-                   ? ValidateValuesResult::kValidForPrepare
-                   : ValidateValuesResult::kInvalid;
-    case SCPDriver::kMaybeValidValue:
-        // Value may or may not be valid, but we cannot tell because it is for
-        // some ledger other than LCL+1
-        return ValidateValuesResult::kMaybeValidNotCurrent;
-    case SCPDriver::kAwaitingDownload:
-        // Still waiting on some values, but none we have so far are invalid.
-        return ValidateValuesResult::kValidAwaitingDownload;
-    case SCPDriver::kFullyValidatedValue:
-        // All values within the statement are downloaded and valid.
-        return ValidateValuesResult::kFullyValid;
-    default:
-        releaseAssert(false);
-    }
+    return res;
 }
 
 void
