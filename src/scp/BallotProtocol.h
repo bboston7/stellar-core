@@ -175,9 +175,9 @@ class BallotProtocol
     // to make progress
     void advanceSlot(SCPStatement const& hint);
 
-    // returns true if all values in statement are valid
-    // TODO: Rename this function and fix the comment above. Rename to something
-    // like: minimumValidationLevelForStatement.
+    // Returns a validation level for `st`. The function determines the
+    // appropriate validation level by computing the minimum validation level of
+    // all values in `st`.
     SCPDriver::ValidationLevel statementValidationLevel(SCPStatement const& st);
 
     // send latest envelope if needed
