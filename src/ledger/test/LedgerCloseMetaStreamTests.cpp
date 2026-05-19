@@ -52,13 +52,6 @@ TEST_CASE("LedgerCloseMetaStream file descriptor - LIVE_NODE",
 
     uint32 const ledgerToWaitFor = 10;
 
-    // The `induceOneLedgerFork=true` variant simulates a watcher whose LCL
-    // diverges from the network (via a locally-applied extra ledger). When
-    // validators subsequently externalize ledgers built on the non-forked
-    // history, the watcher's validateValue returns kInvalidValue on those
-    // values (previousLedgerHash mismatch), and
-    // BallotProtocol::throwIfValueInvalidForCommit fires before any state
-    // mutation.
     bool const induceOneLedgerFork = GENERATE(false, true);
     CAPTURE(induceOneLedgerFork);
     auto const ledgerToCorrupt = 5;
@@ -93,6 +86,7 @@ TEST_CASE("LedgerCloseMetaStream file descriptor - LIVE_NODE",
         // Step 2: open writable files and pass them to watcher config
         cfg4.NODE_IS_VALIDATOR = false;
         cfg4.FORCE_SCP = false;
+        cfg4.EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD = true;
 #ifdef _WIN32
         cfg4.METADATA_OUTPUT_STREAM = metaPath;
 #else
@@ -113,63 +107,50 @@ TEST_CASE("LedgerCloseMetaStream file descriptor - LIVE_NODE",
 
         simulation->startAllNodes();
         bool watchersAreCorrupted = false;
-        try
-        {
-            simulation->crankUntil(
-                [&]() {
-                    // As long as the watchers are in sync, wait for them to
-                    // get the news of all the ledgers closed by the
-                    // validators.  But once the watchers are corrupt, they
-                    // won't be able to close more ledgers, so at that point
-                    // we start waiting only for the validators to do so.
-                    if (watchersAreCorrupted)
+        simulation->crankUntil(
+            [&]() {
+                // As long as the watchers are in sync, wait for them to get the
+                // news of all the ledgers closed by the validators.  But once
+                // the watchers are corrupt, they won't be able to close more
+                // ledgers, so at that point we start waiting only for the
+                // validators to do so.
+                if (watchersAreCorrupted)
+                {
+                    return app1->getLedgerManager().getLastClosedLedgerNum() ==
+                           ledgerToWaitFor;
+                }
+
+                auto const lastClosedLedger =
+                    app4->getLedgerManager().getLastClosedLedgerNum();
+
+                if (lastClosedLedger == expectedLastWatcherLedger - 1)
+                {
+                    expectedLastSafeHash = app4->getLedgerManager()
+                                               .getLastClosedLedgerHeader()
+                                               .hash;
+
+                    if (induceOneLedgerFork)
                     {
-                        return app1->getLedgerManager()
-                                   .getLastClosedLedgerNum() == ledgerToWaitFor;
-                    }
-
-                    auto const lastClosedLedger =
-                        app4->getLedgerManager().getLastClosedLedgerNum();
-
-                    if (lastClosedLedger == expectedLastWatcherLedger - 1)
-                    {
-                        expectedLastSafeHash = app4->getLedgerManager()
-                                                   .getLastClosedLedgerHeader()
-                                                   .hash;
-
-                        if (induceOneLedgerFork)
-                        {
-                            txtest::closeLedgerOn(
-                                *app4, ledgerToCorrupt,
-                                app4->getLedgerManager()
-                                        .getLastClosedLedgerHeader()
-                                        .header.scpValue.closeTime +
-                                    1);
-
-                            expectedLastUnsafeHash =
-                                app4->getLedgerManager()
+                        txtest::closeLedgerOn(
+                            *app4, ledgerToCorrupt,
+                            app4->getLedgerManager()
                                     .getLastClosedLedgerHeader()
-                                    .hash;
+                                    .header.scpValue.closeTime +
+                                1);
 
-                            watchersAreCorrupted = true;
-                            return false;
-                        }
+                        expectedLastUnsafeHash =
+                            app4->getLedgerManager()
+                                .getLastClosedLedgerHeader()
+                                .hash;
+
+                        watchersAreCorrupted = true;
+                        return false;
                     }
+                }
 
-                    return lastClosedLedger == ledgerToWaitFor;
-                },
-                std::chrono::seconds{200}, false);
-        }
-        catch (std::runtime_error const& e)
-        {
-            // Expected only in the forked variant: the watcher's
-            // throwIfValueInvalidForCommit helper fires when a quorum of
-            // validators pulls it into committing a value it rejects.
-            REQUIRE(induceOneLedgerFork);
-            REQUIRE(std::string(e.what()).find(
-                        "SCP forced commit on locally-invalid value") !=
-                    std::string::npos);
-        }
+                return lastClosedLedger == ledgerToWaitFor;
+            },
+            std::chrono::seconds{200}, false);
 
         REQUIRE(app4->getLedgerManager().getLastClosedLedgerNum() ==
                 expectedLastWatcherLedger);

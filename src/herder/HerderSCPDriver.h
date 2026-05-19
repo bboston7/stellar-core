@@ -68,9 +68,9 @@ class HerderSCPDriver : public SCPDriver
     bool isEnvelopeReady(SCPEnvelope const& env) const override;
 
     // value validation
-    SCPDriver::ValidationLevel validateValue(
-        uint64_t slotIndex, Value const& value, bool nomination,
-        SCPDriver::ValidationExtraInfo* extraInfo = nullptr) const override;
+    SCPDriver::ValidationLevel validateValue(uint64_t slotIndex,
+                                             Value const& value,
+                                             bool nomination) const override;
     ValueWrapperPtr extractValidValue(uint64_t slotIndex,
                                       Value const& value) override;
 
@@ -78,7 +78,8 @@ class HerderSCPDriver : public SCPDriver
     std::string toShortString(NodeID const& pk) const override;
     std::string getValueString(Value const& v) const override;
 
-    // Construct a skip ledger value from `v`. A few caveats about this function:
+    // Construct a skip ledger value from `v`. A few caveats about this
+    // function:
     // * `v` must be a STELLAR_VALUE_SIGNED value.
     // * This function should only be called from slots with slot indicies equal
     //   to LCL+1
@@ -319,9 +320,9 @@ class HerderSCPDriver : public SCPDriver
     mutable RandomEvictionCache<TxSetValidityKey, bool, TxSetValidityKeyHash>
         mTxSetValidCache;
 
-    SCPDriver::ValidationLevel validateValueAgainstLocalState(
-        uint64_t slotIndex, StellarValue const& sv, bool nomination,
-        SCPDriver::ValidationExtraInfo* extraInfo) const;
+    SCPDriver::ValidationLevel
+    validateValueAgainstLocalState(uint64_t slotIndex, StellarValue const& sv,
+                                   bool nomination) const;
 
     SCPDriver::ValidationLevel
     validatePastOrFutureValue(uint64_t slotIndex, StellarValue const& b,
