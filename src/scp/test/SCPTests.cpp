@@ -614,12 +614,12 @@ xValueNonTxSetInvalidValidationOverride(uint64, Value const& v, bool)
     return SCPDriver::kFullyValidatedValue;
 }
 
-// Returns kMaybeValidValue for xValue, simulating that the value is
+// Returns kMaybeValidNotCurrentValue for xValue, simulating that the value is
 // NOT for the current ledger.
 SCPDriver::ValidationLevel
 xValueNotCurrentLedgerOverride(uint64, Value const& v, bool)
 {
-    return SCPDriver::kMaybeValidValue;
+    return SCPDriver::kMaybeValidNotCurrentValue;
 }
 } // namespace
 

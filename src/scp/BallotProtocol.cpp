@@ -241,7 +241,7 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
 
     if (mPhase != SCP_PHASE_EXTERNALIZE)
     {
-        if (validationRes == SCPDriver::kMaybeValidValue)
+        if (validationRes == SCPDriver::kMaybeValidNotCurrentValue)
         {
             mSlot.setFullyValidated(false);
         }
@@ -1185,7 +1185,7 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 dbgAssert(!mCommit);
                 releaseAssert(validationLevel ==
                                   SCPDriver::kFullyValidatedValue ||
-                              validationLevel == SCPDriver::kMaybeValidValue);
+                              validationLevel == SCPDriver::kMaybeValidNotCurrentValue);
 
                 // Measure and record how long balloting was blocked on this
                 // txset
@@ -1436,10 +1436,10 @@ BallotProtocol::throwIfValueInvalidForConfirmCommit(Value const& value)
         mSlot.getSlotIndex(), value, /*nomination=*/false);
 
     if (validationLevel == SCPDriver::kFullyValidatedValue ||
-        validationLevel == SCPDriver::kMaybeValidValue)
+        validationLevel == SCPDriver::kMaybeValidNotCurrentValue)
     {
         // This is the expected case: kFullyValidatedValue for LCL+1, and
-        // kMaybeValidValue for all other slots.
+        // kMaybeValidNotCurrentValue for all other slots.
         return;
     }
 

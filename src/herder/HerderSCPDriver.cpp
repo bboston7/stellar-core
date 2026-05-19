@@ -348,7 +348,7 @@ HerderSCPDriver::validatePastOrFutureValue(
         // validate
         CLOG_TRACE(Herder, "MaybeValidValue (not tracking) for slot {}",
                    slotIndex);
-        return SCPDriver::kMaybeValidValue;
+        return SCPDriver::kMaybeValidNotCurrentValue;
     }
 
     // Check slotIndex.
@@ -359,7 +359,7 @@ HerderSCPDriver::validatePastOrFutureValue(
         CLOG_TRACE(Herder,
                    "MaybeValidValue (already moved on) for slot {}, at {}",
                    slotIndex, mHerder.nextConsensusLedgerIndex());
-        return SCPDriver::kMaybeValidValue;
+        return SCPDriver::kMaybeValidNotCurrentValue;
     }
     if (mHerder.nextConsensusLedgerIndex() < slotIndex)
     {
@@ -382,7 +382,7 @@ HerderSCPDriver::validatePastOrFutureValue(
     // this is as far as we can go if we don't have the state
     CLOG_TRACE(Herder, "Can't validate locally, value may be valid for slot {}",
                slotIndex);
-    return SCPDriver::kMaybeValidValue;
+    return SCPDriver::kMaybeValidNotCurrentValue;
 }
 
 SCPDriver::ValidationLevel
@@ -481,9 +481,9 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             res = SCPDriver::kFullyValidatedValue;
         }
 
-        // kMaybeValidValue should never be returned for LCL+1 values, as these
+        // kMaybeValidNotCurrentValue should never be returned for LCL+1 values, as these
         // values should always be fully valid/invalid, or awaiting download
-        releaseAssert(res != SCPDriver::kMaybeValidValue);
+        releaseAssert(res != SCPDriver::kMaybeValidNotCurrentValue);
     }
     else
     {
