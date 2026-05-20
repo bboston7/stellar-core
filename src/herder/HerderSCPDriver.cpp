@@ -309,7 +309,7 @@ HerderSCPDriver::validatePastOrFutureValue(
                 return SCPDriver::kInvalidValue;
             }
 
-            auto const& ov = b.ext.originalValue();
+            auto const& ov = b.ext.proposedValue();
             // We can check previousLedgerHash because the LCL header
             // contains the hash of its parent. We cannot check
             // previousLedgerVersion because the LCL header only has
@@ -427,7 +427,7 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
                            slotIndex);
                 return SCPDriver::kInvalidValue;
             }
-            auto const& ov = b.ext.originalValue();
+            auto const& ov = b.ext.proposedValue();
             if (ov.previousLedgerHash != lcl.hash ||
                 ov.previousLedgerVersion != lcl.header.ledgerVersion)
             {
@@ -669,20 +669,20 @@ Value
 HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
 {
     ZoneScoped;
-    StellarValue originalValue = toStellarValueOrThrow(v);
-    releaseAssert(originalValue.ext.v() == STELLAR_VALUE_SIGNED);
+    StellarValue proposedValue = toStellarValueOrThrow(v);
+    releaseAssert(proposedValue.ext.v() == STELLAR_VALUE_SIGNED);
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
 
     StellarValue sv;
     sv.ext.v(STELLAR_VALUE_SKIP);
     sv.txSetHash = Herder::SKIP_LEDGER_HASH;
-    sv.closeTime = originalValue.closeTime;
-    sv.upgrades = originalValue.upgrades;
-    sv.ext.originalValue().txSetHash = originalValue.txSetHash;
-    sv.ext.originalValue().previousLedgerHash = lcl.hash;
-    sv.ext.originalValue().previousLedgerVersion = lcl.header.ledgerVersion;
-    sv.ext.originalValue().lcValueSignature =
-        originalValue.ext.lcValueSignature();
+    sv.closeTime = proposedValue.closeTime;
+    sv.upgrades = proposedValue.upgrades;
+    sv.ext.proposedValue().txSetHash = proposedValue.txSetHash;
+    sv.ext.proposedValue().previousLedgerHash = lcl.hash;
+    sv.ext.proposedValue().previousLedgerVersion = lcl.header.ledgerVersion;
+    sv.ext.proposedValue().lcValueSignature =
+        proposedValue.ext.lcValueSignature();
     return xdr::xdr_to_opaque(sv);
 }
 

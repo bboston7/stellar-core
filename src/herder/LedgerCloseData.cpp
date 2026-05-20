@@ -62,7 +62,7 @@ stellarValueToString(Config const& c, StellarValue const& sv)
         break;
     case STELLAR_VALUE_SKIP:
         res << " SKIP@"
-            << c.toShortString(sv.ext.originalValue().lcValueSignature.nodeID);
+            << c.toShortString(sv.ext.proposedValue().lcValueSignature.nodeID);
         break;
     default:
         res << " UNKNOWN";

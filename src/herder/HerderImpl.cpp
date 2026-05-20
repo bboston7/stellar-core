@@ -332,7 +332,7 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
     TxSetXDRFrameConstPtr externalizedSet;
     if (std::holds_alternative<SkipTxSet>(result))
     {
-        auto const& ov = value.ext.originalValue();
+        auto const& ov = value.ext.proposedValue();
         externalizedSet = TxSetXDRFrame::makeEmpty(ov.previousLedgerHash,
                                                    ov.previousLedgerVersion);
     }
@@ -2735,7 +2735,7 @@ HerderImpl::verifyStellarValueSignature(StellarValue const& sv)
             .valid;
     case STELLAR_VALUE_SKIP:
     {
-        auto const& ov = sv.ext.originalValue();
+        auto const& ov = sv.ext.proposedValue();
         return PubKeyUtils::verifySig(
                    ov.lcValueSignature.nodeID, ov.lcValueSignature.signature,
                    xdr::xdr_to_opaque(mApp.getNetworkID(),
