@@ -302,7 +302,7 @@ HerderSCPDriver::validatePastOrFutureValue(
                        slotIndex, b.closeTime, lcl.header.scpValue.closeTime);
             return SCPDriver::kInvalidValue;
         }
-        if (b.ext.v() == STELLAR_VALUE_SKIP)
+        if (b.ext.v() == STELLAR_VALUE_EMPTY_TX_SET)
         {
             if (!protocolAllowsSkipValues())
             {
@@ -410,7 +410,7 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
 
         // For skip values, validate that the previous ledger context matches
         // our LCL. Skip values don't have a real tx set to validate.
-        if (b.ext.v() == STELLAR_VALUE_SKIP)
+        if (b.ext.v() == STELLAR_VALUE_EMPTY_TX_SET)
         {
             if (!protocolAllowsSkipValues())
             {
@@ -522,7 +522,7 @@ HerderSCPDriver::deserializeAndValidateStellarValue(Value const& value,
             return false;
         }
 
-        if (sv.ext.v() != STELLAR_VALUE_SKIP)
+        if (sv.ext.v() != STELLAR_VALUE_EMPTY_TX_SET)
         {
             // The value is not a signed value or a skip value, so it is
             // invalid.
@@ -533,7 +533,7 @@ HerderSCPDriver::deserializeAndValidateStellarValue(Value const& value,
     // Skip values must have the skip hash, and non-skip values must not have
     // the skip hash
     if (skipsAllowed && (sv.txSetHash == Herder::SKIP_LEDGER_HASH) !=
-                            (sv.ext.v() == STELLAR_VALUE_SKIP))
+                            (sv.ext.v() == STELLAR_VALUE_EMPTY_TX_SET))
     {
         return false;
     }
@@ -674,7 +674,7 @@ HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
 
     StellarValue sv;
-    sv.ext.v(STELLAR_VALUE_SKIP);
+    sv.ext.v(STELLAR_VALUE_EMPTY_TX_SET);
     sv.txSetHash = Herder::SKIP_LEDGER_HASH;
     sv.closeTime = proposedValue.closeTime;
     sv.upgrades = proposedValue.upgrades;
@@ -697,7 +697,7 @@ HerderSCPDriver::isSkipLedgerValue(Value const& v) const
         return false;
     }
 
-    return sv.ext.v() == STELLAR_VALUE_SKIP;
+    return sv.ext.v() == STELLAR_VALUE_EMPTY_TX_SET;
 }
 
 // timer handling
@@ -1143,7 +1143,7 @@ HerderSCPDriver::valueExternalized(uint64_t slotIndex, Value const& value)
     bool isLatestSlot =
         slotIndex > mApp.getHerder().trackingConsensusLedgerIndex();
 
-    if (b.ext.v() == STELLAR_VALUE_SKIP)
+    if (b.ext.v() == STELLAR_VALUE_EMPTY_TX_SET)
     {
         mSCPMetrics.mSkipExternalized.inc();
     }

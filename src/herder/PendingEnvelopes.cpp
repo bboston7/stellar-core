@@ -339,7 +339,7 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             case STELLAR_VALUE_SIGNED:
                 // Signed values are allowed
                 return false;
-            case STELLAR_VALUE_SKIP:
+            case STELLAR_VALUE_EMPTY_TX_SET:
                 return !mHerder.getHerderSCPDriver().protocolAllowsSkipValues();
             default:
                 releaseAssert(false);

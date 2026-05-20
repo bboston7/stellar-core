@@ -193,7 +193,7 @@ class SCPDriver
     // SCP
     virtual bool isParallelTxSetDownloadEnabled() const = 0;
 
-    // The protocol version allows the use of STELLAR_VALUE_SKIP
+    // The protocol version allows the use of STELLAR_VALUE_EMPTY_TX_SET
     virtual bool protocolAllowsSkipValues() const = 0;
 
     // `getValueString` is used for debugging

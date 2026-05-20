@@ -2733,7 +2733,7 @@ HerderImpl::verifyStellarValueSignature(StellarValue const& sv)
                                                          sv.txSetHash,
                                                          sv.closeTime))
             .valid;
-    case STELLAR_VALUE_SKIP:
+    case STELLAR_VALUE_EMPTY_TX_SET:
     {
         auto const& ov = sv.ext.proposedValue();
         return PubKeyUtils::verifySig(

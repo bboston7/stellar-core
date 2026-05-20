@@ -60,7 +60,7 @@ stellarValueToString(Config const& c, StellarValue const& sv)
     case STELLAR_VALUE_SIGNED:
         res << " SIGNED@" << c.toShortString(sv.ext.lcValueSignature().nodeID);
         break;
-    case STELLAR_VALUE_SKIP:
+    case STELLAR_VALUE_EMPTY_TX_SET:
         res << " SKIP@"
             << c.toShortString(sv.ext.proposedValue().lcValueSignature.nodeID);
         break;
