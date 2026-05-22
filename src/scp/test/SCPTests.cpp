@@ -133,30 +133,31 @@ class TestSCP : public SCPDriver
     }
 
     Value
-    makeSkipLedgerValueFromValue(Value const& value) const override
+    makeEmptyTxSetValueFromValue(Value const& value) const override
     {
-        // Create a skip value by prefixing with "SKIP:"
-        Value skipValue;
-        skipValue.resize(5 + value.size());
-        skipValue[0] = 'S';
-        skipValue[1] = 'K';
-        skipValue[2] = 'I';
-        skipValue[3] = 'P';
-        skipValue[4] = ':';
-        std::copy(value.begin(), value.end(), skipValue.begin() + 5);
-        return skipValue;
+        // Create an empty-tx-set value by prefixing with "EMPTY:"
+        Value emptyTxSetValue;
+        emptyTxSetValue.resize(6 + value.size());
+        emptyTxSetValue[0] = 'E';
+        emptyTxSetValue[1] = 'M';
+        emptyTxSetValue[2] = 'P';
+        emptyTxSetValue[3] = 'T';
+        emptyTxSetValue[4] = 'Y';
+        emptyTxSetValue[5] = ':';
+        std::copy(value.begin(), value.end(), emptyTxSetValue.begin() + 6);
+        return emptyTxSetValue;
     }
 
     bool
-    isSkipLedgerValue(Value const& v) const override
+    isEmptyTxSetValue(Value const& v) const override
     {
-        // Check if value starts with "SKIP:"
-        if (v.size() < 5)
+        // Check if value starts with "EMPTY:"
+        if (v.size() < 6)
         {
             return false;
         }
-        return v[0] == 'S' && v[1] == 'K' && v[2] == 'I' && v[3] == 'P' &&
-               v[4] == ':';
+        return v[0] == 'E' && v[1] == 'M' && v[2] == 'P' && v[3] == 'T' &&
+               v[4] == 'Y' && v[5] == ':';
     }
 
     bool
@@ -166,7 +167,7 @@ class TestSCP : public SCPDriver
     }
 
     bool
-    protocolAllowsSkipValues() const override
+    protocolAllowsEmptyTxSetValues() const override
     {
         return true;
     }
@@ -280,7 +281,7 @@ class TestSCP : public SCPDriver
     std::map<uint64, Value> mExternalizedValues;
     std::map<uint64, std::vector<SCPBallot>> mHeardFromQuorums;
 
-    // Skip ledger support
+    // Empty-tx-set value support
     std::map<Value, std::chrono::milliseconds> mDownloadWaitTimes;
 
     struct TimerData
@@ -388,7 +389,7 @@ class TestSCP : public SCPDriver
         return mSCP.getSlot(slotIndex, false)->getNominationLeaders();
     }
 
-    // Helper methods for skip ledger testing
+    // Helper methods for empty-tx-set value testing
     void
     startDownload(Value const& v, std::chrono::milliseconds waitTime)
     {
@@ -3482,7 +3483,7 @@ TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
     }
 }
 
-TEST_CASE("nomination times out structurally-valid value into skip",
+TEST_CASE("nomination times out structurally-valid value into empty tx set",
           "[scp][nomination]")
 {
     setupValues();
@@ -3503,8 +3504,8 @@ TEST_CASE("nomination times out structurally-valid value into skip",
 
     // xValue is structurally-valid throughout — its tx set is either still in
     // flight or has been downloaded-and-found-invalid.  Seed a wait time past
-    // the download timeout so maybeReplaceValueWithSkip triggers skip
-    // replacement at bumpState time.
+    // the download timeout so maybeReplaceValueWithEmptyTxSet triggers
+    // empty-tx-set replacement at bumpState time.
     scp.startDownload(xValue, OVER_TX_SET_TIMEOUT);
     scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
@@ -3521,18 +3522,19 @@ TEST_CASE("nomination times out structurally-valid value into skip",
     auto const followerAcceptedNomination =
         makeNominate(v2SecretKey, qSetHash, 0, {xValue}, {xValue});
     // Quorum accept-nominated xValue → composite value flows to
-    // bumpState → maybeReplaceValueWithSkip sees kStructurallyValidValue
-    // with the wait time past the timeout and substitutes a skip value.
+    // bumpState → maybeReplaceValueWithEmptyTxSet sees
+    // kStructurallyValidValue with the wait time past the timeout and
+    // substitutes an empty-tx-set value.
     REQUIRE(scp.receiveEnvelope(followerAcceptedNomination) ==
             SCP::EnvelopeState::VALID);
 
-    // The emitted ballot should carry the skip value derived from
+    // The emitted ballot should carry the empty-tx-set value derived from
     // xValue, not xValue itself.
     auto const& lastEnv = scp.mEnvs.back();
     REQUIRE(lastEnv.statement.pledges.type() == SCP_ST_PREPARE);
     auto const& ballot = lastEnv.statement.pledges.prepare().ballot;
-    REQUIRE(scp.isSkipLedgerValue(ballot.value));
-    REQUIRE(ballot.value == scp.makeSkipLedgerValueFromValue(xValue));
+    REQUIRE(scp.isEmptyTxSetValue(ballot.value));
+    REQUIRE(ballot.value == scp.makeEmptyTxSetValueFromValue(xValue));
 }
 
 TEST_CASE("ballot protocol self-emits CONFIRM after federated accept-commit on "
@@ -3556,8 +3558,8 @@ TEST_CASE("ballot protocol self-emits CONFIRM after federated accept-commit on "
     scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
 
     // xValue stays kStructurallyValidValue throughout, with a wait time
-    // below the download timeout so maybeReplaceValueWithSkip does not
-    // skip-replace.
+    // below the download timeout so maybeReplaceValueWithEmptyTxSet does not
+    // replace it with an empty-tx-set value.
     scp.startDownload(xValue, UNDER_TX_SET_TIMEOUT);
     scp.mValidateValueOverride = xValueStructurallyValidValidationOverride;
 
@@ -3576,12 +3578,12 @@ TEST_CASE("ballot protocol self-emits CONFIRM after federated accept-commit on "
     // v1, v2 signal accept-prepared (1, xValue). v0 would normally
     // confirm-prepared here, but setConfirmPrepared stalls on
     // kStructurallyValidValue so c/h stay unset on v0's side.
-    REQUIRE(scp.receiveEnvelope(
-                makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)) ==
-            SCP::EnvelopeState::VALID);
-    REQUIRE(scp.receiveEnvelope(
-                makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)) ==
-            SCP::EnvelopeState::VALID);
+    REQUIRE(
+        scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)) ==
+        SCP::EnvelopeState::VALID);
+    REQUIRE(
+        scp.receiveEnvelope(makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)) ==
+        SCP::EnvelopeState::VALID);
 
     // v1, v2 vote-to-commit (1, xValue) via nC/nH on their PREPAREs.
     // federatedAccept fires via the "quorum voted-or-accepted" path v0
@@ -3601,7 +3603,7 @@ TEST_CASE("ballot protocol self-emits CONFIRM after federated accept-commit on "
     REQUIRE(lastEnv.statement.pledges.type() == SCP_ST_CONFIRM);
     auto const& cBallot = lastEnv.statement.pledges.confirm().ballot;
     REQUIRE(cBallot.value == xValue);
-    REQUIRE(!scp.isSkipLedgerValue(cBallot.value));
+    REQUIRE(!scp.isEmptyTxSetValue(cBallot.value));
 
     // A peer CONFIRM whose value v0 considers kStructurallyValidValue is
     // rejected by processEnvelope
@@ -3610,7 +3612,7 @@ TEST_CASE("ballot protocol self-emits CONFIRM after federated accept-commit on "
     REQUIRE(res == SCP::EnvelopeState::INVALID);
 }
 
-TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
+TEST_CASE("drop tx set on download timeout", "[scp][ballotprotocol]")
 {
     setupValues();
     SIMULATION_CREATE_NODE(0);
@@ -3636,23 +3638,26 @@ TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
         // Simulate that xValue is awaiting download with timeout exceeded
         scp.startDownload(xValue, OVER_TX_SET_TIMEOUT);
 
-        // Now call bumpState which should trigger maybeReplaceValueWithSkip
+        // Now call bumpState which should trigger
+        // maybeReplaceValueWithEmptyTxSet
         REQUIRE(scp.bumpState(0, xValue));
         REQUIRE(scp.mEnvs.size() == 1);
 
-        // The ballot should have a skip ledger value, not the original xValue
+        // The ballot should have an empty-tx-set value, not the original
+        // xValue
         auto const& emittedBallot =
             scp.mEnvs[0].statement.pledges.prepare().ballot;
 
         REQUIRE(emittedBallot.counter == 1);
-        REQUIRE(scp.isSkipLedgerValue(emittedBallot.value));
+        REQUIRE(scp.isEmptyTxSetValue(emittedBallot.value));
 
-        // Verify it's a skip of the original xValue
-        Value expectedSkipValue = scp.makeSkipLedgerValueFromValue(xValue);
-        REQUIRE(emittedBallot.value == expectedSkipValue);
+        // Verify it's the empty-tx-set value derived from xValue
+        Value expectedEmptyTxSetValue =
+            scp.makeEmptyTxSetValueFromValue(xValue);
+        REQUIRE(emittedBallot.value == expectedEmptyTxSetValue);
 
         verifyPrepare(scp.mEnvs[0], v0SecretKey, qSetHash0, 0,
-                      SCPBallot(1, expectedSkipValue));
+                      SCPBallot(1, expectedEmptyTxSetValue));
     }
 
     SECTION("no timeout when wait time under threshold")
@@ -3666,74 +3671,79 @@ TEST_CASE("skip ledger on download timeout", "[scp][ballotprotocol]")
         // Simulate that xValue is awaiting download but wait time is still low
         scp.startDownload(xValue, UNDER_TX_SET_TIMEOUT);
 
-        // Try to bump state - should NOT replace with skip value
+        // Try to bump state - should NOT replace with an empty-tx-set value
         REQUIRE(scp.bumpState(0, xValue));
         REQUIRE(scp.mEnvs.size() == 2);
 
-        // Verify ballot still has original xValue, not a skip value
+        // Verify ballot still has original xValue, not an empty-tx-set value
         auto const& emittedBallot =
             scp.mEnvs[1].statement.pledges.prepare().ballot;
         REQUIRE(emittedBallot.counter == 2);
-        REQUIRE(!scp.isSkipLedgerValue(emittedBallot.value));
+        REQUIRE(!scp.isEmptyTxSetValue(emittedBallot.value));
         REQUIRE(emittedBallot.value == xValue);
     }
 
-    SECTION("skip value can be prepared and confirmed")
+    SECTION("empty-tx-set value can be prepared and confirmed")
     {
-        // Start with xValue and timeout to skip value
+        // Start with xValue and timeout to an empty-tx-set value
         scp.startDownload(xValue, OVER_TX_SET_TIMEOUT);
 
         REQUIRE(scp.bumpState(0, xValue));
         REQUIRE(scp.mEnvs.size() == 1);
 
-        Value skipValue = scp.makeSkipLedgerValueFromValue(xValue);
-        SCPBallot skipB1(1, skipValue);
+        Value emptyTxSetValue = scp.makeEmptyTxSetValueFromValue(xValue);
+        SCPBallot emptyTxSetB1(1, emptyTxSetValue);
 
-        // Verify we emitted skip value
-        REQUIRE(scp.isSkipLedgerValue(
+        // Verify we emitted an empty-tx-set value
+        REQUIRE(scp.isEmptyTxSetValue(
             scp.mEnvs[0].statement.pledges.prepare().ballot.value));
-        verifyPrepare(scp.mEnvs[0], v0SecretKey, qSetHash0, 0, skipB1);
+        verifyPrepare(scp.mEnvs[0], v0SecretKey, qSetHash0, 0, emptyTxSetB1);
 
-        // Other nodes also move to skip value
-        scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, skipB1));
-        scp.receiveEnvelope(makePrepare(v2SecretKey, qSetHash, 0, skipB1));
+        // Other nodes also move to the empty-tx-set value
+        scp.receiveEnvelope(
+            makePrepare(v1SecretKey, qSetHash, 0, emptyTxSetB1));
+        scp.receiveEnvelope(
+            makePrepare(v2SecretKey, qSetHash, 0, emptyTxSetB1));
 
-        // Should prepare skip value (quorum reached)
+        // Should prepare the empty-tx-set value (quorum reached)
         REQUIRE(scp.mEnvs.size() == 2);
-        verifyPrepare(scp.mEnvs[1], v0SecretKey, qSetHash0, 0, skipB1, &skipB1);
+        verifyPrepare(scp.mEnvs[1], v0SecretKey, qSetHash0, 0, emptyTxSetB1,
+                      &emptyTxSetB1);
 
-        // Quorum confirms prepared skip value
+        // Quorum confirms prepared empty-tx-set value
         scp.receiveEnvelope(
-            makePrepare(v1SecretKey, qSetHash, 0, skipB1, &skipB1));
+            makePrepare(v1SecretKey, qSetHash, 0, emptyTxSetB1, &emptyTxSetB1));
         scp.receiveEnvelope(
-            makePrepare(v2SecretKey, qSetHash, 0, skipB1, &skipB1));
+            makePrepare(v2SecretKey, qSetHash, 0, emptyTxSetB1, &emptyTxSetB1));
 
         REQUIRE(scp.mEnvs.size() == 3);
-        verifyPrepare(scp.mEnvs[2], v0SecretKey, qSetHash0, 0, skipB1, &skipB1,
-                      1, 1);
+        verifyPrepare(scp.mEnvs[2], v0SecretKey, qSetHash0, 0, emptyTxSetB1,
+                      &emptyTxSetB1, 1, 1);
 
         // Accept commit
-        scp.receiveEnvelope(
-            makePrepare(v1SecretKey, qSetHash, 0, skipB1, &skipB1, 1, 1));
-        scp.receiveEnvelope(
-            makePrepare(v2SecretKey, qSetHash, 0, skipB1, &skipB1, 1, 1));
+        scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, emptyTxSetB1,
+                                        &emptyTxSetB1, 1, 1));
+        scp.receiveEnvelope(makePrepare(v2SecretKey, qSetHash, 0, emptyTxSetB1,
+                                        &emptyTxSetB1, 1, 1));
 
         REQUIRE(scp.mEnvs.size() == 4);
-        verifyConfirm(scp.mEnvs[3], v0SecretKey, qSetHash0, 0, 1, skipB1, 1, 1);
+        verifyConfirm(scp.mEnvs[3], v0SecretKey, qSetHash0, 0, 1, emptyTxSetB1,
+                      1, 1);
 
-        // Externalize skip value
+        // Externalize the empty-tx-set value
         scp.receiveEnvelope(
-            makeConfirm(v1SecretKey, qSetHash, 0, 1, skipB1, 1, 1));
+            makeConfirm(v1SecretKey, qSetHash, 0, 1, emptyTxSetB1, 1, 1));
         scp.receiveEnvelope(
-            makeConfirm(v2SecretKey, qSetHash, 0, 1, skipB1, 1, 1));
+            makeConfirm(v2SecretKey, qSetHash, 0, 1, emptyTxSetB1, 1, 1));
 
         REQUIRE(scp.mEnvs.size() == 5);
-        verifyExternalize(scp.mEnvs[4], v0SecretKey, qSetHash0, 0, skipB1, 1);
+        verifyExternalize(scp.mEnvs[4], v0SecretKey, qSetHash0, 0, emptyTxSetB1,
+                          1);
 
-        // Verify the externalized value is the skip value
+        // Verify the externalized value is the empty-tx-set value
         REQUIRE(scp.mExternalizedValues.size() == 1);
-        REQUIRE(scp.isSkipLedgerValue(scp.mExternalizedValues[0]));
-        REQUIRE(scp.mExternalizedValues[0] == skipValue);
+        REQUIRE(scp.isEmptyTxSetValue(scp.mExternalizedValues[0]));
+        REQUIRE(scp.mExternalizedValues[0] == emptyTxSetValue);
     }
 }
 
@@ -3791,12 +3801,12 @@ TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
     SCPBallot xB1(1, xValue);
 
     // v1 and v2 send PREPAREs with prepared — quorum confirms prepared
-    REQUIRE(scp.receiveEnvelope(
-                makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)) ==
-            SCP::EnvelopeState::VALID);
-    REQUIRE(scp.receiveEnvelope(
-                makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)) ==
-            SCP::EnvelopeState::VALID);
+    REQUIRE(
+        scp.receiveEnvelope(makePrepare(v1SecretKey, qSetHash, 0, xB1, &xB1)) ==
+        SCP::EnvelopeState::VALID);
+    REQUIRE(
+        scp.receiveEnvelope(makePrepare(v2SecretKey, qSetHash, 0, xB1, &xB1)) ==
+        SCP::EnvelopeState::VALID);
 
     SECTION("commit gate stalls mCommit but mHighBallot is set")
     {

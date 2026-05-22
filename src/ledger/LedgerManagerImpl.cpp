@@ -1542,7 +1542,7 @@ LedgerManagerImpl::applyLedger(LedgerCloseData const& ledgerData,
 
     Hash const& ldTxSetHash = ledgerData.getValue().txSetHash;
     if (txSet->getContentsHash() != ldTxSetHash &&
-        ldTxSetHash != Herder::SKIP_LEDGER_HASH)
+        ldTxSetHash != Herder::EMPTY_TX_SET_HASH)
     {
         CLOG_ERROR(
             Ledger,

@@ -23,9 +23,8 @@ namespace
 using TxPair = std::pair<Value, TxSetXDRFrameConstPtr>;
 
 TxPair
-makeTxPair(HerderImpl& herder, SecretKey const& s,
-           TxSetXDRFrameConstPtr txSet, uint64_t closeTime,
-           StellarValueType svt)
+makeTxPair(HerderImpl& herder, SecretKey const& s, TxSetXDRFrameConstPtr txSet,
+           uint64_t closeTime, StellarValueType svt)
 {
     StellarValue sv = herder.makeStellarValue(txSet->getContentsHash(),
                                               closeTime, emptyUpgradeSteps, s);
@@ -243,13 +242,12 @@ TEST_CASE_VERSIONS("PendingEnvelopes recvSCPEnvelope", "[herder]")
     SECTION("PREPARE: process before tx set arrives")
     {
         for_versions_from(
-            static_cast<uint32_t>(SKIP_LEDGER_PROTOCOL_VERSION), *app, [&] {
+            static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION), *app, [&] {
                 // Exercises the parallel tx set downloading code path: PREPARE
                 // qualifies for early handoff to SCP once the qset is cached,
                 // even while the tx set is still in flight
-                auto prepEnv =
-                    makePrepareEnvelope(herder, s, p, saneQSetHash,
-                                        lcl.header.ledgerSeq + 1);
+                auto prepEnv = makePrepareEnvelope(herder, s, p, saneQSetHash,
+                                                   lcl.header.ledgerSeq + 1);
                 auto& fetchTimer =
                     app->getMetrics().NewTimer({"scp", "fetch", "envelope"});
                 auto const initialCount = fetchTimer.count();
@@ -341,10 +339,10 @@ TEST_CASE_VERSIONS("PendingEnvelopes recvSCPEnvelope", "[herder]")
         auto saneEnvelope2 = makeEnvelope(
             herder, s, p, saneQSetHash,
             lcl.header.ledgerSeq + app->getConfig().MAX_SLOTS_TO_REMEMBER + 1);
-        auto saneEnvelope3 = makeEnvelope(
-            herder, s, p, saneQSetHash,
-            lcl.header.ledgerSeq +
-                2 * app->getConfig().MAX_SLOTS_TO_REMEMBER + 1);
+        auto saneEnvelope3 =
+            makeEnvelope(herder, s, p, saneQSetHash,
+                         lcl.header.ledgerSeq +
+                             2 * app->getConfig().MAX_SLOTS_TO_REMEMBER + 1);
 
         REQUIRE(pendingEnvelopes.recvSCPEnvelope(saneEnvelope) ==
                 Herder::ENVELOPE_STATUS_FETCHING);
@@ -489,40 +487,43 @@ TEST_CASE_VERSIONS("PendingEnvelopes recvSCPEnvelope", "[herder]")
     SECTION("do not fetch if txsets are not signed")
     {
         auto p2 = makeTxPair(herder, s, txSet, 10, STELLAR_VALUE_BASIC);
-        auto envNoSign = makeEnvelope(herder, s, p2, saneQSetHash,
-                                      lcl.header.ledgerSeq + 1);
+        auto envNoSign =
+            makeEnvelope(herder, s, p2, saneQSetHash, lcl.header.ledgerSeq + 1);
 
         // Make sure to discard the envelope
         REQUIRE(pendingEnvelopes.recvSCPEnvelope(envNoSign) ==
                 Herder::ENVELOPE_STATUS_DISCARDED);
     }
 
-    SECTION("skip-value envelopes gated by SKIP_LEDGER_PROTOCOL_VERSION")
+    SECTION("empty-tx-set value envelopes gated by "
+            "EMPTY_TX_SET_PROTOCOL_VERSION")
     {
-        // Build a skip-value envelope
+        // Build an empty-tx-set value envelope
         auto& scpDriver = herder.getHerderSCPDriver();
-        Value skipValue = scpDriver.makeSkipLedgerValueFromValue(p.first);
-        auto skipEnvelope =
-            makeEnvelope(herder, s, TxPair{skipValue, p.second}, saneQSetHash,
-                         lcl.header.ledgerSeq + 1);
+        Value emptyTxSetValue = scpDriver.makeEmptyTxSetValueFromValue(p.first);
+        auto emptyTxSetEnvelope =
+            makeEnvelope(herder, s, TxPair{emptyTxSetValue, p.second},
+                         saneQSetHash, lcl.header.ledgerSeq + 1);
 
-        SECTION("rejected before SKIP_LEDGER_PROTOCOL_VERSION")
+        SECTION("rejected before EMPTY_TX_SET_PROTOCOL_VERSION")
         {
             for_versions_to(
-                static_cast<uint32_t>(SKIP_LEDGER_PROTOCOL_VERSION) - 1, *app,
+                static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION) - 1, *app,
                 [&] {
-                    REQUIRE(pendingEnvelopes.recvSCPEnvelope(skipEnvelope) ==
-                            Herder::ENVELOPE_STATUS_DISCARDED);
+                    REQUIRE(
+                        pendingEnvelopes.recvSCPEnvelope(emptyTxSetEnvelope) ==
+                        Herder::ENVELOPE_STATUS_DISCARDED);
                 });
         }
 
-        SECTION("accepted at SKIP_LEDGER_PROTOCOL_VERSION and beyond")
+        SECTION("accepted at EMPTY_TX_SET_PROTOCOL_VERSION and beyond")
         {
             for_versions_from(
-                static_cast<uint32_t>(SKIP_LEDGER_PROTOCOL_VERSION), *app,
+                static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION), *app,
                 [&] {
-                    REQUIRE(pendingEnvelopes.recvSCPEnvelope(skipEnvelope) !=
-                            Herder::ENVELOPE_STATUS_DISCARDED);
+                    REQUIRE(
+                        pendingEnvelopes.recvSCPEnvelope(emptyTxSetEnvelope) !=
+                        Herder::ENVELOPE_STATUS_DISCARDED);
                 });
         }
     }
@@ -531,10 +532,10 @@ TEST_CASE_VERSIONS("PendingEnvelopes recvSCPEnvelope", "[herder]")
     {
         GeneralizedTransactionSet malformedXdrSet(1);
         auto malformedTxSet = TxSetXDRFrame::makeFromWire(malformedXdrSet);
-        auto p2 = makeTxPair(herder, s, malformedTxSet, 10,
-                             STELLAR_VALUE_SIGNED);
-        auto malformedEnvelope = makeEnvelope(herder, s, p2, saneQSetHash,
-                                              lcl.header.ledgerSeq + 1);
+        auto p2 =
+            makeTxPair(herder, s, malformedTxSet, 10, STELLAR_VALUE_SIGNED);
+        auto malformedEnvelope =
+            makeEnvelope(herder, s, p2, saneQSetHash, lcl.header.ledgerSeq + 1);
         REQUIRE(pendingEnvelopes.recvSCPEnvelope(malformedEnvelope) ==
                 Herder::ENVELOPE_STATUS_FETCHING);
         REQUIRE(pendingEnvelopes.recvSCPQuorumSet(saneQSetHash, saneQSet));
@@ -635,9 +636,8 @@ TEST_CASE_VERSIONS("PendingEnvelopes recvSCPEnvelope", "[herder]")
     }
 }
 
-TEST_CASE(
-    "PendingEnvelopes recvSCPEnvelope without parallel tx set download",
-    "[herder]")
+TEST_CASE("PendingEnvelopes recvSCPEnvelope without parallel tx set download",
+          "[herder]")
 {
     Config cfg(getTestConfig());
     cfg.MANUAL_CLOSE = false;

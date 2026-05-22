@@ -2880,7 +2880,7 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
             }
         }
 
-        SECTION("skip hash/type mismatch")
+        SECTION("empty-tx-set hash/type mismatch")
         {
             auto checkInvalidMismatch = [&](StellarValue const& sv) {
                 auto v = xdr::xdr_to_opaque(sv);
@@ -2895,21 +2895,22 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
                 REQUIRE(extracted == nullptr);
             };
 
-            SECTION("signed value with skip hash")
+            SECTION("signed value with empty-tx-set hash")
             {
                 auto p = makeTxPair(herder, txSet0, ct);
                 StellarValue sv;
                 xdr::xdr_from_opaque(p.first, sv);
-                sv.txSetHash = Herder::SKIP_LEDGER_HASH;
+                sv.txSetHash = Herder::EMPTY_TX_SET_HASH;
                 checkInvalidMismatch(sv);
             }
 
-            SECTION("skip value without skip hash")
+            SECTION("empty-tx-set value without empty-tx-set hash")
             {
                 auto p = makeTxPair(herder, txSet0, ct);
-                auto skipValue = scp.makeSkipLedgerValueFromValue(p.first);
+                auto emptyTxSetValue =
+                    scp.makeEmptyTxSetValueFromValue(p.first);
                 StellarValue sv;
-                xdr::xdr_from_opaque(skipValue, sv);
+                xdr::xdr_from_opaque(emptyTxSetValue, sv);
                 sv.txSetHash = txSet0->getContentsHash();
                 checkInvalidMismatch(sv);
             }
@@ -8357,7 +8358,7 @@ TEST_CASE_VERSIONS("Herder properly validates when tx set is missing",
     Application::pointer app = createTestApplication(clock, cfg);
 
     for_versions_from(
-        static_cast<uint32_t>(SKIP_LEDGER_PROTOCOL_VERSION), *app, [&] {
+        static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION), *app, [&] {
             auto const lcl =
                 app->getLedgerManager().getLastClosedLedgerHeader();
             auto& herder = static_cast<HerderImpl&>(app->getHerder());

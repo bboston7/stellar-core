@@ -174,7 +174,7 @@ class TxSetXDRFrame : public NonMovableOrCopyable
     makeEmpty(LedgerHeaderHistoryEntry const& lclHeader);
 
     // Creates a valid empty TxSetXDRFrame from the previous ledger hash and
-    // protocol version. Used for skip ledger values where the full header
+    // protocol version. Used for empty-tx-set values where the full header
     // may not be available.
     static TxSetXDRFrameConstPtr makeEmpty(Hash const& previousLedgerHash,
                                            uint32 previousLedgerVersion);

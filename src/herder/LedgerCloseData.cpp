@@ -25,7 +25,7 @@ LedgerCloseData::LedgerCloseData(uint32_t ledgerSeq,
     , mExpectedLedgerHash(expectedLedgerHash)
 {
     Hash const& valueTxHash = mValue.txSetHash;
-    releaseAssert(valueTxHash == Herder::SKIP_LEDGER_HASH ||
+    releaseAssert(valueTxHash == Herder::EMPTY_TX_SET_HASH ||
                   txSet->getContentsHash() == valueTxHash);
 }
 
@@ -41,7 +41,7 @@ LedgerCloseData::LedgerCloseData(
     , mExpectedResults(expectedResults)
 {
     Hash const& valueTxHash = mValue.txSetHash;
-    releaseAssert(valueTxHash == Herder::SKIP_LEDGER_HASH ||
+    releaseAssert(valueTxHash == Herder::EMPTY_TX_SET_HASH ||
                   txSet->getContentsHash() == valueTxHash);
 }
 #endif // BUILD_TESTS
@@ -60,9 +60,9 @@ stellarValueToString(Config const& c, StellarValue const& sv)
     case STELLAR_VALUE_SIGNED:
         res << " SIGNED@" << c.toShortString(sv.ext.lcValueSignature().nodeID);
         break;
-    case STELLAR_VALUE_SKIP:
-        res << " SKIP@"
-            << c.toShortString(sv.ext.originalValue().lcValueSignature.nodeID);
+    case STELLAR_VALUE_EMPTY_TX_SET:
+        res << " EMPTY_TXSET@"
+            << c.toShortString(sv.ext.proposedValue().lcValueSignature.nodeID);
         break;
     default:
         res << " UNKNOWN";

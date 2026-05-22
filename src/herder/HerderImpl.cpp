@@ -330,9 +330,9 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
 
     auto result = mPendingEnvelopes.getTxSet(value.txSetHash);
     TxSetXDRFrameConstPtr externalizedSet;
-    if (std::holds_alternative<SkipTxSet>(result))
+    if (std::holds_alternative<EmptyTxSet>(result))
     {
-        auto const& ov = value.ext.originalValue();
+        auto const& ov = value.ext.proposedValue();
         externalizedSet = TxSetXDRFrame::makeEmpty(ov.previousLedgerHash,
                                                    ov.previousLedgerVersion);
     }
@@ -2181,7 +2181,7 @@ HerderImpl::persistSCPState(uint64 slot)
                     txSets.insert(std::make_pair(h, *txSetPtr));
                 }
             }
-            // SkipTxSet: nothing to persist
+            // EmptyTxSet: nothing to persist
         }
         Hash qsHash = Slot::getCompanionQuorumSetHashFromStatement(e.statement);
         SCPQuorumSetPtr qSet = mPendingEnvelopes.getQSet(qsHash);
@@ -2733,9 +2733,9 @@ HerderImpl::verifyStellarValueSignature(StellarValue const& sv)
                                                          sv.txSetHash,
                                                          sv.closeTime))
             .valid;
-    case STELLAR_VALUE_SKIP:
+    case STELLAR_VALUE_EMPTY_TX_SET:
     {
-        auto const& ov = sv.ext.originalValue();
+        auto const& ov = sv.ext.proposedValue();
         return PubKeyUtils::verifySig(
                    ov.lcValueSignature.nodeID, ov.lcValueSignature.signature,
                    xdr::xdr_to_opaque(mApp.getNetworkID(),

@@ -186,7 +186,7 @@ class PendingEnvelopes
     bool recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset);
 
     // Returns true if the tx set is available locally (either in cache or
-    // is a skip ledger hash which doesn't need fetching).
+    // is an empty-tx-set hash which doesn't need fetching).
     bool hasTxSet(Hash const& hash) const;
 
     // Returns true if the qset referenced by `envelope` is available locally
