@@ -117,11 +117,13 @@ class TestNominationSCP : public SCPDriver
         return std::chrono::milliseconds(100);
     }
 
+#ifdef CAP_0083
     Value
     makeEmptyTxSetValueFromValue(Value const& value) const override
     {
         releaseAssert(false);
     }
+#endif
 
     bool
     isEmptyTxSetValue(Value const& v) const override
