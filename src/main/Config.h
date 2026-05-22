@@ -693,7 +693,7 @@ class Config : public std::enable_shared_from_this<Config>
     unsigned short PEER_STRAGGLER_TIMEOUT;
 
     // Time in milliseconds before a node gives up waiting on a transaction set
-    // and votes to skip the ledger. Does nothing without
+    // and votes to drop the tx set. Does nothing without
     // `EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD` enabled.
     std::chrono::milliseconds TX_SET_DOWNLOAD_TIMEOUT;
     int MAX_BATCH_WRITE_COUNT;

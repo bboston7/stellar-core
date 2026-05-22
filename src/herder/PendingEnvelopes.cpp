@@ -185,8 +185,8 @@ TxSetXDRFrameConstPtr
 PendingEnvelopes::putTxSet(Hash const& hash, uint64 slot,
                            TxSetXDRFrameConstPtr txset)
 {
-    // Cannot add a tx set for the skip ledger hash
-    releaseAssert(hash != Herder::SKIP_LEDGER_HASH);
+    // Cannot add a tx set for the empty-tx-set hash
+    releaseAssert(hash != Herder::EMPTY_TX_SET_HASH);
 
     auto res = std::get<TxSetXDRFrameConstPtr>(getKnownTxSet(hash, slot, true));
     if (!res)
@@ -206,9 +206,9 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
 {
     // slot is only used when `touch` is set
     releaseAssert(touch || (slot == 0));
-    if (hash == Herder::SKIP_LEDGER_HASH)
+    if (hash == Herder::EMPTY_TX_SET_HASH)
     {
-        return SkipTxSet{};
+        return EmptyTxSet{};
     }
 
     TxSetXDRFrameConstPtr res;
@@ -238,7 +238,7 @@ PendingEnvelopes::getKnownTxSet(Hash const& hash, uint64 slot, bool touch)
 bool
 PendingEnvelopes::hasTxSet(Hash const& hash) const
 {
-    if (hash == Herder::SKIP_LEDGER_HASH)
+    if (hash == Herder::EMPTY_TX_SET_HASH)
     {
         return true;
     }
@@ -339,8 +339,9 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             case STELLAR_VALUE_SIGNED:
                 // Signed values are allowed
                 return false;
-            case STELLAR_VALUE_SKIP:
-                return !mHerder.getHerderSCPDriver().protocolAllowsSkipValues();
+            case STELLAR_VALUE_EMPTY_TX_SET:
+                return !mHerder.getHerderSCPDriver()
+                            .protocolAllowsEmptyTxSetValues();
             default:
                 releaseAssert(false);
             }

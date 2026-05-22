@@ -67,10 +67,10 @@ HerderSCPDriver::SCPMetrics::SCPMetrics(Application& app)
           {"scp", "timing", "self-to-others-externalize-lag"}))
     , mBallotBlockedOnTxSet(app.getMetrics().NewTimer(
           {"scp", "timing", "ballot-blocked-on-txset"}))
-    , mSkipExternalized(
-          app.getMetrics().NewCounter({"scp", "skip", "externalized"}))
-    , mSkipValueReplaced(
-          app.getMetrics().NewCounter({"scp", "skip", "value-replaced"}))
+    , mEmptyTxSetExternalized(
+          app.getMetrics().NewCounter({"scp", "empty-tx-set", "externalized"}))
+    , mEmptyTxSetValueReplaced(app.getMetrics().NewCounter(
+          {"scp", "empty-tx-set", "value-replaced"}))
 {
 }
 
@@ -157,7 +157,7 @@ class SCPHerderEnvelopeWrapper : public SCPEnvelopeWrapper
                     missingTxSets.insert(txSetH);
                 }
             }
-            // SkipTxSet: not missing, nothing to store
+            // EmptyTxSet: not missing, nothing to store
         }
     }
 
@@ -245,18 +245,18 @@ HerderSCPDriver::isEnvelopeReady(SCPEnvelope const& env) const
 }
 
 bool
-HerderSCPDriver::protocolAllowsSkipValues() const
+HerderSCPDriver::protocolAllowsEmptyTxSetValues() const
 {
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
     return protocolVersionStartsFrom(lcl.header.ledgerVersion,
-                                     SKIP_LEDGER_PROTOCOL_VERSION);
+                                     EMPTY_TX_SET_PROTOCOL_VERSION);
 }
 
 bool
 HerderSCPDriver::isParallelTxSetDownloadEnabled() const
 {
     return mApp.getConfig().EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD &&
-           protocolAllowsSkipValues();
+           protocolAllowsEmptyTxSetValues();
 }
 
 // value validation
@@ -302,14 +302,14 @@ HerderSCPDriver::validatePastOrFutureValue(
                        slotIndex, b.closeTime, lcl.header.scpValue.closeTime);
             return SCPDriver::kInvalidValue;
         }
-        if (b.ext.v() == STELLAR_VALUE_SKIP)
+        if (b.ext.v() == STELLAR_VALUE_EMPTY_TX_SET)
         {
-            if (!protocolAllowsSkipValues())
+            if (!protocolAllowsEmptyTxSetValues())
             {
                 return SCPDriver::kInvalidValue;
             }
 
-            auto const& ov = b.ext.originalValue();
+            auto const& ov = b.ext.proposedValue();
             // We can check previousLedgerHash because the LCL header
             // contains the hash of its parent. We cannot check
             // previousLedgerVersion because the LCL header only has
@@ -318,8 +318,8 @@ HerderSCPDriver::validatePastOrFutureValue(
             if (ov.previousLedgerHash != lcl.header.previousLedgerHash)
             {
                 CLOG_TRACE(Herder,
-                           "Got a bad previousLedgerHash for skip value "
-                           "in ledger {}",
+                           "Got a bad previousLedgerHash for empty-tx-set "
+                           "value in ledger {}",
                            slotIndex);
                 return SCPDriver::kInvalidValue;
             }
@@ -408,42 +408,42 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             return SCPDriver::kInvalidValue;
         }
 
-        // For skip values, validate that the previous ledger context matches
-        // our LCL. Skip values don't have a real tx set to validate.
-        if (b.ext.v() == STELLAR_VALUE_SKIP)
+        // For empty-tx-set values, validate that the previous ledger context
+        // matches our LCL. Empty-tx-set values don't have a real tx set to
+        // validate.
+        if (b.ext.v() == STELLAR_VALUE_EMPTY_TX_SET)
         {
-            if (!protocolAllowsSkipValues())
+            if (!protocolAllowsEmptyTxSetValues())
             {
                 return SCPDriver::kInvalidValue;
             }
 
             if (nomination)
             {
-                // Skip values should only appear in balloting, and so are
-                // considered invalid during nomination.
+                // Empty-tx-set values should only appear in balloting, and so
+                // are considered invalid during nomination.
                 CLOG_DEBUG(Herder,
                            "HerderSCPDriver::validateValue i: {} rejecting "
-                           "skip value during nomination",
+                           "empty-tx-set value during nomination",
                            slotIndex);
                 return SCPDriver::kInvalidValue;
             }
-            auto const& ov = b.ext.originalValue();
+            auto const& ov = b.ext.proposedValue();
             if (ov.previousLedgerHash != lcl.hash ||
                 ov.previousLedgerVersion != lcl.header.ledgerVersion)
             {
-                CLOG_DEBUG(
-                    Herder,
-                    "HerderSCPDriver::validateValue i: {} skip value has "
-                    "mismatched previous ledger context",
-                    slotIndex);
+                CLOG_DEBUG(Herder,
+                           "HerderSCPDriver::validateValue i: {} empty-tx-set "
+                           "value has mismatched previous ledger context",
+                           slotIndex);
                 return SCPDriver::kInvalidValue;
             }
             return SCPDriver::kFullyValidatedValue;
         }
 
         Hash const& txSetHash = b.txSetHash;
-        // Skip values return early above, so this only runs for
-        // non-skip hashes. Extract the TxSetXDRFrameConstPtr.
+        // Empty-tx-set values return early above, so this only runs for
+        // non-empty-tx-set hashes. Extract the TxSetXDRFrameConstPtr.
         TxSetXDRFrameConstPtr txSet = std::get<TxSetXDRFrameConstPtr>(
             mPendingEnvelopes.getTxSet(txSetHash));
 
@@ -469,7 +469,7 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             CLOG_DEBUG(Herder,
                        "HerderSCPDriver::validateValue i: {} invalid txSet {}",
                        slotIndex, hexAbbrev(txSetHash));
-            res = protocolAllowsSkipValues()
+            res = protocolAllowsEmptyTxSetValues()
                       ? SCPDriver::kStructurallyValidValue
                       : SCPDriver::kInvalidValue;
         }
@@ -481,8 +481,9 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
             res = SCPDriver::kFullyValidatedValue;
         }
 
-        // kMaybeValidNotCurrentValue should never be returned for LCL+1 values, as these
-        // values should always be fully valid/invalid, or awaiting download
+        // kMaybeValidNotCurrentValue should never be returned for LCL+1 values,
+        // as these values should always be fully valid/invalid, or awaiting
+        // download
         releaseAssert(res != SCPDriver::kMaybeValidNotCurrentValue);
     }
     else
@@ -512,28 +513,28 @@ HerderSCPDriver::deserializeAndValidateStellarValue(Value const& value,
         return false;
     }
 
-    bool const skipsAllowed = protocolAllowsSkipValues();
+    bool const emptyTxSetsAllowed = protocolAllowsEmptyTxSetValues();
     if (sv.ext.v() != STELLAR_VALUE_SIGNED)
     {
-        if (!skipsAllowed)
+        if (!emptyTxSetsAllowed)
         {
-            // Skip values are not allowed, and the value is not a signed value,
-            // so it is invalid.
+            // Empty-tx-set values are not allowed, and the value is not a
+            // signed value, so it is invalid.
             return false;
         }
 
-        if (sv.ext.v() != STELLAR_VALUE_SKIP)
+        if (sv.ext.v() != STELLAR_VALUE_EMPTY_TX_SET)
         {
-            // The value is not a signed value or a skip value, so it is
-            // invalid.
+            // The value is not a signed value or an empty-tx-set value, so it
+            // is invalid.
             return false;
         }
     }
 
-    // Skip values must have the skip hash, and non-skip values must not have
-    // the skip hash
-    if (skipsAllowed && (sv.txSetHash == Herder::SKIP_LEDGER_HASH) !=
-                            (sv.ext.v() == STELLAR_VALUE_SKIP))
+    // Empty-tx-set values must have the empty-tx-set hash, and
+    // non-explicitly-empty-tx-set values must not have the empty-tx-set hash.
+    if (emptyTxSetsAllowed && (sv.txSetHash == Herder::EMPTY_TX_SET_HASH) !=
+                                  (sv.ext.v() == STELLAR_VALUE_EMPTY_TX_SET))
     {
         return false;
     }
@@ -666,28 +667,28 @@ HerderSCPDriver::getValueString(Value const& v) const
 }
 
 Value
-HerderSCPDriver::makeSkipLedgerValueFromValue(Value const& v) const
+HerderSCPDriver::makeEmptyTxSetValueFromValue(Value const& v) const
 {
     ZoneScoped;
-    StellarValue originalValue = toStellarValueOrThrow(v);
-    releaseAssert(originalValue.ext.v() == STELLAR_VALUE_SIGNED);
+    StellarValue proposedValue = toStellarValueOrThrow(v);
+    releaseAssert(proposedValue.ext.v() == STELLAR_VALUE_SIGNED);
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
 
     StellarValue sv;
-    sv.ext.v(STELLAR_VALUE_SKIP);
-    sv.txSetHash = Herder::SKIP_LEDGER_HASH;
-    sv.closeTime = originalValue.closeTime;
-    sv.upgrades = originalValue.upgrades;
-    sv.ext.originalValue().txSetHash = originalValue.txSetHash;
-    sv.ext.originalValue().previousLedgerHash = lcl.hash;
-    sv.ext.originalValue().previousLedgerVersion = lcl.header.ledgerVersion;
-    sv.ext.originalValue().lcValueSignature =
-        originalValue.ext.lcValueSignature();
+    sv.ext.v(STELLAR_VALUE_EMPTY_TX_SET);
+    sv.txSetHash = Herder::EMPTY_TX_SET_HASH;
+    sv.closeTime = proposedValue.closeTime;
+    sv.upgrades = proposedValue.upgrades;
+    sv.ext.proposedValue().txSetHash = proposedValue.txSetHash;
+    sv.ext.proposedValue().previousLedgerHash = lcl.hash;
+    sv.ext.proposedValue().previousLedgerVersion = lcl.header.ledgerVersion;
+    sv.ext.proposedValue().lcValueSignature =
+        proposedValue.ext.lcValueSignature();
     return xdr::xdr_to_opaque(sv);
 }
 
 bool
-HerderSCPDriver::isSkipLedgerValue(Value const& v) const
+HerderSCPDriver::isEmptyTxSetValue(Value const& v) const
 {
     ZoneScoped;
     StellarValue sv;
@@ -697,7 +698,7 @@ HerderSCPDriver::isSkipLedgerValue(Value const& v) const
         return false;
     }
 
-    return sv.ext.v() == STELLAR_VALUE_SKIP;
+    return sv.ext.v() == STELLAR_VALUE_EMPTY_TX_SET;
 }
 
 // timer handling
@@ -1019,7 +1020,7 @@ HerderSCPDriver::combineCandidates(uint64_t slotIndex,
             {
                 cTxSet = *ptr;
             }
-            // else: SkipTxSet -> cTxSet stays null, handled by existing
+            // else: EmptyTxSet -> cTxSet stays null, handled by existing
 
             // Only valid applicable tx sets should be combined.
             auto cApplicableTxSet =
@@ -1143,9 +1144,9 @@ HerderSCPDriver::valueExternalized(uint64_t slotIndex, Value const& value)
     bool isLatestSlot =
         slotIndex > mApp.getHerder().trackingConsensusLedgerIndex();
 
-    if (b.ext.v() == STELLAR_VALUE_SKIP)
+    if (b.ext.v() == STELLAR_VALUE_EMPTY_TX_SET)
     {
-        mSCPMetrics.mSkipExternalized.inc();
+        mSCPMetrics.mEmptyTxSetExternalized.inc();
     }
 
     // Only update tracking state when newer slot comes in
@@ -1194,10 +1195,10 @@ HerderSCPDriver::valueExternalized(uint64_t slotIndex, Value const& value)
 }
 
 void
-HerderSCPDriver::noteSkipValueReplaced(uint64_t)
+HerderSCPDriver::noteEmptyTxSetValueReplaced(uint64_t)
 {
     ZoneScoped;
-    mSCPMetrics.mSkipValueReplaced.inc();
+    mSCPMetrics.mEmptyTxSetValueReplaced.inc();
 }
 
 void
@@ -1731,7 +1732,7 @@ class SCPHerderValueWrapper : public ValueWrapper
         {
             mTxSet = *ptr;
         }
-        // else: SkipTxSet -> mTxSet stays null
+        // else: EmptyTxSet -> mTxSet stays null
         // mTxSet may also be null if tx set hasn't been received yet
         // (parallel downloading). It will be set later via setTxSet()
         // when the tx set arrives.
@@ -1740,7 +1741,7 @@ class SCPHerderValueWrapper : public ValueWrapper
     bool
     hasTxSet() const
     {
-        return mTxSet != nullptr || mTxSetHash == Herder::SKIP_LEDGER_HASH;
+        return mTxSet != nullptr || mTxSetHash == Herder::EMPTY_TX_SET_HASH;
     }
 
     Hash const&

@@ -21,12 +21,12 @@
 namespace stellar
 {
 
-// Returned by getTxSet to distinguish "skip" values (no real tx set)
+// Returned by getTxSet to distinguish "empty tx set" values (no real tx set)
 // from "not yet downloaded" (nullptr).
-struct SkipTxSet
+struct EmptyTxSet
 {
 };
-using TxSetResult = std::variant<TxSetXDRFrameConstPtr, SkipTxSet>;
+using TxSetResult = std::variant<TxSetXDRFrameConstPtr, EmptyTxSet>;
 class Application;
 class XDROutputFileStream;
 
@@ -87,8 +87,8 @@ class Herder
 
     static std::chrono::minutes const TX_SET_GC_DELAY;
 
-    // Hash value indicating a skip value
-    static Hash const SKIP_LEDGER_HASH;
+    // Hash value indicating a CAP-0083 explicitly empty-tx-set value
+    static Hash const EMPTY_TX_SET_HASH;
 
     enum State
     {

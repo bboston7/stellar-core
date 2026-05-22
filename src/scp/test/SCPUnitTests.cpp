@@ -118,13 +118,13 @@ class TestNominationSCP : public SCPDriver
     }
 
     Value
-    makeSkipLedgerValueFromValue(Value const& value) const override
+    makeEmptyTxSetValueFromValue(Value const& value) const override
     {
         releaseAssert(false);
     }
 
     bool
-    isSkipLedgerValue(Value const& v) const override
+    isEmptyTxSetValue(Value const& v) const override
     {
         releaseAssert(false);
     }
@@ -136,7 +136,7 @@ class TestNominationSCP : public SCPDriver
     }
 
     bool
-    protocolAllowsSkipValues() const override
+    protocolAllowsEmptyTxSetValues() const override
     {
         return true;
     }

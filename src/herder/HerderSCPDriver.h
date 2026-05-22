@@ -78,22 +78,22 @@ class HerderSCPDriver : public SCPDriver
     std::string toShortString(NodeID const& pk) const override;
     std::string getValueString(Value const& v) const override;
 
-    // Construct a skip ledger value from `v`. A few caveats about this
-    // function:
+    // Construct a CAP-0083 empty-tx-set value from `v`. A few caveats about
+    // this function:
     // * `v` must be a STELLAR_VALUE_SIGNED value.
     // * This function should only be called from slots with slot indicies equal
     //   to LCL+1
-    Value makeSkipLedgerValueFromValue(Value const& v) const override;
+    Value makeEmptyTxSetValueFromValue(Value const& v) const override;
 
-    // Returns true iff `v` is a skip ledger value
-    bool isSkipLedgerValue(Value const& v) const override;
+    // Returns true iff `v` is a CAP-0083 empty-tx-set value
+    bool isEmptyTxSetValue(Value const& v) const override;
 
     // Returns true iff parallel tx set downloading is enabled and the protocol
     // supports it
     bool isParallelTxSetDownloadEnabled() const override;
 
-    // Returns true iff the protocol allows skip values
-    bool protocolAllowsSkipValues() const override;
+    // Returns true iff the protocol allows CAP-0083 empty-tx-set values
+    bool protocolAllowsEmptyTxSetValues() const override;
 
     // timer handling
     void setupTimer(uint64_t slotIndex, int timerID,
@@ -117,9 +117,9 @@ class HerderSCPDriver : public SCPDriver
     ValueWrapperPtr stripAllUpgrades(Value const& v) override;
     uint32_t getUpgradeNominationTimeoutLimit() const override;
 
-    // Update metrics indicating that a value was replaced with a skip value for
-    // slotIndex.
-    void noteSkipValueReplaced(uint64_t slotIndex) override;
+    // Update metrics indicating that a value was replaced with an empty-tx-set
+    // value for slotIndex.
+    void noteEmptyTxSetValueReplaced(uint64_t slotIndex) override;
 
     // Submit a value to consider for slotIndex
     // previousValue is the value from slotIndex-1
@@ -258,11 +258,11 @@ class HerderSCPDriver : public SCPDriver
         // download
         medida::Timer& mBallotBlockedOnTxSet;
 
-        // Tracks how many ledgers we externalized a skip value.
-        medida::Counter& mSkipExternalized;
+        // Tracks how many ledgers we externalized an empty-tx-set value.
+        medida::Counter& mEmptyTxSetExternalized;
 
-        // Counts replacements of proposed values with skip values.
-        medida::Counter& mSkipValueReplaced;
+        // Counts replacements of proposed values with empty-tx-set values.
+        medida::Counter& mEmptyTxSetValueReplaced;
 
         SCPMetrics(Application& app);
     };

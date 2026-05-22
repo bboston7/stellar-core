@@ -204,7 +204,7 @@ BallotProtocol::processEnvelope(SCPEnvelopeWrapperPtr envelope, bool self)
 
         return SCP::EnvelopeState::INVALID;
     case SCPDriver::kStructurallyValidValue:
-        releaseAssert(mSlot.getSCPDriver().protocolAllowsSkipValues());
+        releaseAssert(mSlot.getSCPDriver().protocolAllowsEmptyTxSetValues());
         switch (statement.pledges.type())
         {
         case SCP_ST_PREPARE:
@@ -374,11 +374,11 @@ BallotProtocol::abandonBallot(uint32 n)
 }
 
 bool
-BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
+BallotProtocol::maybeReplaceValueWithEmptyTxSet(Value& v) const
 {
     if (mPhase != SCP_PHASE_PREPARE)
     {
-        // Can only replace with skip in the PREPARE phase
+        // Can only replace with an empty-tx-set value in the PREPARE phase
         return false;
     }
 
@@ -388,13 +388,14 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
 
     if (validationLevel != SCPDriver::kStructurallyValidValue)
     {
-        // Only replace with skip if the value is structurally valid
+        // Only replace with an empty-tx-set value if the value is structurally
+        // valid
         return false;
     }
 
     // Implied by `validationLevel == kStructurallyValidValue`
-    releaseAssert(mSlot.getSCPDriver().protocolAllowsSkipValues());
-    releaseAssert(!mSlot.getSCPDriver().isSkipLedgerValue(v));
+    releaseAssert(mSlot.getSCPDriver().protocolAllowsEmptyTxSetValues());
+    releaseAssert(!mSlot.getSCPDriver().isEmptyTxSetValue(v));
 
     // Check if we're awaiting download on the value
     auto waitingTime = mSlot.getSCPDriver().getTxSetDownloadWaitTime(v);
@@ -412,12 +413,13 @@ BallotProtocol::maybeReplaceValueWithSkip(Value& v) const
     }
     // If there is no waiting time for this value, then the value must
     // reference an invalid tx set that the node already had prior to
-    // receiving the SCP envelope. Replace with skip.
+    // receiving the SCP envelope. Drop the tx set.
 
-    // Choose highest seen skip value, or create one if no such values exist.
-    v = mSlot.getSCPDriver().makeSkipLedgerValueFromValue(v);
-    CLOG_TRACE(SCP, "Voting to skip slot {}", mSlot.getSlotIndex());
-    mSlot.getSCPDriver().noteSkipValueReplaced(mSlot.getSlotIndex());
+    // Choose highest seen empty-tx-set value, or create one if no such values
+    // exist.
+    v = mSlot.getSCPDriver().makeEmptyTxSetValueFromValue(v);
+    CLOG_TRACE(SCP, "Voting to drop tx set for slot {}", mSlot.getSlotIndex());
+    mSlot.getSCPDriver().noteEmptyTxSetValueReplaced(mSlot.getSlotIndex());
 
     return true;
 }
@@ -463,7 +465,7 @@ BallotProtocol::bumpState(Value const& value, uint32 n)
     CLOG_TRACE(SCP, "BallotProtocol::bumpState i: {} v: {}",
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(newb));
 
-    maybeReplaceValueWithSkip(newb.value);
+    maybeReplaceValueWithEmptyTxSet(newb.value);
     bool updated = updateCurrentValue(newb);
 
     if (updated)
@@ -1183,9 +1185,9 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
             else
             {
                 dbgAssert(!mCommit);
-                releaseAssert(validationLevel ==
-                                  SCPDriver::kFullyValidatedValue ||
-                              validationLevel == SCPDriver::kMaybeValidNotCurrentValue);
+                releaseAssert(
+                    validationLevel == SCPDriver::kFullyValidatedValue ||
+                    validationLevel == SCPDriver::kMaybeValidNotCurrentValue);
 
                 // Measure and record how long balloting was blocked on this
                 // txset

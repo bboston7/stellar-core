@@ -296,8 +296,9 @@ class BallotProtocol
     // check: verifies that ballot is greater than old one
     void bumpToBallot(SCPBallot const& ballot, bool check);
 
-    // Replaces `v` with a skip value if appropriate. Otherwise does nothing.
-    bool maybeReplaceValueWithSkip(Value& v) const;
+    // Replaces `v` with an empty-tx-set value if appropriate. Otherwise does
+    // nothing.
+    bool maybeReplaceValueWithEmptyTxSet(Value& v) const;
 
     // switch the local node to the given ballot's value
     // with the assumption that the ballot is more recent than the one
