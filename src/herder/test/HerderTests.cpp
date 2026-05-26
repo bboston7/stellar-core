@@ -2960,6 +2960,7 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
                 checkInvalidMismatch(sv);
             }
 
+#ifdef CAP_0083
             SECTION("empty-tx-set value without empty-tx-set hash")
             {
                 auto p = makeTxPair(herder, txSet0, ct);
@@ -2970,6 +2971,7 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
                 sv.txSetHash = txSet0->getContentsHash();
                 checkInvalidMismatch(sv);
             }
+#endif // CAP_0083
         }
     }
 

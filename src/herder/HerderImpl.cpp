@@ -332,9 +332,13 @@ HerderImpl::processExternalized(uint64 slotIndex, StellarValue const& value,
     TxSetXDRFrameConstPtr externalizedSet;
     if (std::holds_alternative<EmptyTxSet>(result))
     {
+#ifdef CAP_0083
         auto const& ov = value.ext.proposedValue();
         externalizedSet = TxSetXDRFrame::makeEmpty(ov.previousLedgerHash,
                                                    ov.previousLedgerVersion);
+#else
+        releaseAssert(false);
+#endif // CAP_0083
     }
     else
     {
@@ -948,7 +952,7 @@ HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope)
 
 Herder::EnvelopeStatus
 HerderImpl::recvSCPEnvelope(SCPEnvelope const& envelope,
-                            const SCPQuorumSet& qset,
+                            SCPQuorumSet const& qset,
                             TxSetXDRFrameConstPtr txset)
 {
     ZoneScoped;
@@ -2736,6 +2740,7 @@ HerderImpl::verifyStellarValueSignature(StellarValue const& sv)
                                                          sv.txSetHash,
                                                          sv.closeTime))
             .valid;
+#ifdef CAP_0083
     case STELLAR_VALUE_EMPTY_TX_SET:
     {
         auto const& ov = sv.ext.proposedValue();
@@ -2746,6 +2751,7 @@ HerderImpl::verifyStellarValueSignature(StellarValue const& sv)
                                       sv.closeTime))
             .valid;
     }
+#endif // CAP_0083
     default:
         releaseAssert(false);
     }
