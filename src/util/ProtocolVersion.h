@@ -68,6 +68,10 @@ constexpr ProtocolVersion FIRST_PROTOCOL_CAP71 = ProtocolVersion::V_27;
 constexpr ProtocolVersion FIRST_PROTOCOL_CAP71 = ProtocolVersion::V_UINT32_MAX;
 #endif
 
-// TODO(rebase): Gate this behind CAP_0083 and remove ifdef in HerderSCP::protocolSupportsEmptyLedgers (or whatever it's called)?
+#ifdef CAP_0083
 constexpr ProtocolVersion EMPTY_TX_SET_PROTOCOL_VERSION = ProtocolVersion::V_27;
+#else
+constexpr ProtocolVersion EMPTY_TX_SET_PROTOCOL_VERSION =
+    ProtocolVersion::V_UINT32_MAX;
+#endif
 }

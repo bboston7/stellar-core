@@ -260,13 +260,9 @@ HerderSCPDriver::isEnvelopeReady(SCPEnvelope const& env) const
 bool
 HerderSCPDriver::protocolAllowsEmptyTxSetValues() const
 {
-#ifdef CAP_0083
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
     return protocolVersionStartsFrom(lcl.header.ledgerVersion,
                                      EMPTY_TX_SET_PROTOCOL_VERSION);
-#else
-    return false;
-#endif
 }
 
 bool
