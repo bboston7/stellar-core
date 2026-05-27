@@ -495,6 +495,23 @@ TEST_CASE_VERSIONS("PendingEnvelopes recvSCPEnvelope", "[herder]")
                 Herder::ENVELOPE_STATUS_DISCARDED);
     }
 
+    SECTION("envelope with unknown StellarValueType discriminant is discarded")
+    {
+        // Hand-construct wire bytes for a "StellarValue" whose ext.v
+        // discriminant is an enum tag that no StellarValueType variant uses.
+        // xdrpp should detect this when deserializing the envelope's value, and
+        // PendingEnvelopes should discard the envelope.
+        Value badValue =
+            xdr::xdr_to_opaque(txSet->getContentsHash(), TimePoint{10},
+                               xdr::xvector<UpgradeType, 6>{}, uint32_t{99});
+
+        auto badEnvelope = makeEnvelope(herder, s, TxPair{badValue, txSet},
+                                        saneQSetHash, lcl.header.ledgerSeq + 1);
+
+        REQUIRE(pendingEnvelopes.recvSCPEnvelope(badEnvelope) ==
+                Herder::ENVELOPE_STATUS_DISCARDED);
+    }
+
 #ifdef CAP_0083
     SECTION("empty-tx-set value envelopes gated by "
             "EMPTY_TX_SET_PROTOCOL_VERSION")

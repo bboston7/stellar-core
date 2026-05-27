@@ -82,7 +82,7 @@ class HerderSCPDriver : public SCPDriver
     // Construct a CAP-0083 empty-tx-set value from `v`. A few caveats about
     // this function:
     // * `v` must be a STELLAR_VALUE_SIGNED value.
-    // * This function should only be called from slots with slot indicies equal
+    // * This function should only be called from slots with slot indices equal
     //   to LCL+1
     Value makeEmptyTxSetValueFromValue(Value const& v) const override;
 #endif
