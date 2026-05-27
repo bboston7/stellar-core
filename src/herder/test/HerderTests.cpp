@@ -2973,6 +2973,30 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
             }
 #endif // CAP_0083
         }
+
+#ifdef CAP_0083
+        SECTION("valid empty-tx-set value")
+        {
+            auto p = makeTxPair(herder, txSet0, ct);
+            auto emptyTxSetValue = scp.makeEmptyTxSetValueFromValue(p.first);
+
+            bool const allowed = protocolVersionStartsFrom(
+                protocolVersion, EMPTY_TX_SET_PROTOCOL_VERSION);
+
+            // Ballot path: a well-formed empty-tx-set value is accepted only
+            // once the protocol allows them. This is the assertion that
+            // catches an inverted check in deserializeAndValidateStellarValue.
+            REQUIRE(scp.validateValue(seq, emptyTxSetValue,
+                                      /*nomination=*/false) ==
+                    (allowed ? SCPDriver::kFullyValidatedValue
+                             : SCPDriver::kInvalidValue));
+
+            // Nomination path: empty-tx-set values are rejected by design.
+            REQUIRE(scp.validateValue(seq, emptyTxSetValue,
+                                      /*nomination=*/true) ==
+                    SCPDriver::kInvalidValue);
+        }
+#endif // CAP_0083
     }
 
     SECTION("validateValue closeTimes")
@@ -3013,9 +3037,25 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
             REQUIRE(herder.recvTxSet(txSet->getContentsHash(), txSet));
 
             // Validate the StellarValue.
+            SCPDriver::ValidationLevel expectedValidationLevel =
+                SCPDriver::kFullyValidatedValue;
+            if (!expectValid)
+            {
+                if (scp.protocolAllowsEmptyTxSetValues())
+                {
+                    // If CAP-0083 is active, then this StellarValue is
+                    // considered structurally valid because only the tx set is
+                    // invalid.
+                    expectedValidationLevel =
+                        SCPDriver::kStructurallyValidValue;
+                }
+                else
+                {
+                    expectedValidationLevel = SCPDriver::kInvalidValue;
+                }
+            }
             REQUIRE(scp.validateValue(seq, val.first, true) ==
-                    (expectValid ? SCPDriver::kFullyValidatedValue
-                                 : SCPDriver::kInvalidValue));
+                    expectedValidationLevel);
 
             // Confirm that getTxTrimList() as used by
             // makeTxSetFromTransactions() trims the transaction if
@@ -3059,8 +3099,13 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
 
         // Triggering next ledger will construct and cache the block
         herder.triggerNextLedger(seq, true);
-        // All hits during the whole SCP round
-        REQUIRE(cache.getCounters().mHits == 9);
+        // All hits during the whole SCP round. If CAP-0083 is supported we
+        // expect 1 more cache hit for the validity check that determins whether
+        // or not to replace the transaction set with an empty one.
+        uint64_t const expectedHits =
+            herder.getHerderSCPDriver().protocolAllowsEmptyTxSetValues() ? 11
+                                                                         : 10;
+        REQUIRE(cache.getCounters().mHits == expectedHits);
         // One miss from the initial makeTxSetFromTransactions
         REQUIRE(cache.getCounters().mMisses == 1);
     }
@@ -3274,10 +3319,12 @@ testSCPDriver(uint32 protocolVersion, uint32_t maxTxSetSize, size_t expectedOps)
             REQUIRE(
                 herder.recvTxSet(malformedTxSetPair.second->getContentsHash(),
                                  malformedTxSetPair.second));
-            REQUIRE(herder.getHerderSCPDriver().validateValue(
-                        herder.trackingConsensusLedgerIndex() + 1,
-                        malformedTxSetPair.first,
-                        false) == SCPDriver::kInvalidValue);
+            HerderSCPDriver& scp = herder.getHerderSCPDriver();
+            REQUIRE(scp.validateValue(herder.trackingConsensusLedgerIndex() + 1,
+                                      malformedTxSetPair.first, false) ==
+                    (scp.protocolAllowsEmptyTxSetValues()
+                         ? SCPDriver::kStructurallyValidValue
+                         : SCPDriver::kInvalidValue));
         }
     }
 }

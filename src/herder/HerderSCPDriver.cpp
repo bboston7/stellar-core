@@ -540,7 +540,7 @@ HerderSCPDriver::deserializeAndValidateStellarValue(Value const& value,
             return false;
         }
 
-        if (isEmptyTxSetStellarValue(sv))
+        if (!isEmptyTxSetStellarValue(sv))
         {
             // The value is not a signed value or an empty-tx-set value, so it
             // is invalid.
