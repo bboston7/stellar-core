@@ -903,6 +903,12 @@ class Config : public std::enable_shared_from_this<Config>
     // bounds on config upgrades (for testing only).
     bool TESTING_IGNORE_LEDGER_TIME_UPGRADE_BOUNDS;
 
+    // When set, the node drops incoming tx sets at
+    // PendingEnvelopes::recvTxSet once the current protocol supports
+    // empty-tx-set values (CAP-0083). Used to force the empty-tx-set
+    // fallback path in tests.
+    bool TESTING_REFUSE_INCOMING_TX_SETS;
+
     // Set QUORUM_SET using automatic quorum set configuration based on
     // `validators`.
     void

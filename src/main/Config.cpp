@@ -153,6 +153,7 @@ Config::Config() : NODE_SEED(SecretKey::random())
     TESTING_MAX_CLASSIC_BYTE_ALLOWANCE = 0;
     IGNORE_MESSAGE_LIMITS_FOR_TESTING = false;
     TESTING_IGNORE_LEDGER_TIME_UPGRADE_BOUNDS = false;
+    TESTING_REFUSE_INCOMING_TX_SETS = false;
 #endif
 
     FORCE_SCP = false;
@@ -1153,6 +1154,10 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                                      "Ignoring ledger target close time "
                                      "upgrade bounds for testing");
                      }
+                 }},
+                {"TESTING_REFUSE_INCOMING_TX_SETS",
+                 [&]() {
+                     TESTING_REFUSE_INCOMING_TX_SETS = readBool(item);
                  }},
 #endif
                 {"PEER_PORT",

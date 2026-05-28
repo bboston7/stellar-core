@@ -263,6 +263,17 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
     ZoneScoped;
     CLOG_TRACE(Herder, "Got TxSet {}", hexAbbrev(hash));
 
+#if defined(BUILD_TESTS) && defined(CAP_0083)
+    if (mApp.getConfig().TESTING_REFUSE_INCOMING_TX_SETS &&
+        mHerder.getHerderSCPDriver().protocolAllowsEmptyTxSetValues())
+    {
+        CLOG_TRACE(Herder,
+                   "Dropping TxSet {} (TESTING_REFUSE_INCOMING_TX_SETS)",
+                   hexAbbrev(hash));
+        return false;
+    }
+#endif
+
     auto lastSeenSlotIndex = mTxSetFetcher.getLastSeenSlotIndex(hash);
     if (lastSeenSlotIndex == 0)
     {

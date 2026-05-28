@@ -8507,3 +8507,55 @@ TEST_CASE_VERSIONS("Herder properly validates when tx set is missing",
                     Herder::ENVELOPE_STATUS_DISCARDED);
         });
 }
+
+#ifdef CAP_0083
+// Exercises TESTING_REFUSE_INCOMING_TX_SETS: with the flag set on all
+// validators, peers cannot fetch each other's tx sets, so the empty-tx-set
+// fallback in BallotProtocol::maybeReplaceValueWithEmptyTxSet fires and
+// the network externalizes STELLAR_VALUE_EMPTY_TX_SET values.
+TEST_CASE("network externalizes empty-tx-set values when peers refuse "
+          "incoming tx sets",
+          "[herder][parallel]")
+{
+    auto networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    auto simulation = Topologies::core(
+        4, 1.0, Simulation::OVER_LOOPBACK, networkID, [&](int i) {
+            auto cfg = getTestConfig(i, Config::TESTDB_DEFAULT);
+            cfg.LEDGER_PROTOCOL_VERSION =
+                static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION);
+            cfg.TESTING_UPGRADE_LEDGER_PROTOCOL_VERSION =
+                static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION);
+            cfg.EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD = true;
+            cfg.TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds{500};
+            cfg.GENESIS_TEST_ACCOUNT_COUNT = 100;
+            cfg.TESTING_UPGRADE_MAX_TX_SET_SIZE = 100;
+            cfg.TESTING_REFUSE_INCOMING_TX_SETS = true;
+            return cfg;
+        });
+    simulation->startAllNodes();
+    simulation->crankForAtLeast(std::chrono::seconds{1}, false);
+
+    auto nodes = simulation->getNodes();
+
+    // Submit transactions on a single node so its tx set is non-trivial and
+    // differs from what flooding has had time to propagate to its peers. The
+    // peers will see the nominated tx-set hash, attempt to fetch, get the
+    // tx-set bytes dropped by the flag, time out, and fall back to
+    // STELLAR_VALUE_EMPTY_TX_SET.
+    auto& loadGen = nodes[0]->getLoadGenerator();
+    loadGen.generateLoad(GeneratedLoadConfig::txLoad(
+        LoadGenMode::PAY, /*nAccounts=*/50, /*nTxs=*/200,
+        /*txRate=*/100, /*offset=*/0, /*maxInclusionFee=*/100'000));
+
+    auto& counter = nodes[0]->getMetrics().NewCounter(
+        {"scp", "empty-tx-set", "externalized"});
+    auto const initial = counter.count();
+
+    simulation->crankUntil(
+        [&]() { return counter.count() > initial; },
+        30 * simulation->getExpectedLedgerCloseTime(),
+        /*finalCrank=*/false);
+
+    REQUIRE(counter.count() > initial);
+}
+#endif // CAP_0083
