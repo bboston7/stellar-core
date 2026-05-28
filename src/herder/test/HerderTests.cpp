@@ -8517,10 +8517,6 @@ TEST_CASE_VERSIONS("network externalizes empty-tx-set on missing value",
     auto simulation = Topologies::core(
         4, 0.75, Simulation::OVER_LOOPBACK, networkID, [&](int i) {
             auto cfg = getTestConfig(i, Config::TESTDB_DEFAULT);
-            cfg.LEDGER_PROTOCOL_VERSION =
-                static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION);
-            cfg.TESTING_UPGRADE_LEDGER_PROTOCOL_VERSION =
-                static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION);
             cfg.EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD = true;
             cfg.TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds{0};
             cfg.TESTING_NOMINATE_RANDOM_VALUES = true;
