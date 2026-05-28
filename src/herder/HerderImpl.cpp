@@ -1654,8 +1654,21 @@ HerderImpl::triggerNextLedger(uint32_t ledgerSeqToTrigger,
         return;
     }
 
-    StellarValue newProposedValue = makeStellarValue(
-        txSetHash, nextCloseTime, newUpgrades, mApp.getConfig().NODE_SEED);
+    Hash effectiveTxSetHash = txSetHash;
+#ifdef BUILD_TESTS
+    if (mApp.getConfig().TESTING_PROPOSE_RANDOM_TX_SET_HASH)
+    {
+        effectiveTxSetHash = HashUtils::pseudoRandomForTesting();
+        CLOG_INFO(Herder,
+                  "TESTING_PROPOSE_RANDOM_TX_SET_HASH: nominating slot {} "
+                  "with random tx-set hash {}",
+                  slotIndex, hexAbbrev(effectiveTxSetHash));
+    }
+#endif
+
+    StellarValue newProposedValue =
+        makeStellarValue(effectiveTxSetHash, nextCloseTime, newUpgrades,
+                         mApp.getConfig().NODE_SEED);
     mHerderSCPDriver.nominate(slotIndex, newProposedValue, proposedSet,
                               lcl.header.scpValue);
 }

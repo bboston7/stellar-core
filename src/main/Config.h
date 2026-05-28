@@ -903,11 +903,15 @@ class Config : public std::enable_shared_from_this<Config>
     // bounds on config upgrades (for testing only).
     bool TESTING_IGNORE_LEDGER_TIME_UPGRADE_BOUNDS;
 
-    // When set, the node drops incoming tx sets at
-    // PendingEnvelopes::recvTxSet once the current protocol supports
-    // empty-tx-set values (CAP-0083). Used to force the empty-tx-set
-    // fallback path in tests.
-    bool TESTING_REFUSE_INCOMING_TX_SETS;
+    // When set, HerderImpl::triggerNextLedger substitutes the real
+    // tx-set hash for a random Hash before signing the proposed
+    // StellarValue. The nomination then references a tx set nobody
+    // has (not even the proposer), so every peer hits the
+    // kStructurallyValidValue path and falls back to a
+    // STELLAR_VALUE_EMPTY_TX_SET value — i.e. the slot externalizes
+    // an empty ledger. Used to force skip-ledger behavior on test
+    // networks and in unit tests.
+    bool TESTING_PROPOSE_RANDOM_TX_SET_HASH;
 
     // Set QUORUM_SET using automatic quorum set configuration based on
     // `validators`.
