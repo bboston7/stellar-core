@@ -153,7 +153,7 @@ Config::Config() : NODE_SEED(SecretKey::random())
     TESTING_MAX_CLASSIC_BYTE_ALLOWANCE = 0;
     IGNORE_MESSAGE_LIMITS_FOR_TESTING = false;
     TESTING_IGNORE_LEDGER_TIME_UPGRADE_BOUNDS = false;
-    TESTING_PROPOSE_RANDOM_TX_SET_HASH = false;
+    TESTING_NOMINATE_RANDOM_VALUES = false;
 #endif
 
     FORCE_SCP = false;
@@ -1155,10 +1155,8 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                                      "upgrade bounds for testing");
                      }
                  }},
-                {"TESTING_PROPOSE_RANDOM_TX_SET_HASH",
-                 [&]() {
-                     TESTING_PROPOSE_RANDOM_TX_SET_HASH = readBool(item);
-                 }},
+                {"TESTING_NOMINATE_RANDOM_VALUES",
+                 [&]() { TESTING_NOMINATE_RANDOM_VALUES = readBool(item); }},
 #endif
                 {"PEER_PORT",
                  [&]() { PEER_PORT = readInt<unsigned short>(item, 1); }},

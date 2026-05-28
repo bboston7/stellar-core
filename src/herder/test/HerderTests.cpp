@@ -8508,16 +8508,10 @@ TEST_CASE_VERSIONS("Herder properly validates when tx set is missing",
         });
 }
 
-#ifdef CAP_0083
-// Exercises TESTING_PROPOSE_RANDOM_TX_SET_HASH. With the flag set on every
-// validator, each round leader nominates a StellarValue referencing a
-// random tx-set hash that no peer (and no proposer) has locally. Every
-// node hits validateValue -> kStructurallyValidValue, falls back via
-// BallotProtocol::maybeReplaceValueWithEmptyTxSet, and the slot
-// externalizes a STELLAR_VALUE_EMPTY_TX_SET value.
-TEST_CASE("network externalizes empty-tx-set values when the round leader "
-          "proposes a random tx-set hash",
-          "[herder][parallel]")
+// This tests that the network externalizes an empty-tx-set value when a
+// voted-for value is not available on the network.
+TEST_CASE_VERSIONS("network externalizes empty-tx-set on missing value",
+                   "[herder]")
 {
     auto networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
     auto simulation = Topologies::core(
@@ -8529,21 +8523,24 @@ TEST_CASE("network externalizes empty-tx-set values when the round leader "
                 static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION);
             cfg.EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD = true;
             cfg.TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds{0};
-            cfg.TESTING_PROPOSE_RANDOM_TX_SET_HASH = true;
+            cfg.TESTING_NOMINATE_RANDOM_VALUES = true;
             return cfg;
         });
-    simulation->startAllNodes();
 
-    auto nodes = simulation->getNodes();
-    auto& counter = nodes[0]->getMetrics().NewCounter(
-        {"scp", "empty-tx-set", "externalized"});
-    auto const initial = counter.count();
+    Application::pointer app = simulation->getNodes()[0];
+    for_versions_from(static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION),
+                      *app, [&]() {
+                          simulation->startAllNodes();
 
-    simulation->crankUntil(
-        [&]() { return counter.count() > initial; },
-        10 * simulation->getExpectedLedgerCloseTime(),
-        /*finalCrank=*/false);
+                          auto& counter = app->getMetrics().NewCounter(
+                              {"scp", "empty-tx-set", "externalized"});
+                          auto const initial = counter.count();
 
-    REQUIRE(counter.count() > initial);
+                          simulation->crankUntil(
+                              [&]() { return counter.count() > initial; },
+                              10 * simulation->getExpectedLedgerCloseTime(),
+                              /*finalCrank=*/false);
+
+                          REQUIRE(counter.count() > initial);
+                      });
 }
-#endif // CAP_0083
