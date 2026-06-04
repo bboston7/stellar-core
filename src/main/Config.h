@@ -542,6 +542,10 @@ class Config : public std::enable_shared_from_this<Config>
     // also enabled.
     bool BACKGROUND_TX_SIG_VERIFICATION;
 
+    // Experimental flag to use externalized close time for trigger timer
+    // calculation instead of prepare start time.
+    bool EXPERIMENTAL_TRIGGER_TIMER;
+
     // When set to true, BucketListDB indexes are persisted on-disk so that the
     // BucketList does not need to be reindexed on startup. Defaults to true.
     // This should only be set to false for testing purposes
@@ -912,6 +916,14 @@ class Config : public std::enable_shared_from_this<Config>
     // leader. This is useful for testing CAP-0083 behavior. This is a testing
     // only flag.
     bool TESTING_NOMINATE_RANDOM_VALUES;
+
+    // Injects a signed wall-clock offset into the node's system clock for
+    // testing. Expressed in milliseconds.
+    std::chrono::milliseconds ARTIFICIALLY_SET_SYSTEM_CLOCK_OFFSET_FOR_TESTING;
+
+    // Delay emission of updated nomination messages for testing nomination
+    // timeout behavior. Expressed in milliseconds.
+    std::chrono::milliseconds ARTIFICIALLY_DELAY_NOMINATION_EMIT_FOR_TESTING;
 
     // Set QUORUM_SET using automatic quorum set configuration based on
     // `validators`.
