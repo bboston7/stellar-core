@@ -8541,6 +8541,16 @@ TEST_CASE("network externalizes empty-tx-set on missing value", "[herder]")
 
     REQUIRE(counter.count() > stopPoint);
 
+    // The parallel download path must have been active (gauge reports the
+    // config flag and protocol gate both passed) and exercised (envelopes
+    // released to SCP while their tx sets were still missing).
+    REQUIRE(app->getMetrics()
+                .NewCounter({"scp", "parallel-download", "enabled"})
+                .count() == 1);
+    REQUIRE(app->getMetrics()
+                .NewMeter({"scp", "envelope", "release-early"}, "envelope")
+                .count() > 0);
+
     // Capture meta for use with --capture-lcm
     txtest::captureLastClosedLedgerLcm(*app);
 }

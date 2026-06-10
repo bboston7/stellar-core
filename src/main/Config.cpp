@@ -16,6 +16,7 @@
 #include "util/Fs.h"
 #include "util/GlobalChecks.h"
 #include "util/Logging.h"
+#include "util/ProtocolVersion.h"
 #include "util/SecretManager.h"
 #include "util/UnorderedSet.h"
 
@@ -1199,6 +1200,19 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                 {"EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD",
                  [&]() {
                      EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD = readBool(item);
+                     if (EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD &&
+                         EMPTY_TX_SET_PROTOCOL_VERSION ==
+                             ProtocolVersion::V_UINT32_MAX)
+                     {
+                         CLOG_WARNING(
+                             Herder,
+                             "EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD is set, "
+                             "but this build does not support CAP-0083 "
+                             "(configure with "
+                             "--enable-next-protocol-version-unsafe-for-"
+                             "production). Parallel tx set downloading will "
+                             "never activate.");
+                     }
                  }},
                 {"DISABLE_SOROBAN_METRICS_FOR_TESTING",
                  [&]() {

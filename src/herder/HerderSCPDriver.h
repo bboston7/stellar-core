@@ -64,6 +64,34 @@ class HerderSCPDriver : public SCPDriver
     SCPEnvelopeWrapperPtr wrapEnvelope(SCPEnvelope const& envelope) override;
     void signEnvelope(SCPEnvelope& envelope) override;
     void emitEnvelope(SCPEnvelope const& envelope) override;
+
+    // Classification of whether (and how) an envelope is ready to hand off to
+    // SCP. `kReady` and `kReadyEarly` are both "ready"; the `kBlocked*` values
+    // record which condition prevented an envelope missing tx sets from being
+    // released early for parallel tx set downloading.
+    enum class EnvelopeReadiness
+    {
+        // qset and all tx sets are fetched
+        kReady,
+        // qset fetched, tx sets missing, but the envelope can be processed in
+        // parallel with downloading the missing tx sets
+        kReadyEarly,
+        // qset missing; required even for parallel processing
+        kBlockedQSet,
+        // isParallelTxSetDownloadEnabled() is false (config flag off or
+        // protocol gate not passed)
+        kBlockedDisabled,
+        // statement type does not support parallel processing (not
+        // NOMINATE/PREPARE)
+        kBlockedType,
+        // slot is not LCL+1 (e.g. envelope arrived while still applying the
+        // previous ledger)
+        kBlockedSlot,
+        // node is not tracking or not in APP_SYNCED_STATE
+        kBlockedState,
+    };
+    EnvelopeReadiness classifyEnvelopeReadiness(SCPEnvelope const& env) const;
+
     // Returns true if `env` is ready to hand off to SCP?
     bool isEnvelopeReady(SCPEnvelope const& env) const override;
 
@@ -156,6 +184,8 @@ class HerderSCPDriver : public SCPDriver
                                               Value const& value) override;
 
     std::optional<VirtualClock::time_point> getPrepareStart(uint64_t slotIndex);
+    std::optional<VirtualClock::time_point>
+    getNominationStart(uint64_t slotIndex);
 
     // validate close time as much as possible
     bool checkCloseTime(uint64_t slotIndex, uint64_t lastCloseTime,
@@ -249,6 +279,13 @@ class HerderSCPDriver : public SCPDriver
         medida::Meter& mValueValid;
         medida::Meter& mValueInvalid;
 
+        // Marked when validateValue returns kStructurallyValidValue (value is
+        // valid except its tx set is still downloading, or downloaded but
+        // invalid), split by nomination vs ballot protocol context. Counts
+        // validation calls, not unique values.
+        medida::Meter& mStructurallyValidNomination;
+        medida::Meter& mStructurallyValidBallot;
+
         // listeners
         medida::Meter& mCombinedCandidates;
 
@@ -269,6 +306,11 @@ class HerderSCPDriver : public SCPDriver
 
         // Counts replacements of proposed values with empty-tx-set values.
         medida::Counter& mEmptyTxSetValueReplaced;
+
+        // Counts externalized slots that recorded no scp.timing.nominated
+        // sample (no local trigger, no ballot start, or a delta below the
+        // recording threshold — including ballot starting before the trigger).
+        medida::Counter& mNominatedSkipped;
 
         SCPMetrics(Application& app);
     };

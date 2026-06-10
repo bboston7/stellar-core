@@ -91,6 +91,26 @@ class PendingEnvelopes
     // Tracked cost per slot
     medida::Histogram& mCostPerSlot;
 
+    // Marked when an envelope missing tx sets is released to SCP to process
+    // in parallel with the download.
+    medida::Meter& mReleaseEarly;
+    // Marked (once per envelope, at first sight) when an envelope missing tx
+    // sets could not be released early, split by the blocking reason. See
+    // HerderSCPDriver::EnvelopeReadiness.
+    medida::Meter& mBlockedQSet;
+    medida::Meter& mBlockedDisabled;
+    medida::Meter& mBlockedType;
+    medida::Meter& mBlockedSlot;
+    medida::Meter& mBlockedState;
+    // For tx sets of the slot currently in consensus: time between the local
+    // trigger (nomination start) and the tx set download completing. Only the
+    // portion of a download past the trigger can show up in
+    // scp.timing.nominated.
+    medida::Timer& mTxSetDoneAfterTrigger;
+    // Marked when a current-slot tx set download completes before the local
+    // trigger has fired (no reclaimable download time that round).
+    medida::Meter& mTxSetDoneBeforeTrigger;
+
     // discards all SCP envelopes that use QSet with a given hash,
     // as it is not sane QSet
     void discardSCPEnvelopesWithQSet(Hash const& hash);

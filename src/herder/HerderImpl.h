@@ -362,6 +362,12 @@ class HerderImpl : public Herder
         // network-close-time anchor to the local prepare-start anchor.
         medida::Meter& mTriggerPrepareStartFallback;
 
+        // 0/1 gauge reporting whether parallel tx set downloading is
+        // currently active (config flag set AND protocol gate passed).
+        // Updated once per closed ledger, so it tracks protocol upgrades
+        // flipping the gate mid-run.
+        medida::Counter& mParallelDownloadEnabled;
+
         SCPMetrics(Application& app);
     };
 

@@ -68,6 +68,10 @@ HerderSCPDriver::SCPMetrics::SCPMetrics(Application& app)
     , mValueValid(app.getMetrics().NewMeter({"scp", "value", "valid"}, "value"))
     , mValueInvalid(
           app.getMetrics().NewMeter({"scp", "value", "invalid"}, "value"))
+    , mStructurallyValidNomination(app.getMetrics().NewMeter(
+          {"scp", "value", "structurally-valid-nomination"}, "value"))
+    , mStructurallyValidBallot(app.getMetrics().NewMeter(
+          {"scp", "value", "structurally-valid-ballot"}, "value"))
     , mCombinedCandidates(app.getMetrics().NewMeter(
           {"scp", "nomination", "combinecandidates"}, "value"))
     , mNominateToPrepare(
@@ -84,6 +88,8 @@ HerderSCPDriver::SCPMetrics::SCPMetrics(Application& app)
           app.getMetrics().NewCounter({"scp", "empty-tx-set", "externalized"}))
     , mEmptyTxSetValueReplaced(app.getMetrics().NewCounter(
           {"scp", "empty-tx-set", "value-replaced"}))
+    , mNominatedSkipped(
+          app.getMetrics().NewCounter({"scp", "timing", "nominated-skipped"}))
 {
 }
 
@@ -213,25 +219,25 @@ HerderSCPDriver::emitEnvelope(SCPEnvelope const& envelope)
     mHerder.emitEnvelope(envelope);
 }
 
-bool
-HerderSCPDriver::isEnvelopeReady(SCPEnvelope const& env) const
+HerderSCPDriver::EnvelopeReadiness
+HerderSCPDriver::classifyEnvelopeReadiness(SCPEnvelope const& env) const
 {
     if (!mPendingEnvelopes.isQsetFetched(env))
     {
         // QSet must be available
-        return false;
+        return EnvelopeReadiness::kBlockedQSet;
     }
 
     if (mPendingEnvelopes.areTxSetsFetched(env))
     {
         // Have all tx sets and the qset. This envelope is ready to be processed
-        return true;
+        return EnvelopeReadiness::kReady;
     }
 
     if (!isParallelTxSetDownloadEnabled())
     {
         // Parallel downloading is disabled, so we need all tx sets
-        return false;
+        return EnvelopeReadiness::kBlockedDisabled;
     }
 
     // Beyond this point all checks relate to whether SCP can process `env`
@@ -242,19 +248,32 @@ HerderSCPDriver::isEnvelopeReady(SCPEnvelope const& env) const
     {
         // Parallel tx set downloading is only allowed for nomination and
         // prepare messages.
-        return false;
+        return EnvelopeReadiness::kBlockedType;
     }
 
     auto const& lcl = mLedgerManager.getLastClosedLedgerHeader();
     if (env.statement.slotIndex != lcl.header.ledgerSeq + 1)
     {
         // Parallel tx set downloading is only enabled for LCL+1
-        return false;
+        return EnvelopeReadiness::kBlockedSlot;
     }
 
     // Parallel downloading is only enabled when tracking and in sync
-    return mHerder.isTracking() &&
-           mApp.getState() == Application::State::APP_SYNCED_STATE;
+    if (!mHerder.isTracking() ||
+        mApp.getState() != Application::State::APP_SYNCED_STATE)
+    {
+        return EnvelopeReadiness::kBlockedState;
+    }
+
+    return EnvelopeReadiness::kReadyEarly;
+}
+
+bool
+HerderSCPDriver::isEnvelopeReady(SCPEnvelope const& env) const
+{
+    auto const readiness = classifyEnvelopeReadiness(env);
+    return readiness == EnvelopeReadiness::kReady ||
+           readiness == EnvelopeReadiness::kReadyEarly;
 }
 
 bool
@@ -625,6 +644,15 @@ HerderSCPDriver::validateValue(uint64_t slotIndex, Value const& value,
     if (res)
     {
         mSCPMetrics.mValueValid.Mark();
+        if (res == SCPDriver::kStructurallyValidValue)
+        {
+            // Value is valid except its tx set is missing (still downloading)
+            // or downloaded-but-invalid. Counts validation calls, not unique
+            // values.
+            (nomination ? mSCPMetrics.mStructurallyValidNomination
+                        : mSCPMetrics.mStructurallyValidBallot)
+                .Mark();
+        }
     }
     else
     {
@@ -1395,6 +1423,18 @@ HerderSCPDriver::getPrepareStart(uint64_t slotIndex)
     return res;
 }
 
+std::optional<VirtualClock::time_point>
+HerderSCPDriver::getNominationStart(uint64_t slotIndex)
+{
+    std::optional<VirtualClock::time_point> res;
+    auto it = mSCPExecutionTimes.find(slotIndex);
+    if (it != mSCPExecutionTimes.end())
+    {
+        res = it->second.mNominationStart;
+    }
+    return res;
+}
+
 Json::Value
 HerderSCPDriver::getQsetLagInfo(bool summary, bool fullKeys)
 {
@@ -1583,6 +1623,9 @@ HerderSCPDriver::recordSCPExecutionMetrics(uint64_t slotIndex)
     auto SCPTimingIt = mSCPExecutionTimes.find(slotIndex);
     if (SCPTimingIt == mSCPExecutionTimes.end())
     {
+        // Slot externalized without the local node ever triggering or
+        // balloting, so no scp.timing.nominated sample will be recorded.
+        mSCPMetrics.mNominatedSkipped.inc();
         return;
     }
 
@@ -1612,9 +1655,22 @@ HerderSCPDriver::recordSCPExecutionMetrics(uint64_t slotIndex)
     // Compute nomination time
     if (SCPTiming.mNominationStart && SCPTiming.mPrepareStart)
     {
+        // Count slots whose delta falls below the recording threshold (this
+        // includes negative deltas from the ballot protocol starting before
+        // the local trigger), since recordLogTiming silently drops them.
+        if (*SCPTiming.mPrepareStart - *SCPTiming.mNominationStart < threshold)
+        {
+            mSCPMetrics.mNominatedSkipped.inc();
+        }
         recordLogTiming(*SCPTiming.mNominationStart, *SCPTiming.mPrepareStart,
                         mSCPMetrics.mNominateToPrepare, "Nominate", threshold,
                         slotIndex);
+    }
+    else
+    {
+        // Missing the nomination start (no local trigger) or the prepare
+        // start (ballot never engaged), so no sample is recorded.
+        mSCPMetrics.mNominatedSkipped.inc();
     }
 
     // Compute prepare time

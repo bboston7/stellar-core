@@ -177,8 +177,14 @@ process.action.overloaded                 | counter   | 0-or-1 value indicating 
 process.file.handles                      | counter   | number of open file handles
 process.memory.handles                    | counter   | number of running processes in process manager
 scp.envelope.emit                         | meter     | SCP message sent
+scp.envelope.blocked-disabled             | meter     | envelope missing tx sets not released early: parallel tx set downloading disabled (config flag off or protocol gate not passed); marked once per envelope
+scp.envelope.blocked-qset                 | meter     | envelope missing tx sets not released early: qset not yet fetched; marked once per envelope
+scp.envelope.blocked-slot                 | meter     | envelope missing tx sets not released early: slot is not LCL+1 (e.g. arrived while applying the previous ledger); marked once per envelope
+scp.envelope.blocked-state                | meter     | envelope missing tx sets not released early: node not tracking or not synced; marked once per envelope
+scp.envelope.blocked-type                 | meter     | envelope missing tx sets not released early: statement type is not NOMINATE/PREPARE; marked once per envelope
 scp.envelope.invalidsig                   | meter     | envelope failed signature verification
 scp.envelope.receive                      | meter     | SCP message received
+scp.envelope.release-early                | meter     | envelope missing tx sets released to SCP to process in parallel with the download (an envelope may count as blocked-* first and release-early later)
 scp.envelope.sign                         | meter     | envelope signed
 scp.envelope.validsig                     | meter     | envelope signature verified
 scp.fetch.envelope                        | timer     | time to complete fetching of an envelope
@@ -190,16 +196,22 @@ scp.pending.processed                     | counter   | number of already proces
 scp.pending.ready                         | counter   | number of envelopes ready to process
 scp.empty-tx-set.externalized             | counter   | number of times the local node externalized an empty-tx-set value
 scp.empty-tx-set.value-replaced           | counter   | number of times the ballot protocol swapped a value for an empty-tx-set value
+scp.parallel-download.enabled             | counter   | 0/1 gauge: parallel tx set downloading is active (config flag set and protocol gate passed); updated once per closed ledger
 scp.sync.lost                             | meter     | validator lost sync
 scp.timeout.nominate                      | meter     | timeouts in nomination
 scp.timeout.prepare                       | meter     | timeouts in ballot protocol
 scp.timing.nominated                      | timer     | time spent in nomination
+scp.timing.nominated-skipped              | counter   | externalized slots that recorded no scp.timing.nominated sample (no local trigger, no ballot start, or delta below the recording threshold)
 scp.timing.externalized                   | timer     | time spent in ballot protocol
 scp.timing.first-to-self-externalize-lag  | timer     | delay between first externalize message and local node externalizing
 scp.timing.self-to-others-externalize-lag | timer     | delay between local node externalizing and later externalize messages from other nodes
 scp.timing.ballot-blocked-on-txset        | timer     | time balloting was blocked waiting for a txset download (milliseconds)
+scp.timing.txset-done-after-trigger       | timer     | for tx sets of the slot in consensus: time from the local trigger to download completion (the portion of a download that can appear in scp.timing.nominated)
 scp.trigger.prepare-start-fallback        | meter     | experimental trigger timer fell back from the network-close-time anchor to the local prepare-start anchor
+scp.txset.done-before-trigger             | meter     | tx set download for the slot in consensus completed before the local trigger fired (no download time can appear in scp.timing.nominated)
 scp.value.invalid                         | meter     | SCP value is invalid
+scp.value.structurally-valid-ballot       | meter     | value validated during balloting with its tx set still downloading or downloaded-but-invalid (counts validation calls, not unique values)
+scp.value.structurally-valid-nomination   | meter     | value validated during nomination with its tx set still downloading or downloaded-but-invalid (counts validation calls, not unique values)
 scp.value.valid                           | meter     | SCP value is valid
 scp.slot.values-referenced                | histogram | number of values referenced per consensus round
 scp.qic.successful-run                    | meter     | number of successful quorum intersection checks completed (a valid result was returned)

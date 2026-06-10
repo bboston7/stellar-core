@@ -82,6 +82,8 @@ HerderImpl::SCPMetrics::SCPMetrics(Application& app)
           {"scp", "envelope", "invalidsig"}, "envelope"))
     , mTriggerPrepareStartFallback(app.getMetrics().NewMeter(
           {"scp", "trigger", "prepare-start-fallback"}, "trigger"))
+    , mParallelDownloadEnabled(
+          app.getMetrics().NewCounter({"scp", "parallel-download", "enabled"}))
 {
 }
 
@@ -1430,6 +1432,11 @@ HerderImpl::setupTriggerNextLedger()
     releaseAssert(mLedgerManager.isSynced());
 
     mTriggerTimer.cancel();
+
+    // Report whether parallel tx set downloading is active. Updated here so
+    // the gauge tracks the protocol gate flipping on upgrades.
+    mSCPMetrics.mParallelDownloadEnabled.set_count(
+        getHerderSCPDriver().isParallelTxSetDownloadEnabled() ? 1 : 0);
 
     uint64_t nextIndex = nextConsensusLedgerIndex();
     auto lastIndex = trackingConsensusLedgerIndex();

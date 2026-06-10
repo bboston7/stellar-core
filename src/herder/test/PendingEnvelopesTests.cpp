@@ -250,17 +250,28 @@ TEST_CASE_VERSIONS("PendingEnvelopes recvSCPEnvelope", "[herder]")
                                                    lcl.header.ledgerSeq + 1);
                 auto& fetchTimer =
                     app->getMetrics().NewTimer({"scp", "fetch", "envelope"});
+                auto& releaseEarly = app->getMetrics().NewMeter(
+                    {"scp", "envelope", "release-early"}, "envelope");
+                auto& blockedQSet = app->getMetrics().NewMeter(
+                    {"scp", "envelope", "blocked-qset"}, "envelope");
                 auto const initialCount = fetchTimer.count();
+                auto const initialReleaseEarly = releaseEarly.count();
+                auto const initialBlockedQSet = blockedQSet.count();
 
-                // Initial receipt: nothing cached → FETCHING
+                // Initial receipt: nothing cached → FETCHING, blocked on the
+                // qset
                 REQUIRE(pendingEnvelopes.recvSCPEnvelope(prepEnv) ==
                         Herder::ENVELOPE_STATUS_FETCHING);
                 REQUIRE(herder.getSCP().getLatestMessage(pk) == nullptr);
+                REQUIRE(blockedQSet.count() == initialBlockedQSet + 1);
+                REQUIRE(releaseEarly.count() == initialReleaseEarly);
 
-                // Qset arrives. Envelope is now READY.
+                // Qset arrives. Envelope is now READY, released early while
+                // its tx set is still in flight.
                 REQUIRE(
                     pendingEnvelopes.recvSCPQuorumSet(saneQSetHash, saneQSet));
                 REQUIRE(herder.getSCP().getLatestMessage(pk) != nullptr);
+                REQUIRE(releaseEarly.count() == initialReleaseEarly + 1);
 
                 // Re-feeds during this state return PROCESSED
                 REQUIRE(pendingEnvelopes.recvSCPEnvelope(prepEnv) ==
@@ -278,11 +289,50 @@ TEST_CASE_VERSIONS("PendingEnvelopes recvSCPEnvelope", "[herder]")
                 // Fetch duration recorded after tx set arrival
                 REQUIRE(fetchTimer.count() == initialCount + 1);
 
-                // Subsequent re-feeds remain idempotent.
+                // Subsequent re-feeds remain idempotent and don't double-count
+                // the early release.
                 REQUIRE(pendingEnvelopes.recvSCPEnvelope(prepEnv) ==
                         Herder::ENVELOPE_STATUS_PROCESSED);
+                REQUIRE(releaseEarly.count() == initialReleaseEarly + 1);
+                REQUIRE(blockedQSet.count() == initialBlockedQSet + 1);
             });
     }
+
+#ifdef CAP_0083
+    SECTION("PREPARE: not released early below EMPTY_TX_SET_PROTOCOL_VERSION")
+    {
+        for_versions_to(
+            static_cast<uint32_t>(EMPTY_TX_SET_PROTOCOL_VERSION) - 1, *app,
+            [&] {
+                // With the config flag set but the protocol below the gate,
+                // envelopes missing tx sets must not be released early, and
+                // the blocked-disabled meter should say why.
+                auto prepEnv = makePrepareEnvelope(herder, s, p, saneQSetHash,
+                                                   lcl.header.ledgerSeq + 1);
+                auto& releaseEarly = app->getMetrics().NewMeter(
+                    {"scp", "envelope", "release-early"}, "envelope");
+                auto& blockedDisabled = app->getMetrics().NewMeter(
+                    {"scp", "envelope", "blocked-disabled"}, "envelope");
+                auto const initialReleaseEarly = releaseEarly.count();
+                auto const initialBlockedDisabled = blockedDisabled.count();
+
+                // Cache the qset up front so the tx set is the only missing
+                // item
+                pendingEnvelopes.addSCPQuorumSet(saneQSetHash, saneQSet);
+
+                REQUIRE(pendingEnvelopes.recvSCPEnvelope(prepEnv) ==
+                        Herder::ENVELOPE_STATUS_FETCHING);
+                REQUIRE(herder.getSCP().getLatestMessage(pk) == nullptr);
+                REQUIRE(blockedDisabled.count() == initialBlockedDisabled + 1);
+                REQUIRE(releaseEarly.count() == initialReleaseEarly);
+
+                // Re-receipt is not "first sight" and must not double-count
+                REQUIRE(pendingEnvelopes.recvSCPEnvelope(prepEnv) ==
+                        Herder::ENVELOPE_STATUS_FETCHING);
+                REQUIRE(blockedDisabled.count() == initialBlockedDisabled + 1);
+            });
+    }
+#endif // CAP_0083
 
     SECTION("PREPARE: ready immediately when both resources cached")
     {

@@ -48,6 +48,22 @@ PendingEnvelopes::PendingEnvelopes(Application& app, HerderImpl& herder)
     , mFetchTxSetTimer(app.getMetrics().NewTimer({"overlay", "fetch", "txset"}))
     , mFetchQsetTimer(app.getMetrics().NewTimer({"overlay", "fetch", "qset"}))
     , mCostPerSlot(app.getMetrics().NewHistogram({"scp", "cost", "per-slot"}))
+    , mReleaseEarly(app.getMetrics().NewMeter(
+          {"scp", "envelope", "release-early"}, "envelope"))
+    , mBlockedQSet(app.getMetrics().NewMeter({"scp", "envelope", "blocked-qset"},
+                                             "envelope"))
+    , mBlockedDisabled(app.getMetrics().NewMeter(
+          {"scp", "envelope", "blocked-disabled"}, "envelope"))
+    , mBlockedType(app.getMetrics().NewMeter({"scp", "envelope", "blocked-type"},
+                                             "envelope"))
+    , mBlockedSlot(app.getMetrics().NewMeter({"scp", "envelope", "blocked-slot"},
+                                             "envelope"))
+    , mBlockedState(app.getMetrics().NewMeter(
+          {"scp", "envelope", "blocked-state"}, "envelope"))
+    , mTxSetDoneAfterTrigger(app.getMetrics().NewTimer(
+          {"scp", "timing", "txset-done-after-trigger"}))
+    , mTxSetDoneBeforeTrigger(app.getMetrics().NewMeter(
+          {"scp", "txset", "done-before-trigger"}, "txset"))
 {
 }
 
@@ -269,6 +285,28 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
         return false;
     }
 
+    if (lastSeenSlotIndex == mHerder.nextConsensusLedgerIndex())
+    {
+        // Record when this download completed relative to the local trigger
+        // (nomination start) for the slot currently in consensus. Only the
+        // portion of a download past the trigger can appear in
+        // scp.timing.nominated.
+        auto nomStart = mHerder.getHerderSCPDriver().getNominationStart(
+            lastSeenSlotIndex);
+        if (nomStart)
+        {
+            mTxSetDoneAfterTrigger.Update(
+                std::max(std::chrono::nanoseconds::zero(),
+                         std::chrono::duration_cast<std::chrono::nanoseconds>(
+                             mApp.getClock().now() - *nomStart)));
+        }
+        else
+        {
+            // Download finished before the local trigger fired
+            mTxSetDoneBeforeTrigger.Mark();
+        }
+    }
+
     addTxSet(hash, lastSeenSlotIndex, txset);
 
     // Update any ValueWrappers that were created before this tx set was
@@ -404,7 +442,8 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             return Herder::ENVELOPE_STATUS_PROCESSED;
         }
 
-        if (fetchIt == fetching.end())
+        bool const firstSight = fetchIt == fetching.end();
+        if (firstSight)
         {
             // First time seeing this envelope: insert into mFetching and
             // kick off any outstanding qset / tx-set fetches.
@@ -413,12 +452,22 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
             updateMetrics();
         }
 
-        if (mHerder.getHerderSCPDriver().isEnvelopeReady(envelope))
+        using EnvelopeReadiness = HerderSCPDriver::EnvelopeReadiness;
+        auto const readiness =
+            mHerder.getHerderSCPDriver().classifyEnvelopeReadiness(envelope);
+        if (readiness == EnvelopeReadiness::kReady ||
+            readiness == EnvelopeReadiness::kReadyEarly)
         {
             // This envelope is sufficiently downloaded for SCP to process
             // it
             processed.emplace(envelope);
             envelopeReady(envelope);
+
+            if (readiness == EnvelopeReadiness::kReadyEarly)
+            {
+                // Released to SCP while its tx sets are still downloading
+                mReleaseEarly.Mark();
+            }
 
             if (isFullyFetched(envelope))
             {
@@ -432,6 +481,35 @@ PendingEnvelopes::recvSCPEnvelope(SCPEnvelope const& envelope)
         }
         else
         {
+            // Record why this envelope could not be released early. Only
+            // record at first sight so re-deliveries don't inflate the
+            // meters. Note an envelope may count as blocked here and later
+            // as released early (e.g. blocked-slot during apply, released
+            // once its slot becomes current).
+            if (firstSight)
+            {
+                switch (readiness)
+                {
+                case EnvelopeReadiness::kBlockedQSet:
+                    mBlockedQSet.Mark();
+                    break;
+                case EnvelopeReadiness::kBlockedDisabled:
+                    mBlockedDisabled.Mark();
+                    break;
+                case EnvelopeReadiness::kBlockedType:
+                    mBlockedType.Mark();
+                    break;
+                case EnvelopeReadiness::kBlockedSlot:
+                    mBlockedSlot.Mark();
+                    break;
+                case EnvelopeReadiness::kBlockedState:
+                    mBlockedState.Mark();
+                    break;
+                default:
+                    releaseAssert(false);
+                }
+            }
+
             // Keep waiting for necessary data to arrive and refresh
             // fetchers as needed
             startFetch(envelope);
