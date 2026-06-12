@@ -206,6 +206,7 @@ scp.timing.externalized                   | timer     | time spent in ballot pro
 scp.timing.first-to-self-externalize-lag  | timer     | delay between first externalize message and local node externalizing
 scp.timing.self-to-others-externalize-lag | timer     | delay between local node externalizing and later externalize messages from other nodes
 scp.timing.ballot-blocked-on-txset        | timer     | time balloting was blocked waiting for a txset download (milliseconds)
+scp.timing.total                          | timer     | total SCP time for a slot: local trigger (nomination start) to externalize; equals nominated + externalized per slot, recorded as one sample so percentiles are meaningful
 scp.timing.txset-done-after-trigger       | timer     | for tx sets of the slot in consensus: time from the local trigger to download completion (the portion of a download that can appear in scp.timing.nominated)
 scp.trigger.prepare-start-fallback        | meter     | experimental trigger timer fell back from the network-close-time anchor to the local prepare-start anchor
 scp.txset.done-before-trigger             | meter     | tx set download for the slot in consensus completed before the local trigger fired (no download time can appear in scp.timing.nominated)

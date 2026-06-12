@@ -78,6 +78,8 @@ HerderSCPDriver::SCPMetrics::SCPMetrics(Application& app)
           app.getMetrics().NewTimer({"scp", "timing", "nominated"}))
     , mPrepareToExternalize(
           app.getMetrics().NewTimer({"scp", "timing", "externalized"}))
+    , mNominateToExternalize(
+          app.getMetrics().NewTimer({"scp", "timing", "total"}))
     , mFirstToSelfExternalizeLag(app.getMetrics().NewTimer(
           {"scp", "timing", "first-to-self-externalize-lag"}))
     , mSelfToOthersExternalizeLag(app.getMetrics().NewTimer(
@@ -1650,6 +1652,18 @@ HerderSCPDriver::recordSCPExecutionMetrics(uint64_t slotIndex)
                   "Nomination for slot {} timed out {} time(s) with "
                   "the following round leaders: [{}]",
                   slotIndex, SCPTiming.mNominationTimeoutCount, leaderStr);
+    }
+
+    // Compute total SCP time (local trigger to externalize). This is the sum
+    // of the nomination and prepare phases below, recorded as a single
+    // per-slot sample so its percentiles are meaningful. It needs only the
+    // trigger timestamp, so it also covers slots whose nomination sample is
+    // dropped because the ballot protocol started before the trigger.
+    if (SCPTiming.mNominationStart)
+    {
+        recordLogTiming(*SCPTiming.mNominationStart, externalizeStart,
+                        mSCPMetrics.mNominateToExternalize, "Total SCP",
+                        threshold, slotIndex);
     }
 
     // Compute nomination time

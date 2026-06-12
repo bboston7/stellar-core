@@ -292,6 +292,14 @@ class HerderSCPDriver : public SCPDriver
         // Timers for nomination and ballot protocols
         medida::Timer& mNominateToPrepare;
         medida::Timer& mPrepareToExternalize;
+        // Total SCP time for a slot: local trigger (nomination start) to
+        // externalize. Per slot this equals nominated + externalized, but it
+        // is recorded as a single sample so its percentiles are meaningful
+        // (percentiles of the two phase timers cannot be added). Unlike
+        // scp.timing.nominated it does not require a ballot-start timestamp,
+        // so it also covers slots where the ballot protocol started before
+        // the local trigger.
+        medida::Timer& mNominateToExternalize;
 
         // Timers tracking externalize messages
         medida::Timer& mFirstToSelfExternalizeLag;
