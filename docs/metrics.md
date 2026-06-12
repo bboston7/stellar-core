@@ -156,6 +156,8 @@ overlay.inbound.live                      | counter   | number of live inbound c
 overlay.outbound-queue.<X>                | timer     | time <X> traffic sits in flow-controlled queues
 overlay.outbound-queue.drop-<X>           | meter     | number of <X> messages dropped from flow-controlled queues
 overlay.item-fetcher.next-peer            | meter     | ask for item past the first one
+overlay.item-fetcher.claim-ask            | meter     | fetch ask targeted a peer that announced possession via HAS_TX_SET
+overlay.item-fetcher.cooldown-reask       | meter     | fetch re-asked a peer whose DONT_HAVE cooldown (EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY) expired
 overlay.memory.flood-known                | counter   | number of known flooded entries
 overlay.message.broadcast                 | meter     | message broadcasted
 overlay.message.read                      | meter     | message received

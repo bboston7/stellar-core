@@ -821,6 +821,9 @@ Peer::msgSummary(StellarMessage const& msg)
         return "FLODADVERT";
     case FLOOD_DEMAND:
         return "FLOODDEMAND";
+    case HAS_TX_SET:
+        return fmt::format(FMT_STRING("HASTXSET {}"),
+                           hexAbbrev(msg.hasTxSet().txSetHash));
     }
     return "UNKNOWN";
 }
@@ -893,6 +896,9 @@ Peer::sendMessage(std::shared_ptr<StellarMessage const> msg, bool log)
         break;
     case FLOOD_DEMAND:
         mOverlayMetrics.mSendFloodDemandMeter.Mark();
+        break;
+    case HAS_TX_SET:
+        mOverlayMetrics.mSendHasTxSetMeter.Mark();
         break;
     };
 
@@ -1076,6 +1082,7 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
     case TRANSACTION:
     case FLOOD_ADVERT:
     case FLOOD_DEMAND:
+    case HAS_TX_SET:
     {
         cat = "TX";
         type = Scheduler::ActionType::DROPPABLE_ACTION;
@@ -1161,7 +1168,8 @@ Peer::recvMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
 
     auto msgType = stellarMsg.type();
     bool ignoreIfOutOfSync = msgType == TRANSACTION ||
-                             msgType == FLOOD_ADVERT || msgType == FLOOD_DEMAND;
+                             msgType == FLOOD_ADVERT ||
+                             msgType == FLOOD_DEMAND || msgType == HAS_TX_SET;
 
     if (!mAppConnector.getLedgerManager().isSynced() && ignoreIfOutOfSync)
     {
@@ -1403,6 +1411,13 @@ Peer::recvRawMessage(std::shared_ptr<CapacityTrackedMessage> msgTracker)
     {
         auto t = mOverlayMetrics.mRecvFloodDemandTimer.TimeScope();
         recvFloodDemand(stellarMsg);
+    }
+    break;
+
+    case HAS_TX_SET:
+    {
+        auto t = mOverlayMetrics.mRecvHasTxSetTimer.TimeScope();
+        recvHasTxSet(stellarMsg);
     }
     }
 }
@@ -2099,6 +2114,19 @@ Peer::recvFloodDemand(StellarMessage const& msg)
     // Pass the demand to OverlayManager for processing
     mAppConnector.getOverlayManager().recvTxDemand(msg.floodDemand(),
                                                    shared_from_this());
+}
+
+void
+Peer::recvHasTxSet(StellarMessage const& msg)
+{
+    releaseAssert(threadIsMain());
+    if (!mAppConnector.getConfig().EXPERIMENTAL_HAS_TX_SET)
+    {
+        // Feature disabled locally; ignore announcements
+        return;
+    }
+    mAppConnector.getHerder().recvHasTxSet(msg.hasTxSet().txSetHash,
+                                           shared_from_this());
 }
 
 Peer::PeerMetrics::PeerMetrics(VirtualClock::time_point connectedTime)

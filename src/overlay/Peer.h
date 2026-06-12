@@ -311,6 +311,7 @@ class Peer : public std::enable_shared_from_this<Peer>,
     void recvGetSCPState(StellarMessage const& msg);
     void recvFloodAdvert(StellarMessage const& msg);
     void recvFloodDemand(StellarMessage const& msg);
+    void recvHasTxSet(StellarMessage const& msg);
 
     void sendHello();
     void sendAuth();

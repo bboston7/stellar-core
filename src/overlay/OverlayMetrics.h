@@ -41,6 +41,11 @@ struct OverlayMetrics
     medida::Timer& mConnectionFloodThrottle;
 
     medida::Meter& mItemFetcherNextPeer;
+    // Marked when a fetch ask targets a peer that announced possession via
+    // HAS_TX_SET.
+    medida::Meter& mItemFetcherClaimAsk;
+    // Marked when a fetch re-asks a peer whose DONT_HAVE cooldown expired.
+    medida::Meter& mItemFetcherCooldownReask;
 
     medida::Timer& mRecvErrorTimer;
     medida::Timer& mRecvHelloTimer;
@@ -73,6 +78,7 @@ struct OverlayMetrics
 
     medida::Timer& mRecvFloodAdvertTimer;
     medida::Timer& mRecvFloodDemandTimer;
+    medida::Timer& mRecvHasTxSetTimer;
     medida::Timer& mRecvTxBatchTimer;
 
     medida::Timer& mMessageDelayInWriteQueueTimer;
@@ -108,6 +114,7 @@ struct OverlayMetrics
 
     medida::Meter& mSendFloodAdvertMeter;
     medida::Meter& mSendFloodDemandMeter;
+    medida::Meter& mSendHasTxSetMeter;
     medida::Meter& mMessagesDemanded;
     medida::Meter& mMessagesFulfilledMeter;
     medida::Meter& mBannedMessageUnfulfilledMeter;

@@ -484,4 +484,136 @@ TEST_CASE("next peer strategy", "[overlay][ItemFetcher]")
         }
     }
 }
+
+TEST_CASE("ItemFetcher claims and re-ask cooldown", "[overlay][ItemFetcher]")
+{
+    auto networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    auto sim =
+        std::make_shared<Simulation>(Simulation::OVER_LOOPBACK, networkID);
+
+    auto const reaskDelay = std::chrono::milliseconds(500);
+
+    auto cfgMain = getTestConfig(1);
+    cfgMain.EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY = reaskDelay;
+    auto cfg1 = getTestConfig(2);
+    auto cfg2 = getTestConfig(3);
+
+    SIMULATION_CREATE_NODE(Main);
+    SIMULATION_CREATE_NODE(Node1);
+    SIMULATION_CREATE_NODE(Node2);
+    sim->addNode(vMainSecretKey, cfgMain.QUORUM_SET, &cfgMain);
+    sim->addNode(vNode1SecretKey, cfg1.QUORUM_SET, &cfg1);
+    sim->addNode(vNode2SecretKey, cfg2.QUORUM_SET, &cfg2);
+    sim->addPendingConnection(vMainNodeID, vNode1NodeID);
+    sim->addPendingConnection(vMainNodeID, vNode2NodeID);
+    sim->startAllNodes();
+    auto conn1 = sim->getLoopbackConnection(vMainNodeID, vNode1NodeID);
+    auto peer1 = conn1->getInitiator();
+    auto conn2 = sim->getLoopbackConnection(vMainNodeID, vNode2NodeID);
+    auto peer2 = conn2->getInitiator();
+
+    auto app = sim->getNode(vMainNodeID);
+
+    int askCount = 0;
+    ItemFetcher itemFetcher(*app, [&](Peer::pointer, Hash) { askCount++; });
+
+    sim->crankUntil(
+        [&]() {
+            return peer1->isAuthenticatedForTesting() &&
+                   peer2->isAuthenticatedForTesting();
+        },
+        std::chrono::seconds{3}, false);
+
+    auto& claimAsk = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "claim-ask"}, "item-fetcher");
+    auto& cooldownReask = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "cooldown-reask"}, "item-fetcher");
+
+    auto env = makeEnvelope(200);
+    auto hash = sha256(ByteSlice("200"));
+
+    SECTION("claim with no live tracker is a no-op")
+    {
+        itemFetcher.peerClaimsItem(hash, peer1);
+        REQUIRE(askCount == 0);
+    }
+
+    SECTION("claim re-enables a missed peer and targets it")
+    {
+        itemFetcher.fetch(hash, env);
+        auto tracker = itemFetcher.getTracker(hash);
+        REQUIRE(tracker);
+        REQUIRE(askCount == 1);
+        auto first = tracker->getLastAskedPeer();
+        REQUIRE(first);
+        auto second = (first == peer1) ? peer2 : peer1;
+
+        // First peer misses; the fetcher moves on to the second
+        tracker->doesntHave(first);
+        REQUIRE(askCount == 2);
+        REQUIRE(tracker->getLastAskedPeer() == second);
+
+        // A claim from the missed peer while an ask is outstanding is
+        // recorded but does not interrupt the outstanding ask
+        tracker->peerClaims(first);
+        REQUIRE(askCount == 2);
+
+        // When the second peer also misses, the claiming peer is re-asked
+        // even though it was asked (and missed) before
+        auto const claimAsksBefore = claimAsk.count();
+        tracker->doesntHave(second);
+        REQUIRE(askCount == 3);
+        REQUIRE(tracker->getLastAskedPeer() == first);
+        REQUIRE(claimAsk.count() == claimAsksBefore + 1);
+    }
+
+    SECTION("claim while idling acts immediately")
+    {
+        itemFetcher.fetch(hash, env);
+        auto tracker = itemFetcher.getTracker(hash);
+        REQUIRE(tracker);
+        REQUIRE(askCount == 1);
+        auto first = tracker->getLastAskedPeer();
+        auto second = (first == peer1) ? peer2 : peer1;
+
+        // Both peers miss; with no askable candidates the tracker idles
+        // waiting for a cooldown or rebuild
+        tracker->doesntHave(first);
+        REQUIRE(askCount == 2);
+        tracker->doesntHave(second);
+        REQUIRE(askCount == 2);
+        REQUIRE(!tracker->getLastAskedPeer());
+
+        // A claim is acted on immediately, without waiting out the timer
+        tracker->peerClaims(second);
+        REQUIRE(askCount == 3);
+        REQUIRE(tracker->getLastAskedPeer() == second);
+    }
+
+    SECTION("missed peers are re-asked after the cooldown expires")
+    {
+        itemFetcher.fetch(hash, env);
+        auto tracker = itemFetcher.getTracker(hash);
+        REQUIRE(tracker);
+        REQUIRE(askCount == 1);
+        tracker->doesntHave(tracker->getLastAskedPeer());
+        REQUIRE(askCount == 2);
+        tracker->doesntHave(tracker->getLastAskedPeer());
+        REQUIRE(askCount == 2);
+        REQUIRE(!tracker->getLastAskedPeer());
+
+        auto const reasksBefore = cooldownReask.count();
+        auto const start = app->getClock().now();
+        sim->crankUntil([&]() { return askCount == 3; },
+                        std::chrono::seconds{5}, false);
+        auto const elapsed = app->getClock().now() - start;
+
+        // The re-ask happens once the cooldown expires — well before the
+        // 1500ms-and-up fetch list rebuild backoff would have fired
+        REQUIRE(askCount == 3);
+        REQUIRE(elapsed >= reaskDelay);
+        REQUIRE(elapsed < Tracker::MS_TO_WAIT_FOR_FETCH_REPLY);
+        REQUIRE(cooldownReask.count() == reasksBefore + 1);
+    }
+}
 }

@@ -1548,6 +1548,13 @@ HerderImpl::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
 }
 
 void
+HerderImpl::recvHasTxSet(Hash const& hash, Peer::pointer peer)
+{
+    ZoneScoped;
+    mPendingEnvelopes.recvHasTxSet(hash, peer);
+}
+
+void
 HerderImpl::peerDoesntHave(MessageType type, uint256 const& itemID,
                            Peer::pointer peer)
 {

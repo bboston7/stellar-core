@@ -9,6 +9,7 @@
 #include "crypto/Hex.h"
 #include "herder/Herder.h"
 #include "main/Application.h"
+#include "main/Config.h"
 #include "medida/meter.h"
 #include "overlay/OverlayManager.h"
 #include "util/GlobalChecks.h"
@@ -87,6 +88,25 @@ Tracker::doesntHave(Peer::pointer peer)
     if (mLastAskedPeer == peer)
     {
         CLOG_TRACE(Overlay, "Does not have {}", hexAbbrev(mItemHash));
+        // Any claim this peer made was wrong. Remember when the miss
+        // happened so the peer can be re-asked once
+        // EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY (if set) elapses.
+        mClaimingPeers.erase(peer);
+        mDontHaveSince[peer] = mApp.getClock().now();
+        tryNextPeer();
+    }
+}
+
+void
+Tracker::peerClaims(Peer::pointer peer)
+{
+    ZoneScoped;
+    mClaimingPeers.insert(peer);
+    if (!mLastAskedPeer)
+    {
+        // No ask is outstanding (e.g. idling in a rebuild backoff); act on
+        // the claim immediately instead of waiting out the timer.
+        mTimer.cancel();
         tryNextPeer();
     }
 }
@@ -106,13 +126,32 @@ Tracker::tryNextPeer()
         mLastAskedPeer.reset();
     }
 
+    auto const reaskDelay =
+        mApp.getConfig().EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY;
+    auto const now = mApp.getClock().now();
+
+    // A peer that answered DONT_HAVE becomes re-askable once the configured
+    // cooldown elapses, as it may have completed its own fetch since.
+    auto cooldownExpired = [&](Peer::pointer const& p) {
+        if (reaskDelay.count() <= 0)
+        {
+            return false;
+        }
+        auto dh = mDontHaveSince.find(p);
+        return dh != mDontHaveSince.end() && now - dh->second >= reaskDelay;
+    };
+
     // canAskPeer is best effort and send happens asynchronously; in the worst
     // case, we'll place something in the queue that will subsequently be
     // discarded due to a peer drop.
     auto canAskPeer = [&](Peer::pointer const& p, bool peerHas) {
+        if (!p->isAuthenticatedAtomic())
+        {
+            return false;
+        }
         auto it = mPeersAsked.find(p);
-        return (p->isAuthenticatedAtomic() &&
-                (it == mPeersAsked.end() || (peerHas && !it->second)));
+        return it == mPeersAsked.end() || (peerHas && !it->second) ||
+               cooldownExpired(p);
     };
 
     // Helper function to populate "candidates" with a set of peers, which we're
@@ -154,7 +193,26 @@ Tracker::tryNextPeer()
         }
     };
 
-    // build the set of peers we didn't ask yet that have this envelope
+    // Peers that explicitly announced (via HAS_TX_SET) that they have the
+    // item are the most reliable targets.
+    std::map<NodeID, Peer::pointer> claimingPeers;
+    for (auto const& p : mClaimingPeers)
+    {
+        if (canAskPeer(p, true))
+        {
+            claimingPeers.emplace(p->getPeerID(), p);
+        }
+    }
+
+    // With HAS_TX_SET announcements enabled, a peer that relayed an envelope
+    // merely knows OF the item: envelopes are relayed before tx sets are
+    // fetched when parallel tx set downloading is on, so relaying no longer
+    // implies possession — explicit claims do. Without announcements, keep
+    // the historical assumption that relaying implies possession.
+    bool const relayersImplyHave = !mApp.getConfig().EXPERIMENTAL_HAS_TX_SET;
+
+    // build the set of peers we didn't ask yet that have (or know of) this
+    // envelope
     std::map<NodeID, Peer::pointer> newPeersWithEnvelope;
     for (auto const& e : mWaitingEnvelopes)
     {
@@ -162,17 +220,25 @@ Tracker::tryNextPeer()
         for (auto pit = s.begin(); pit != s.end(); ++pit)
         {
             auto& p = *pit;
-            if (canAskPeer(p, true))
+            if (canAskPeer(p, relayersImplyHave))
             {
                 newPeersWithEnvelope.emplace(p->getPeerID(), *pit);
             }
         }
     }
 
-    bool peerWithEnvelopeSelected = !newPeersWithEnvelope.empty();
-    if (peerWithEnvelopeSelected)
+    bool claimTierSelected = false;
+    bool selectedPeersHave = false;
+    if (!claimingPeers.empty())
     {
-        procPeers(newPeersWithEnvelope, true);
+        claimTierSelected = true;
+        selectedPeersHave = true;
+        procPeers(claimingPeers, true);
+    }
+    else if (!newPeersWithEnvelope.empty())
+    {
+        selectedPeersHave = relayersImplyHave;
+        procPeers(newPeersWithEnvelope, relayersImplyHave);
     }
     else
     {
@@ -192,20 +258,71 @@ Tracker::tryNextPeer()
     std::chrono::milliseconds nextTry;
     if (!mLastAskedPeer)
     {
-        // we have asked all our peers, reset the list and try again after a
-        // pause
-        mNumListRebuild++;
-        mPeersAsked.clear();
+        // If previously-asked peers are merely cooling down after a
+        // DONT_HAVE, wait for the soonest cooldown to expire rather than
+        // rebuilding the whole fetch list with backoff. Drop entries for
+        // disconnected peers, which can never be re-asked.
+        std::optional<VirtualClock::time_point> soonestReask;
+        if (reaskDelay.count() > 0)
+        {
+            for (auto it = mDontHaveSince.begin(); it != mDontHaveSince.end();)
+            {
+                if (!it->first->isAuthenticatedAtomic())
+                {
+                    it = mDontHaveSince.erase(it);
+                    continue;
+                }
+                auto const expiry = it->second + reaskDelay;
+                if (!soonestReask || expiry < *soonestReask)
+                {
+                    soonestReask = expiry;
+                }
+                ++it;
+            }
+        }
 
-        CLOG_TRACE(Overlay, "tryNextPeer {} restarting fetch #{}",
-                   hexAbbrev(mItemHash), mNumListRebuild);
+        if (soonestReask)
+        {
+            nextTry = std::max(
+                std::chrono::milliseconds(1),
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    *soonestReask - now));
+            CLOG_TRACE(Overlay, "tryNextPeer {} waiting {} ms to re-ask",
+                       hexAbbrev(mItemHash), nextTry.count());
+        }
+        else
+        {
+            // we have asked all our peers, reset the list and try again
+            // after a pause
+            mNumListRebuild++;
+            mPeersAsked.clear();
+            mDontHaveSince.clear();
 
-        nextTry = MS_TO_WAIT_FOR_FETCH_REPLY *
-                  std::min(MAX_REBUILD_FETCH_LIST, mNumListRebuild);
+            CLOG_TRACE(Overlay, "tryNextPeer {} restarting fetch #{}",
+                       hexAbbrev(mItemHash), mNumListRebuild);
+
+            nextTry = MS_TO_WAIT_FOR_FETCH_REPLY *
+                      std::min(MAX_REBUILD_FETCH_LIST, mNumListRebuild);
+        }
     }
     else
     {
-        mPeersAsked[mLastAskedPeer] = peerWithEnvelopeSelected;
+        auto& om = mApp.getOverlayManager().getOverlayMetrics();
+        auto prevAsked = mPeersAsked.find(mLastAskedPeer);
+        if (claimTierSelected)
+        {
+            om.mItemFetcherClaimAsk.Mark();
+        }
+        if (prevAsked != mPeersAsked.end() &&
+            !(selectedPeersHave && !prevAsked->second))
+        {
+            // This peer was previously asked and only became askable again
+            // because its DONT_HAVE cooldown expired (the other re-ask path —
+            // asked without a claim, then claimed — is excluded above).
+            om.mItemFetcherCooldownReask.Mark();
+        }
+        mDontHaveSince.erase(mLastAskedPeer);
+        mPeersAsked[mLastAskedPeer] = selectedPeersHave;
         CLOG_TRACE(Overlay, "Asking for {} to {}", hexAbbrev(mItemHash),
                    mLastAskedPeer->toString());
         mAskPeer(mLastAskedPeer, mItemHash);
@@ -267,6 +384,8 @@ Tracker::cancel()
 {
     mTimer.cancel();
     mLastSeenSlotIndex = 0;
+    mClaimingPeers.clear();
+    mDontHaveSince.clear();
 }
 
 std::chrono::milliseconds

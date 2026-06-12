@@ -35,6 +35,7 @@ PendingEnvelopes::PendingEnvelopes(Application& app, HerderImpl& herder)
                                 Hash hash) { peer->sendGetQuorumSet(hash); })
     , mTxSetCache(TXSET_CACHE_SIZE)
     , mValueSizeCache(TXSET_CACHE_SIZE + QSET_CACHE_SIZE)
+    , mAnnouncedTxSets(TXSET_CACHE_SIZE)
     , mRebuildQuorum(true)
     , mQuorumTracker(mApp.getConfig().NODE_SEED.getPublicKey())
     , mProcessedCount(
@@ -271,6 +272,49 @@ PendingEnvelopes::addTxSet(Hash const& hash, uint64 lastSeenSlotIndex,
 
     putTxSet(hash, lastSeenSlotIndex, txset);
     mTxSetFetcher.recv(hash, mFetchTxSetTimer);
+
+    maybeAnnounceHasTxSet(hash, lastSeenSlotIndex);
+}
+
+void
+PendingEnvelopes::maybeAnnounceHasTxSet(Hash const& hash,
+                                        uint64 lastSeenSlotIndex)
+{
+    ZoneScoped;
+    if (!mApp.getConfig().EXPERIMENTAL_HAS_TX_SET)
+    {
+        return;
+    }
+
+    // Only announce tx sets that can matter for the slot currently in
+    // consensus; this also keeps catchup/replay paths quiet.
+    if (lastSeenSlotIndex < mHerder.nextConsensusLedgerIndex())
+    {
+        return;
+    }
+
+    if (mAnnouncedTxSets.exists(hash))
+    {
+        return;
+    }
+    mAnnouncedTxSets.put(hash, true);
+
+    auto msg = std::make_shared<StellarMessage>();
+    msg->type(HAS_TX_SET);
+    msg->hasTxSet().txSetHash = hash;
+
+    for (auto const& peer :
+         mApp.getOverlayManager().getAuthenticatedPeers())
+    {
+        peer.second->sendMessage(msg);
+    }
+}
+
+void
+PendingEnvelopes::recvHasTxSet(Hash const& hash, Peer::pointer peer)
+{
+    ZoneScoped;
+    mTxSetFetcher.peerClaimsItem(hash, peer);
 }
 
 bool

@@ -78,6 +78,10 @@ class PendingEnvelopes
     // keep track of txset/qset hash -> size pairs for quick access
     RandomEvictionCache<Hash, size_t> mValueSizeCache;
 
+    // tx set hashes already announced to peers via HAS_TX_SET, to announce
+    // each tx set at most once
+    RandomEvictionCache<Hash, bool> mAnnouncedTxSets;
+
     bool mRebuildQuorum;
     QuorumTracker mQuorumTracker;
 
@@ -137,6 +141,12 @@ class PendingEnvelopes
     void cleanKnownData();
 
     void recordReceivedCost(SCPEnvelope const& env);
+
+    // Announce possession of the tx set with `hash` to all authenticated
+    // peers via HAS_TX_SET, at most once per hash. Only announces tx sets
+    // relevant to the slot currently in consensus, and only when
+    // EXPERIMENTAL_HAS_TX_SET is set.
+    void maybeAnnounceHasTxSet(Hash const& hash, uint64 lastSeenSlotIndex);
 
     UnorderedMap<NodeID, size_t> getCostPerValidator(uint64 slotIndex) const;
 
@@ -204,6 +214,13 @@ class PendingEnvelopes
      * Return true if TxSet useful (was asked for).
      */
     bool recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset);
+
+    /**
+     * A peer announced (via HAS_TX_SET) that it has the tx set identified by
+     * @p hash. Records the claim with the tx set fetcher so an active fetch
+     * can target that peer. No-op if the tx set is not being fetched.
+     */
+    void recvHasTxSet(Hash const& hash, Peer::pointer peer);
 
     // Returns true if the tx set is available locally (either in cache or
     // is an empty-tx-set hash which doesn't need fetching).

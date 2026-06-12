@@ -157,6 +157,17 @@ ItemFetcher::doesntHave(Hash const& itemHash, Peer::pointer peer)
 }
 
 void
+ItemFetcher::peerClaimsItem(Hash const& itemHash, Peer::pointer peer)
+{
+    ZoneScoped;
+    auto const& iter = mTrackers.find(itemHash);
+    if (iter != mTrackers.end())
+    {
+        iter->second->peerClaims(peer);
+    }
+}
+
+void
 ItemFetcher::recv(Hash itemHash, medida::Timer& timer)
 {
     ZoneScoped;

@@ -175,6 +175,8 @@ Config::Config() : NODE_SEED(SecretKey::random())
     BACKGROUND_OVERLAY_PROCESSING = true;
     PARALLEL_LEDGER_APPLY = true;
     EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD = false;
+    EXPERIMENTAL_HAS_TX_SET = false;
+    EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY = std::chrono::milliseconds::zero();
     DISABLE_SOROBAN_METRICS_FOR_TESTING = false;
     DISABLE_TX_META_FOR_TESTING = false;
     BACKGROUND_TX_SIG_VERIFICATION = true;
@@ -1420,6 +1422,13 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                  [&]() {
                      TX_SET_DOWNLOAD_TIMEOUT =
                          std::chrono::milliseconds(readInt<int>(item, 1));
+                 }},
+                {"EXPERIMENTAL_HAS_TX_SET",
+                 [&]() { EXPERIMENTAL_HAS_TX_SET = readBool(item); }},
+                {"EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY",
+                 [&]() {
+                     EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY =
+                         std::chrono::milliseconds(readInt<int>(item, 0));
                  }},
                 {"MAX_BATCH_WRITE_COUNT",
                  [&]() { MAX_BATCH_WRITE_COUNT = readInt<int>(item, 1); }},

@@ -525,6 +525,16 @@ class Config : public std::enable_shared_from_this<Config>
     // Allow downloading of transaction sets in parallel with SCP (experimental)
     bool EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD;
 
+    // Announce newly obtained tx sets to direct peers via HAS_TX_SET messages
+    // and target fetches at peers that announced possession (experimental).
+    // All nodes in a network are expected to run the same setting.
+    bool EXPERIMENTAL_HAS_TX_SET;
+
+    // When > 0, a peer that answered DONT_HAVE to an item fetch becomes
+    // re-askable after this delay instead of being skipped until a full
+    // fetch-list rebuild (experimental). 0 disables.
+    std::chrono::milliseconds EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY;
+
     // Disable expensive Soroban metrics for performance testing
     bool DISABLE_SOROBAN_METRICS_FOR_TESTING;
 

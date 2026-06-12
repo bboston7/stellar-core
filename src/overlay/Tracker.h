@@ -29,6 +29,7 @@
 
 #include <functional>
 #include <map>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -49,6 +50,12 @@ class Tracker
     // keep track of which peer we asked, and if we thought if it had the data
     // or not at the time
     std::map<Peer::pointer, bool> mPeersAsked;
+    // peers that explicitly announced (via HAS_TX_SET) that they have the
+    // data
+    std::set<Peer::pointer> mClaimingPeers;
+    // when each peer last answered DONT_HAVE for the data; used to re-ask
+    // peers after EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY elapses
+    std::map<Peer::pointer, VirtualClock::time_point> mDontHaveSince;
     VirtualTimer mTimer;
     std::vector<std::pair<Hash, SCPEnvelope>> mWaitingEnvelopes;
     Hash mItemHash;
@@ -136,6 +143,13 @@ class Tracker
      * Next peer will be tried if available.
      */
     void doesntHave(Peer::pointer peer);
+
+    /**
+     * Called when given @p peer announced (via HAS_TX_SET) that it has the
+     * data. The peer becomes a preferred fetch target; if no ask is
+     * currently outstanding, one is sent immediately.
+     */
+    void peerClaims(Peer::pointer peer);
 
     /**
      * Called either when @see doesntHave(Peer::pointer) was received or

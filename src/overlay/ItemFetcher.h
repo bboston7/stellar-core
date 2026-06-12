@@ -93,6 +93,13 @@ class ItemFetcher : private NonMovableOrCopyable
     void doesntHave(Hash const& itemHash, Peer::pointer peer);
 
     /**
+     * Called when given @p peer announced (via HAS_TX_SET) that it has the
+     * data identified by @p itemHash. No-op unless the item is actively
+     * being fetched, which bounds the state this can create.
+     */
+    void peerClaimsItem(Hash const& itemHash, Peer::pointer peer);
+
+    /**
      * Called when data with given @p itemHash was received. All envelopes
      * added before with @see fetch and the same @p itemHash will be resent
      * to Herder, matching @see Tracker will be cleaned up.

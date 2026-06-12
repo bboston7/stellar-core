@@ -8520,6 +8520,7 @@ TEST_CASE("network externalizes empty-tx-set on missing value", "[herder]")
         4, 0.75, Simulation::OVER_LOOPBACK, networkID, [&](int i) {
             auto cfg = getTestConfig(i, Config::TESTDB_DEFAULT);
             cfg.EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD = true;
+            cfg.EXPERIMENTAL_HAS_TX_SET = true;
             cfg.TX_SET_DOWNLOAD_TIMEOUT = std::chrono::milliseconds{0};
             cfg.TESTING_NOMINATE_RANDOM_VALUES = true;
             return cfg;
@@ -8549,6 +8550,14 @@ TEST_CASE("network externalizes empty-tx-set on missing value", "[herder]")
                 .count() == 1);
     REQUIRE(app->getMetrics()
                 .NewMeter({"scp", "envelope", "release-early"}, "envelope")
+                .count() > 0);
+
+    // Nodes announce their self-built proposed tx sets via HAS_TX_SET. The
+    // randomly nominated hashes are never obtained, so they are never
+    // announced, and received announcements for hashes that aren't being
+    // fetched are dropped without effect.
+    REQUIRE(app->getMetrics()
+                .NewTimer({"overlay", "recv", "has-tx-set"})
                 .count() > 0);
 
     // Capture meta for use with --capture-lcm
