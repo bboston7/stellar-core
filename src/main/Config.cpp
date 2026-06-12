@@ -1204,7 +1204,7 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                          EMPTY_TX_SET_PROTOCOL_VERSION ==
                              ProtocolVersion::V_UINT32_MAX)
                      {
-                         CLOG_WARNING(
+                         CLOG_FATAL(
                              Herder,
                              "EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD is set, "
                              "but this build does not support CAP-0083 "
@@ -1212,6 +1212,7 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                              "--enable-next-protocol-version-unsafe-for-"
                              "production). Parallel tx set downloading will "
                              "never activate.");
+                         releaseAssert(false);
                      }
                  }},
                 {"DISABLE_SOROBAN_METRICS_FOR_TESTING",
