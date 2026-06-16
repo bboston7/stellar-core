@@ -528,6 +528,22 @@ TEST_CASE("ItemFetcher claims and re-ask cooldown", "[overlay][ItemFetcher]")
         {"overlay", "item-fetcher", "claim-ask"}, "item-fetcher");
     auto& cooldownReask = app->getMetrics().NewMeter(
         {"overlay", "item-fetcher", "cooldown-reask"}, "item-fetcher");
+    auto& aggregateNextPeer = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "next-peer"}, "item-fetcher");
+    // This fetcher uses the default TxSet kind, so only the txset.* cause
+    // meters move; the qset.* meters must stay at zero.
+    auto& txsetDontHave = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "txset", "next-peer-dont-have"},
+        "item-fetcher");
+    auto& txsetTimeout = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "txset", "next-peer-timeout"},
+        "item-fetcher");
+    auto& qsetDontHave = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "qset", "next-peer-dont-have"},
+        "item-fetcher");
+    auto& qsetTimeout = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "qset", "next-peer-timeout"},
+        "item-fetcher");
 
     auto env = makeEnvelope(200);
     auto hash = sha256(ByteSlice("200"));
@@ -565,6 +581,16 @@ TEST_CASE("ItemFetcher claims and re-ask cooldown", "[overlay][ItemFetcher]")
         REQUIRE(askCount == 3);
         REQUIRE(tracker->getLastAskedPeer() == first);
         REQUIRE(claimAsk.count() == claimAsksBefore + 1);
+
+        // Both abandonments were DONT_HAVE-driven on a txset fetch; no
+        // timeouts fired and the qset meters are untouched.
+        REQUIRE(txsetDontHave.count() == 2);
+        REQUIRE(txsetTimeout.count() == 0);
+        REQUIRE(qsetDontHave.count() == 0);
+        REQUIRE(qsetTimeout.count() == 0);
+        // The split partitions the aggregate exactly.
+        REQUIRE(aggregateNextPeer.count() ==
+                txsetDontHave.count() + txsetTimeout.count());
     }
 
     SECTION("claim while idling acts immediately")
@@ -602,6 +628,10 @@ TEST_CASE("ItemFetcher claims and re-ask cooldown", "[overlay][ItemFetcher]")
         REQUIRE(askCount == 2);
         REQUIRE(!tracker->getLastAskedPeer());
 
+        // The two misses so far were DONT_HAVE-driven, no timeout yet.
+        REQUIRE(txsetDontHave.count() == 2);
+        REQUIRE(txsetTimeout.count() == 0);
+
         auto const reasksBefore = cooldownReask.count();
         auto const start = app->getClock().now();
         sim->crankUntil([&]() { return askCount == 3; },
@@ -614,6 +644,21 @@ TEST_CASE("ItemFetcher claims and re-ask cooldown", "[overlay][ItemFetcher]")
         REQUIRE(elapsed >= reaskDelay);
         REQUIRE(elapsed < Tracker::MS_TO_WAIT_FOR_FETCH_REPLY);
         REQUIRE(cooldownReask.count() == reasksBefore + 1);
+
+        // The cooldown re-ask itself fires from the idle timer with no
+        // outstanding peer, so it is not counted as a timeout abandonment.
+        // Let the now-outstanding ask time out and confirm it lands in the
+        // timeout bucket (and stays on the txset side).
+        auto const timeoutsBefore = txsetTimeout.count();
+        sim->crankUntil(
+            [&]() { return txsetTimeout.count() > timeoutsBefore; },
+            Tracker::MS_TO_WAIT_FOR_FETCH_REPLY + std::chrono::seconds{2},
+            false);
+        REQUIRE(txsetTimeout.count() == timeoutsBefore + 1);
+        REQUIRE(qsetDontHave.count() == 0);
+        REQUIRE(qsetTimeout.count() == 0);
+        REQUIRE(aggregateNextPeer.count() ==
+                txsetDontHave.count() + txsetTimeout.count());
     }
 }
 }

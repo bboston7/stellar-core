@@ -30,9 +30,12 @@ PendingEnvelopes::PendingEnvelopes(Application& app, HerderImpl& herder)
     , mHerder(herder)
     , mQsetCache(QSET_CACHE_SIZE)
     , mTxSetFetcher(
-          app, [](Peer::pointer peer, Hash hash) { peer->sendGetTxSet(hash); })
-    , mQuorumSetFetcher(app, [](Peer::pointer peer,
-                                Hash hash) { peer->sendGetQuorumSet(hash); })
+          app, [](Peer::pointer peer, Hash hash) { peer->sendGetTxSet(hash); },
+          ItemFetcherKind::TxSet)
+    , mQuorumSetFetcher(
+          app,
+          [](Peer::pointer peer, Hash hash) { peer->sendGetQuorumSet(hash); },
+          ItemFetcherKind::QuorumSet)
     , mTxSetCache(TXSET_CACHE_SIZE)
     , mValueSizeCache(TXSET_CACHE_SIZE + QSET_CACHE_SIZE)
     , mAnnouncedTxSets(TXSET_CACHE_SIZE)

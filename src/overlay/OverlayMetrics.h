@@ -41,6 +41,12 @@ struct OverlayMetrics
     medida::Timer& mConnectionFloodThrottle;
 
     medida::Meter& mItemFetcherNextPeer;
+    // Sub-splits of mItemFetcherNextPeer by fetcher kind (tx set vs qset) and
+    // abandonment cause (peer answered DONT_HAVE vs reply timer expired).
+    medida::Meter& mItemFetcherTxSetNextPeerDontHave;
+    medida::Meter& mItemFetcherTxSetNextPeerTimeout;
+    medida::Meter& mItemFetcherQSetNextPeerDontHave;
+    medida::Meter& mItemFetcherQSetNextPeerTimeout;
     // Marked when a fetch ask targets a peer that announced possession via
     // HAS_TX_SET.
     medida::Meter& mItemFetcherClaimAsk;

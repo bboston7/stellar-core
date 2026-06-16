@@ -155,7 +155,11 @@ overlay.inbound.reject                    | meter     | inbound connection rejec
 overlay.inbound.live                      | counter   | number of live inbound connections
 overlay.outbound-queue.<X>                | timer     | time <X> traffic sits in flow-controlled queues
 overlay.outbound-queue.drop-<X>           | meter     | number of <X> messages dropped from flow-controlled queues
-overlay.item-fetcher.next-peer            | meter     | ask for item past the first one
+overlay.item-fetcher.next-peer            | meter     | ask for item past the first one (aggregate; split below by fetcher kind and cause)
+overlay.item-fetcher.txset.next-peer-dont-have | meter | next-peer on a txset fetch because the asked peer answered DONT_HAVE
+overlay.item-fetcher.txset.next-peer-timeout   | meter | next-peer on a txset fetch because the reply timer expired with no answer
+overlay.item-fetcher.qset.next-peer-dont-have  | meter | next-peer on a qset fetch because the asked peer answered DONT_HAVE
+overlay.item-fetcher.qset.next-peer-timeout    | meter | next-peer on a qset fetch because the reply timer expired with no answer
 overlay.item-fetcher.claim-ask            | meter     | fetch ask targeted a peer that announced possession via HAS_TX_SET
 overlay.item-fetcher.cooldown-reask       | meter     | fetch re-asked a peer whose DONT_HAVE cooldown (EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY) expired
 overlay.memory.flood-known                | counter   | number of known flooded entries

@@ -23,14 +23,37 @@ namespace stellar
 std::chrono::milliseconds const Tracker::MS_TO_WAIT_FOR_FETCH_REPLY{1500};
 int const Tracker::MAX_REBUILD_FETCH_LIST = 10;
 
-Tracker::Tracker(Application& app, Hash const& hash, AskPeer& askPeer)
+namespace
+{
+medida::Meter&
+nextPeerDontHaveMeter(OverlayMetrics& om, ItemFetcherKind kind)
+{
+    return kind == ItemFetcherKind::TxSet
+               ? om.mItemFetcherTxSetNextPeerDontHave
+               : om.mItemFetcherQSetNextPeerDontHave;
+}
+medida::Meter&
+nextPeerTimeoutMeter(OverlayMetrics& om, ItemFetcherKind kind)
+{
+    return kind == ItemFetcherKind::TxSet ? om.mItemFetcherTxSetNextPeerTimeout
+                                          : om.mItemFetcherQSetNextPeerTimeout;
+}
+}
+
+Tracker::Tracker(Application& app, Hash const& hash, AskPeer& askPeer,
+                 ItemFetcherKind kind)
     : mAskPeer(askPeer)
     , mApp(app)
     , mNumListRebuild(0)
     , mTimer(app)
     , mItemHash(hash)
+    , mKind(kind)
     , mTryNextPeer(
           app.getOverlayManager().getOverlayMetrics().mItemFetcherNextPeer)
+    , mNextPeerDontHave(nextPeerDontHaveMeter(
+          app.getOverlayManager().getOverlayMetrics(), kind))
+    , mNextPeerTimeout(nextPeerTimeoutMeter(
+          app.getOverlayManager().getOverlayMetrics(), kind))
     , mFetchTime("fetch-" + hexAbbrev(hash), LogSlowExecution::Mode::MANUAL)
 {
     releaseAssert(mAskPeer);
@@ -93,7 +116,7 @@ Tracker::doesntHave(Peer::pointer peer)
         // EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY (if set) elapses.
         mClaimingPeers.erase(peer);
         mDontHaveSince[peer] = mApp.getClock().now();
-        tryNextPeer();
+        tryNextPeer(NextPeerCause::DontHave);
     }
 }
 
@@ -107,12 +130,12 @@ Tracker::peerClaims(Peer::pointer peer)
         // No ask is outstanding (e.g. idling in a rebuild backoff); act on
         // the claim immediately instead of waiting out the timer.
         mTimer.cancel();
-        tryNextPeer();
+        tryNextPeer(NextPeerCause::Other);
     }
 }
 
 void
-Tracker::tryNextPeer()
+Tracker::tryNextPeer(NextPeerCause cause)
 {
     ZoneScoped;
     // will be called by some timer or when we get a
@@ -123,6 +146,17 @@ Tracker::tryNextPeer()
     if (mLastAskedPeer)
     {
         mTryNextPeer.Mark();
+        // Attribute this abandonment to its cause for the metric split. The
+        // aggregate above always fires; only DONT_HAVE/timeout get a sub-meter
+        // (the first ask and claim-triggered asks have no outstanding peer).
+        if (cause == NextPeerCause::DontHave)
+        {
+            mNextPeerDontHave.Mark();
+        }
+        else if (cause == NextPeerCause::Timeout)
+        {
+            mNextPeerTimeout.Mark();
+        }
         mLastAskedPeer.reset();
     }
 
@@ -330,7 +364,10 @@ Tracker::tryNextPeer()
     }
 
     mTimer.expires_from_now(nextTry);
-    mTimer.async_wait([this]() { this->tryNextPeer(); },
+    // The reply timer firing means no answer arrived in time; attribute the
+    // next abandonment to a timeout. A DONT_HAVE arriving first cancels this
+    // wait via expires_from_now on the re-ask.
+    mTimer.async_wait([this]() { this->tryNextPeer(NextPeerCause::Timeout); },
                       VirtualTimer::onFailureNoop);
 }
 

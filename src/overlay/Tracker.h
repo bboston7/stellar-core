@@ -40,6 +40,21 @@ class Application;
 
 using AskPeer = std::function<void(Peer::pointer, Hash)>;
 
+// Which fetcher a Tracker belongs to, used to attribute metrics.
+enum class ItemFetcherKind
+{
+    TxSet,
+    QuorumSet
+};
+
+// Why an outstanding ask was abandoned (drives the next-peer metric split).
+enum class NextPeerCause
+{
+    DontHave, // a peer answered DONT_HAVE
+    Timeout,  // the reply timer expired with no answer
+    Other     // first ask / not attributable (does not mark a cause meter)
+};
+
 class Tracker
 {
   private:
@@ -59,7 +74,11 @@ class Tracker
     VirtualTimer mTimer;
     std::vector<std::pair<Hash, SCPEnvelope>> mWaitingEnvelopes;
     Hash mItemHash;
+    ItemFetcherKind mKind;
     medida::Meter& mTryNextPeer;
+    // Sub-split of mTryNextPeer by abandonment cause, selected by mKind.
+    medida::Meter& mNextPeerDontHave;
+    medida::Meter& mNextPeerTimeout;
     uint64 mLastSeenSlotIndex{0};
     LogSlowExecution mFetchTime;
 
@@ -70,7 +89,8 @@ class Tracker
      * Create Tracker that tracks data identified by @p hash. @p askPeer
      * delegate is used to fetch the data.
      */
-    explicit Tracker(Application& app, Hash const& hash, AskPeer& askPeer);
+    explicit Tracker(Application& app, Hash const& hash, AskPeer& askPeer,
+                     ItemFetcherKind kind = ItemFetcherKind::TxSet);
     virtual ~Tracker();
 
     /**
@@ -153,9 +173,10 @@ class Tracker
 
     /**
      * Called either when @see doesntHave(Peer::pointer) was received or
-     * request to peer timed out.
+     * request to peer timed out. @p cause attributes the abandonment of the
+     * previous outstanding ask (if any) to the next-peer metric split.
      */
-    void tryNextPeer();
+    void tryNextPeer(NextPeerCause cause = NextPeerCause::Other);
 
     /**
      * Return biggest slot index seen since last reset.

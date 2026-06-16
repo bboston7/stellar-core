@@ -37,6 +37,18 @@ OverlayMetrics::OverlayMetrics(Application& app)
 
     , mItemFetcherNextPeer(app.getMetrics().NewMeter(
           {"overlay", "item-fetcher", "next-peer"}, "item-fetcher"))
+    , mItemFetcherTxSetNextPeerDontHave(app.getMetrics().NewMeter(
+          {"overlay", "item-fetcher", "txset", "next-peer-dont-have"},
+          "item-fetcher"))
+    , mItemFetcherTxSetNextPeerTimeout(app.getMetrics().NewMeter(
+          {"overlay", "item-fetcher", "txset", "next-peer-timeout"},
+          "item-fetcher"))
+    , mItemFetcherQSetNextPeerDontHave(app.getMetrics().NewMeter(
+          {"overlay", "item-fetcher", "qset", "next-peer-dont-have"},
+          "item-fetcher"))
+    , mItemFetcherQSetNextPeerTimeout(app.getMetrics().NewMeter(
+          {"overlay", "item-fetcher", "qset", "next-peer-timeout"},
+          "item-fetcher"))
     , mItemFetcherClaimAsk(app.getMetrics().NewMeter(
           {"overlay", "item-fetcher", "claim-ask"}, "item-fetcher"))
     , mItemFetcherCooldownReask(app.getMetrics().NewMeter(

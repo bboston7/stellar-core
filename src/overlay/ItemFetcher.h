@@ -5,6 +5,7 @@
 #pragma once
 
 #include "overlay/Peer.h"
+#include "overlay/Tracker.h" // for ItemFetcherKind
 #include "util/NonCopyable.h"
 #include "util/Timer.h"
 #include <functional>
@@ -20,7 +21,6 @@ class Timer;
 namespace stellar
 {
 
-class Tracker;
 class TxSetXDRFrame;
 struct SCPQuorumSet;
 using SCPQuorumSetPtr = std::shared_ptr<SCPQuorumSet>;
@@ -41,9 +41,11 @@ class ItemFetcher : private NonMovableOrCopyable
     using TrackerPtr = std::shared_ptr<Tracker>;
 
     /**
-     * Create ItemFetcher that fetches data using @p askPeer delegate.
+     * Create ItemFetcher that fetches data using @p askPeer delegate. @p kind
+     * labels which fetcher this is, for metric attribution.
      */
-    explicit ItemFetcher(Application& app, AskPeer askPeer);
+    explicit ItemFetcher(Application& app, AskPeer askPeer,
+                         ItemFetcherKind kind = ItemFetcherKind::TxSet);
 
     /**
      * Fetch data identified by @p hash and needed by @p envelope. Multiple
@@ -120,5 +122,6 @@ class ItemFetcher : private NonMovableOrCopyable
 
   private:
     AskPeer mAskPeer;
+    ItemFetcherKind mKind;
 };
 }

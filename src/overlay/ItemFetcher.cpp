@@ -14,8 +14,8 @@
 namespace stellar
 {
 
-ItemFetcher::ItemFetcher(Application& app, AskPeer askPeer)
-    : mApp(app), mAskPeer(askPeer)
+ItemFetcher::ItemFetcher(Application& app, AskPeer askPeer, ItemFetcherKind kind)
+    : mApp(app), mAskPeer(askPeer), mKind(kind)
 {
 }
 
@@ -28,7 +28,7 @@ ItemFetcher::fetch(Hash const& itemHash, SCPEnvelope const& envelope)
     if (entryIt == mTrackers.end())
     { // not being tracked
         TrackerPtr tracker =
-            std::make_shared<Tracker>(mApp, itemHash, mAskPeer);
+            std::make_shared<Tracker>(mApp, itemHash, mAskPeer, mKind);
         mTrackers[itemHash] = tracker;
 
         tracker->listen(envelope);
