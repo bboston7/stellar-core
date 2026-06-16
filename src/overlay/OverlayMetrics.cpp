@@ -53,6 +53,12 @@ OverlayMetrics::OverlayMetrics(Application& app)
           {"overlay", "item-fetcher", "claim-ask"}, "item-fetcher"))
     , mItemFetcherCooldownReask(app.getMetrics().NewMeter(
           {"overlay", "item-fetcher", "cooldown-reask"}, "item-fetcher"))
+    , mItemFetcherClaimGraceWait(app.getMetrics().NewTimer(
+          {"overlay", "item-fetcher", "claim-grace-wait"}))
+    , mItemFetcherClaimGraceSatisfied(app.getMetrics().NewMeter(
+          {"overlay", "item-fetcher", "claim-grace-satisfied"}, "item-fetcher"))
+    , mItemFetcherClaimGraceExpired(app.getMetrics().NewMeter(
+          {"overlay", "item-fetcher", "claim-grace-expired"}, "item-fetcher"))
 
     , mRecvErrorTimer(app.getMetrics().NewTimer({"overlay", "recv", "error"}))
     , mRecvHelloTimer(app.getMetrics().NewTimer({"overlay", "recv", "hello"}))

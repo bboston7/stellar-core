@@ -72,6 +72,14 @@ class Tracker
     // peers after EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY elapses
     std::map<Peer::pointer, VirtualClock::time_point> mDontHaveSince;
     VirtualTimer mTimer;
+    // Claim-grace bookkeeping (TxSet kind only). While within the grace window
+    // and with no claiming peer, the fetch waits for a HAS_TX_SET claim rather
+    // than blind-asking a relayer. mGraceResolved guards one-shot metric
+    // recording at the first ask.
+    VirtualClock::time_point mGraceStart;
+    VirtualClock::time_point mGraceDeadline;
+    bool mGraceEnabled{false};
+    bool mGraceResolved{false};
     std::vector<std::pair<Hash, SCPEnvelope>> mWaitingEnvelopes;
     Hash mItemHash;
     ItemFetcherKind mKind;
@@ -170,6 +178,13 @@ class Tracker
      * currently outstanding, one is sent immediately.
      */
     void peerClaims(Peer::pointer peer);
+
+    /**
+     * Record that @p peer is a claiming peer without triggering an ask. Used
+     * to seed claims buffered before this tracker existed; the caller drives
+     * the subsequent @see tryNextPeer.
+     */
+    void seedClaim(Peer::pointer peer);
 
     /**
      * Called either when @see doesntHave(Peer::pointer) was received or

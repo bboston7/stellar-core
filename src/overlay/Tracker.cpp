@@ -57,6 +57,16 @@ Tracker::Tracker(Application& app, Hash const& hash, AskPeer& askPeer,
     , mFetchTime("fetch-" + hexAbbrev(hash), LogSlowExecution::Mode::MANUAL)
 {
     releaseAssert(mAskPeer);
+
+    // The claim grace only applies to tx set fetches: the qset fetcher never
+    // receives HAS_TX_SET claims, so a grace there would only add latency.
+    auto const grace = mApp.getConfig().EXPERIMENTAL_TX_SET_FETCH_CLAIM_GRACE;
+    if (mKind == ItemFetcherKind::TxSet && grace.count() > 0)
+    {
+        mGraceEnabled = true;
+        mGraceStart = mApp.getClock().now();
+        mGraceDeadline = mGraceStart + grace;
+    }
 }
 
 Tracker::~Tracker()
@@ -127,11 +137,20 @@ Tracker::peerClaims(Peer::pointer peer)
     mClaimingPeers.insert(peer);
     if (!mLastAskedPeer)
     {
-        // No ask is outstanding (e.g. idling in a rebuild backoff); act on
-        // the claim immediately instead of waiting out the timer.
+        // No ask is outstanding (e.g. idling in a rebuild backoff or the claim
+        // grace window); act on the claim immediately instead of waiting out
+        // the timer.
         mTimer.cancel();
         tryNextPeer(NextPeerCause::Other);
     }
+}
+
+void
+Tracker::seedClaim(Peer::pointer peer)
+{
+    // Insert-only: the caller (ItemFetcher::fetch) drives the first
+    // tryNextPeer after seeding all buffered claims.
+    mClaimingPeers.insert(peer);
 }
 
 void
@@ -236,6 +255,21 @@ Tracker::tryNextPeer(NextPeerCause cause)
         {
             claimingPeers.emplace(p->getPeerID(), p);
         }
+    }
+
+    // Claim grace: with no peer known to hold the tx set yet, prefer waiting a
+    // bounded time for a HAS_TX_SET claim over blind-asking a relayer that
+    // likely does not have it yet under parallel downloading. An arriving
+    // claim preempts the wait via peerClaims(); once the grace expires we fall
+    // through to the relayer/random tiers as usual.
+    if (claimingPeers.empty() && mGraceEnabled && now < mGraceDeadline)
+    {
+        auto const wait = std::chrono::duration_cast<std::chrono::milliseconds>(
+            mGraceDeadline - now);
+        mTimer.expires_from_now(wait);
+        mTimer.async_wait([this]() { this->tryNextPeer(NextPeerCause::Other); },
+                          VirtualTimer::onFailureNoop);
+        return;
     }
 
     // With HAS_TX_SET announcements enabled, a peer that relayed an envelope
@@ -354,6 +388,22 @@ Tracker::tryNextPeer(NextPeerCause cause)
             // because its DONT_HAVE cooldown expired (the other re-ask path —
             // asked without a claim, then claimed — is excluded above).
             om.mItemFetcherCooldownReask.Mark();
+        }
+        // Record the claim-grace outcome once, at the first ask: did waiting
+        // for a claim land us on a claimer, or did we fall back to a blind
+        // ask? mGraceEnabled is only set for TxSet fetches.
+        if (mGraceEnabled && !mGraceResolved)
+        {
+            mGraceResolved = true;
+            om.mItemFetcherClaimGraceWait.Update(now - mGraceStart);
+            if (claimTierSelected)
+            {
+                om.mItemFetcherClaimGraceSatisfied.Mark();
+            }
+            else
+            {
+                om.mItemFetcherClaimGraceExpired.Mark();
+            }
         }
         mDontHaveSince.erase(mLastAskedPeer);
         mPeersAsked[mLastAskedPeer] = selectedPeersHave;

@@ -162,6 +162,9 @@ overlay.item-fetcher.qset.next-peer-dont-have  | meter | next-peer on a qset fet
 overlay.item-fetcher.qset.next-peer-timeout    | meter | next-peer on a qset fetch because the reply timer expired with no answer
 overlay.item-fetcher.claim-ask            | meter     | fetch ask targeted a peer that announced possession via HAS_TX_SET
 overlay.item-fetcher.cooldown-reask       | meter     | fetch re-asked a peer whose DONT_HAVE cooldown (EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY) expired
+overlay.item-fetcher.claim-grace-wait     | timer     | time a tx set fetch waited (EXPERIMENTAL_TX_SET_FETCH_CLAIM_GRACE) from tracker creation to its first ask
+overlay.item-fetcher.claim-grace-satisfied | meter    | tx set fetch's first ask targeted a HAS_TX_SET claimer (grace avoided a blind ask)
+overlay.item-fetcher.claim-grace-expired  | meter     | tx set fetch's first ask fell back to a relayer/random peer (no claim arrived within the grace)
 overlay.memory.flood-known                | counter   | number of known flooded entries
 overlay.message.broadcast                 | meter     | message broadcasted
 overlay.message.read                      | meter     | message received

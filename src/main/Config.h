@@ -535,6 +535,12 @@ class Config : public std::enable_shared_from_this<Config>
     // fetch-list rebuild (experimental). 0 disables.
     std::chrono::milliseconds EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY;
 
+    // When > 0, a tx set fetch that has no peer known (via HAS_TX_SET) to hold
+    // the tx set waits up to this long for such a claim before falling back to
+    // asking a peer that merely relayed the SCP message (experimental). 0
+    // disables. Must be well under TX_SET_DOWNLOAD_TIMEOUT.
+    std::chrono::milliseconds EXPERIMENTAL_TX_SET_FETCH_CLAIM_GRACE;
+
     // Disable expensive Soroban metrics for performance testing
     bool DISABLE_SOROBAN_METRICS_FOR_TESTING;
 

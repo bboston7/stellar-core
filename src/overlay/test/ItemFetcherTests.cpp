@@ -661,4 +661,108 @@ TEST_CASE("ItemFetcher claims and re-ask cooldown", "[overlay][ItemFetcher]")
                 txsetDontHave.count() + txsetTimeout.count());
     }
 }
+
+TEST_CASE("ItemFetcher claim buffer and grace", "[overlay][ItemFetcher]")
+{
+    auto networkID = sha256(getTestConfig().NETWORK_PASSPHRASE);
+    auto sim =
+        std::make_shared<Simulation>(Simulation::OVER_LOOPBACK, networkID);
+
+    auto const grace = std::chrono::milliseconds(500);
+
+    auto cfgMain = getTestConfig(1);
+    // Enable the claim grace on the fetching node.
+    cfgMain.EXPERIMENTAL_TX_SET_FETCH_CLAIM_GRACE = grace;
+    auto cfg1 = getTestConfig(2);
+    auto cfg2 = getTestConfig(3);
+
+    SIMULATION_CREATE_NODE(Main);
+    SIMULATION_CREATE_NODE(Node1);
+    SIMULATION_CREATE_NODE(Node2);
+    sim->addNode(vMainSecretKey, cfgMain.QUORUM_SET, &cfgMain);
+    sim->addNode(vNode1SecretKey, cfg1.QUORUM_SET, &cfg1);
+    sim->addNode(vNode2SecretKey, cfg2.QUORUM_SET, &cfg2);
+    sim->addPendingConnection(vMainNodeID, vNode1NodeID);
+    sim->addPendingConnection(vMainNodeID, vNode2NodeID);
+    sim->startAllNodes();
+    auto conn1 = sim->getLoopbackConnection(vMainNodeID, vNode1NodeID);
+    auto peer1 = conn1->getInitiator();
+    auto conn2 = sim->getLoopbackConnection(vMainNodeID, vNode2NodeID);
+    auto peer2 = conn2->getInitiator();
+
+    auto app = sim->getNode(vMainNodeID);
+
+    int askCount = 0;
+    Peer::pointer lastAsked;
+    ItemFetcher itemFetcher(*app, [&](Peer::pointer p, Hash) {
+        ++askCount;
+        lastAsked = p;
+    });
+
+    sim->crankUntil(
+        [&]() {
+            return peer1->isAuthenticatedForTesting() &&
+                   peer2->isAuthenticatedForTesting();
+        },
+        std::chrono::seconds{3}, false);
+
+    auto& claimAsk = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "claim-ask"}, "item-fetcher");
+    auto& graceSatisfied = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "claim-grace-satisfied"}, "item-fetcher");
+    auto& graceExpired = app->getMetrics().NewMeter(
+        {"overlay", "item-fetcher", "claim-grace-expired"}, "item-fetcher");
+
+    auto env = makeEnvelope(300);
+    auto hash = sha256(ByteSlice("300"));
+
+    SECTION("buffered claim seeds the tracker's first ask")
+    {
+        // Claim arrives before we are tracking the item: it must be buffered,
+        // not dropped.
+        itemFetcher.peerClaimsItem(hash, peer1);
+        REQUIRE(askCount == 0);
+
+        // When the tracker is created, the buffered claim seeds the claims
+        // tier so the very first ask targets the claimer.
+        itemFetcher.fetch(hash, env);
+        REQUIRE(askCount == 1);
+        REQUIRE(lastAsked == peer1);
+        REQUIRE(claimAsk.count() == 1);
+    }
+
+    SECTION("grace defers the first ask until a claim arrives")
+    {
+        itemFetcher.fetch(hash, env);
+        // With the grace active and no claimer known, the first ask is
+        // deferred rather than blind-asking a peer.
+        REQUIRE(askCount == 0);
+
+        // A claim during the grace window is acted on immediately.
+        itemFetcher.peerClaimsItem(hash, peer2);
+        REQUIRE(askCount == 1);
+        REQUIRE(lastAsked == peer2);
+        REQUIRE(claimAsk.count() == 1);
+        REQUIRE(graceSatisfied.count() == 1);
+        REQUIRE(graceExpired.count() == 0);
+    }
+
+    SECTION("grace expires and falls back to a blind ask")
+    {
+        auto const start = app->getClock().now();
+        itemFetcher.fetch(hash, env);
+        REQUIRE(askCount == 0);
+
+        // No claim arrives; once the grace expires we fall back to asking a
+        // peer anyway (liveness is preserved).
+        sim->crankUntil([&]() { return askCount == 1; },
+                        grace + std::chrono::seconds{1}, false);
+        auto const elapsed = app->getClock().now() - start;
+
+        REQUIRE(askCount == 1);
+        REQUIRE(elapsed >= grace);
+        REQUIRE(graceExpired.count() == 1);
+        REQUIRE(graceSatisfied.count() == 0);
+    }
+}
 }

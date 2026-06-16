@@ -14,8 +14,16 @@
 namespace stellar
 {
 
+// Cap on the number of distinct hashes for which we buffer early HAS_TX_SET
+// claims (claims for items not yet being tracked). Entries are tiny and
+// short-lived; this bounds the memory/DoS surface.
+static size_t const BUFFERED_CLAIMS_CACHE_SIZE = 1000;
+
 ItemFetcher::ItemFetcher(Application& app, AskPeer askPeer, ItemFetcherKind kind)
-    : mApp(app), mAskPeer(askPeer), mKind(kind)
+    : mApp(app)
+    , mAskPeer(askPeer)
+    , mKind(kind)
+    , mBufferedClaims(BUFFERED_CLAIMS_CACHE_SIZE)
 {
 }
 
@@ -32,6 +40,24 @@ ItemFetcher::fetch(Hash const& itemHash, SCPEnvelope const& envelope)
         mTrackers[itemHash] = tracker;
 
         tracker->listen(envelope);
+
+        // Seed any HAS_TX_SET claims that arrived before this tracker existed
+        // so the first ask can target a known holder rather than blind-asking.
+        auto* buffered = mBufferedClaims.maybeGet(itemHash);
+        if (buffered)
+        {
+            for (auto const& weak : *buffered)
+            {
+                if (auto peer = weak.lock())
+                {
+                    tracker->seedClaim(peer);
+                }
+            }
+            // Clear the consumed claims (no erase-by-key on the cache); the
+            // entry is now an empty tombstone that ages out via eviction.
+            mBufferedClaims.put(itemHash, std::vector<std::weak_ptr<Peer>>{});
+        }
+
         tracker->tryNextPeer();
     }
     else
@@ -164,6 +190,24 @@ ItemFetcher::peerClaimsItem(Hash const& itemHash, Peer::pointer peer)
     if (iter != mTrackers.end())
     {
         iter->second->peerClaims(peer);
+    }
+    else
+    {
+        // Not yet tracking this item (the claim beat the SCP message, or our
+        // internal queues reordered them). Buffer the claim so the tracker can
+        // be seeded when it is created, instead of dropping it. Never create a
+        // tracker here: peers must not be able to make us fetch arbitrary
+        // tx sets.
+        auto* buffered = mBufferedClaims.maybeGet(itemHash);
+        if (buffered)
+        {
+            buffered->emplace_back(peer);
+        }
+        else
+        {
+            mBufferedClaims.put(itemHash,
+                                std::vector<std::weak_ptr<Peer>>{peer});
+        }
     }
 }
 

@@ -7,10 +7,12 @@
 #include "overlay/Peer.h"
 #include "overlay/Tracker.h" // for ItemFetcherKind
 #include "util/NonCopyable.h"
+#include "util/RandomEvictionCache.h"
 #include "util/Timer.h"
 #include <functional>
 #include <map>
 #include <optional>
+#include <vector>
 
 namespace medida
 {
@@ -123,5 +125,9 @@ class ItemFetcher : private NonMovableOrCopyable
   private:
     AskPeer mAskPeer;
     ItemFetcherKind mKind;
+    // HAS_TX_SET claims received for hashes not yet being tracked. Bounded and
+    // short-lived: consumed when a tracker for the hash is created, otherwise
+    // evicted. weak_ptr so buffered claims never keep a Peer alive.
+    RandomEvictionCache<Hash, std::vector<std::weak_ptr<Peer>>> mBufferedClaims;
 };
 }

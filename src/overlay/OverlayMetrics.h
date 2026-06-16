@@ -52,6 +52,12 @@ struct OverlayMetrics
     medida::Meter& mItemFetcherClaimAsk;
     // Marked when a fetch re-asks a peer whose DONT_HAVE cooldown expired.
     medida::Meter& mItemFetcherCooldownReask;
+    // Claim-grace outcome for tx set fetches: time from tracker creation to
+    // the first ask, and whether that first ask hit a claimer (the grace
+    // avoided a blind ask) or fell back to a relayer (grace expired).
+    medida::Timer& mItemFetcherClaimGraceWait;
+    medida::Meter& mItemFetcherClaimGraceSatisfied;
+    medida::Meter& mItemFetcherClaimGraceExpired;
 
     medida::Timer& mRecvErrorTimer;
     medida::Timer& mRecvHelloTimer;

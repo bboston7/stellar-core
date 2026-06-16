@@ -177,6 +177,7 @@ Config::Config() : NODE_SEED(SecretKey::random())
     EXPERIMENTAL_PARALLEL_TX_SET_DOWNLOAD = false;
     EXPERIMENTAL_HAS_TX_SET = false;
     EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY = std::chrono::milliseconds::zero();
+    EXPERIMENTAL_TX_SET_FETCH_CLAIM_GRACE = std::chrono::milliseconds::zero();
     DISABLE_SOROBAN_METRICS_FOR_TESTING = false;
     DISABLE_TX_META_FOR_TESTING = false;
     BACKGROUND_TX_SIG_VERIFICATION = true;
@@ -1428,6 +1429,11 @@ Config::processConfig(std::shared_ptr<cpptoml::table> t)
                 {"EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY",
                  [&]() {
                      EXPERIMENTAL_TX_SET_FETCH_REASK_DELAY =
+                         std::chrono::milliseconds(readInt<int>(item, 0));
+                 }},
+                {"EXPERIMENTAL_TX_SET_FETCH_CLAIM_GRACE",
+                 [&]() {
+                     EXPERIMENTAL_TX_SET_FETCH_CLAIM_GRACE =
                          std::chrono::milliseconds(readInt<int>(item, 0));
                  }},
                 {"MAX_BATCH_WRITE_COUNT",
