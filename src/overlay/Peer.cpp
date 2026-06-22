@@ -1082,7 +1082,6 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
     case TRANSACTION:
     case FLOOD_ADVERT:
     case FLOOD_DEMAND:
-    case HAS_TX_SET:
     {
         cat = "TX";
         type = Scheduler::ActionType::DROPPABLE_ACTION;
@@ -1103,6 +1102,17 @@ Peer::recvAuthenticatedMessage(AuthenticatedMessage&& msg)
     case GENERALIZED_TX_SET:
     case SCP_QUORUMSET:
     case SCP_MESSAGE:
+    // HAS_TX_SET is consensus-critical and low-volume (a few per slot per
+    // peer), so it is scheduled with SCP traffic and left non-droppable:
+    // dropping it would lose the possession signal precisely under load (when
+    // tx set fetching is most stressed), and it is not resent.
+    // TODO: it is unsafe to leave this non-droppable in production. Unlike
+    // SCP messages, HAS_TX_SET is not flow-controlled (it is not a flood
+    // message) and not resent, so a malicious peer could pump non-droppable
+    // HAS_TX_SET messages to grow this queue unbounded. If this change is
+    // productionized, harden it first (probably by rate-limiting HAS_TX_SET
+    // per peer).
+    case HAS_TX_SET:
         cat = "SCP";
         break;
 

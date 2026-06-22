@@ -55,6 +55,8 @@ ItemFetcher::fetch(Hash const& itemHash, SCPEnvelope const& envelope)
             }
             // Clear the consumed claims (no erase-by-key on the cache); the
             // entry is now an empty tombstone that ages out via eviction.
+            // TODO: ^^ This is a good reason to use something other than
+            // RandomEvictionCache here.
             mBufferedClaims.put(itemHash, std::vector<std::weak_ptr<Peer>>{});
         }
 
@@ -201,6 +203,9 @@ ItemFetcher::peerClaimsItem(Hash const& itemHash, Peer::pointer peer)
         auto* buffered = mBufferedClaims.maybeGet(itemHash);
         if (buffered)
         {
+            // TODO: As part of hardening this might need to be changed to a set
+            // or something. A bad peer could spam HAS_TX_SET messages to fill
+            // this vector, I think.
             buffered->emplace_back(peer);
         }
         else
