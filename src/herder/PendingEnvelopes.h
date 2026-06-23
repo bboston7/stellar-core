@@ -82,6 +82,10 @@ class PendingEnvelopes
     // each tx set at most once
     RandomEvictionCache<Hash, bool> mAnnouncedTxSets;
 
+    // when each tx set was received locally, used to measure the
+    // tx-set-arrival -> balloting-unblock gap (scp.timing.txset-to-unblock-lag)
+    RandomEvictionCache<Hash, VirtualClock::time_point> mTxSetArrivalTime;
+
     bool mRebuildQuorum;
     QuorumTracker mQuorumTracker;
 
@@ -214,6 +218,14 @@ class PendingEnvelopes
      * Return true if TxSet useful (was asked for).
      */
     bool recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset);
+
+    /**
+     * Return when the tx set identified by @p hash was received locally, or
+     * nullopt if not recorded. Used to measure the gap between a tx set
+     * arriving and balloting committing the value that was blocked on it.
+     */
+    std::optional<VirtualClock::time_point>
+    getTxSetArrivalTime(Hash const& hash);
 
     /**
      * A peer announced (via HAS_TX_SET) that it has the tx set identified by

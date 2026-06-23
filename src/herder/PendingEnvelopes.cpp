@@ -39,6 +39,7 @@ PendingEnvelopes::PendingEnvelopes(Application& app, HerderImpl& herder)
     , mTxSetCache(TXSET_CACHE_SIZE)
     , mValueSizeCache(TXSET_CACHE_SIZE + QSET_CACHE_SIZE)
     , mAnnouncedTxSets(TXSET_CACHE_SIZE)
+    , mTxSetArrivalTime(TXSET_CACHE_SIZE)
     , mRebuildQuorum(true)
     , mQuorumTracker(mApp.getConfig().NODE_SEED.getPublicKey())
     , mProcessedCount(
@@ -332,6 +333,11 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
         return false;
     }
 
+    // Record arrival time before addTxSet() below, which re-feeds waiting
+    // envelopes and can synchronously unblock balloting in the same call
+    // stack; recording after would miss those (fast) unblocks.
+    mTxSetArrivalTime.put(hash, mApp.getClock().now());
+
     if (lastSeenSlotIndex == mHerder.nextConsensusLedgerIndex())
     {
         // Record when this download completed relative to the local trigger
@@ -361,6 +367,17 @@ PendingEnvelopes::recvTxSet(Hash const& hash, TxSetXDRFrameConstPtr txset)
     mHerder.getHerderSCPDriver().onTxSetReceived(hash, txset);
 
     return true;
+}
+
+std::optional<VirtualClock::time_point>
+PendingEnvelopes::getTxSetArrivalTime(Hash const& hash)
+{
+    auto* arrival = mTxSetArrivalTime.maybeGet(hash);
+    if (arrival)
+    {
+        return *arrival;
+    }
+    return std::nullopt;
 }
 
 bool

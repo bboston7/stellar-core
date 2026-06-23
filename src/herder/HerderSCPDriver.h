@@ -309,6 +309,12 @@ class HerderSCPDriver : public SCPDriver
         // download
         medida::Timer& mBallotBlockedOnTxSet;
 
+        // Sub-interval of mBallotBlockedOnTxSet: time from the txset arriving
+        // locally to balloting actually committing the value that was blocked
+        // on it. This is the re-drive dead time (the rest of the block is the
+        // unavoidable wait for the txset to arrive).
+        medida::Timer& mTxSetToUnblockLag;
+
         // Tracks how many ledgers we externalized an empty-tx-set value.
         medida::Counter& mEmptyTxSetExternalized;
 

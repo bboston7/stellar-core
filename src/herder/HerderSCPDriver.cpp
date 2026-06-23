@@ -86,6 +86,8 @@ HerderSCPDriver::SCPMetrics::SCPMetrics(Application& app)
           {"scp", "timing", "self-to-others-externalize-lag"}))
     , mBallotBlockedOnTxSet(app.getMetrics().NewTimer(
           {"scp", "timing", "ballot-blocked-on-txset"}))
+    , mTxSetToUnblockLag(app.getMetrics().NewTimer(
+          {"scp", "timing", "txset-to-unblock-lag"}))
     , mEmptyTxSetExternalized(
           app.getMetrics().NewCounter({"scp", "empty-tx-set", "externalized"}))
     , mEmptyTxSetValueReplaced(app.getMetrics().NewCounter(
@@ -1366,10 +1368,33 @@ HerderSCPDriver::measureAndRecordBallotBlockedOnTxSet(uint64_t slotIndex,
         auto valueIt = timing.mBallotBlockedOnTxSetStart.find(value);
         if (valueIt != timing.mBallotBlockedOnTxSetStart.end())
         {
-            auto elapsed =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    mApp.getClock().now() - valueIt->second);
+            auto const now = mApp.getClock().now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - valueIt->second);
             mSCPMetrics.mBallotBlockedOnTxSet.Update(elapsed);
+
+            // Carve out the re-drive portion: time from the txset arriving
+            // locally to this unblock. The remainder of the block above is the
+            // unavoidable wait for the txset to arrive.
+            try
+            {
+                StellarValue sv;
+                xdr::xdr_from_opaque(value, sv);
+                auto arrival =
+                    mPendingEnvelopes.getTxSetArrivalTime(sv.txSetHash);
+                if (arrival)
+                {
+                    mSCPMetrics.mTxSetToUnblockLag.Update(std::max(
+                        std::chrono::nanoseconds::zero(),
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            now - *arrival)));
+                }
+            }
+            catch (...)
+            {
+                // value failed to deserialize (should not happen for a value
+                // that reached the commit gate); skip the lag sample.
+            }
             return;
         }
     }
