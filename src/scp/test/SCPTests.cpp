@@ -4210,7 +4210,7 @@ TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
     }
 }
 
-#ifdef CAP_0087
+#ifdef CAP_0083
 TEST_CASE("nomination times out structurally-valid value into empty tx set",
           "[scp][nomination]")
 {
@@ -4664,7 +4664,7 @@ TEST_CASE("incoming PREPARE with non-tx-set-invalid value is dropped",
     // No local emit triggered.
     REQUIRE(scp.mEnvs.empty());
 }
-#endif // CAP_0087
+#endif // CAP_0083
 
 // === Phase 2 hand-authored parallel-download scenarios ===
 
