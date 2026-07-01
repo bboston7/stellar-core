@@ -649,6 +649,9 @@ HerderSCPDriver::extractValidValue(uint64_t slotIndex, Value const& value)
     {
         extractValidUpgrades(b, true);
         res = wrapStellarValue(b);
+        // Postcondition: a value that validated at >= kStructurallyValidValue
+        // must yield a wrapper here.
+        releaseAssert(res != nullptr);
     }
 
     return res;
@@ -1718,6 +1721,9 @@ void
 HerderSCPDriver::onTxSetReceived(Hash const& txSetHash,
                                  TxSetXDRFrameConstPtr txSet)
 {
+    releaseAssert(txSet != nullptr);
+    releaseAssert(txSet->getContentsHash() == txSetHash);
+
     // Update any ValueWrappers waiting for this tx set
     auto it = mPendingTxSetWrappers.find(txSetHash);
     if (it != mPendingTxSetWrappers.end())

@@ -286,6 +286,33 @@ class TestSCP : public SCPDriver
     // Empty-tx-set value support
     std::map<Value, std::chrono::milliseconds> mDownloadWaitTimes;
 
+    // Envelopes held by TestSCP's emulation of the production gate
+    // (HerderSCPDriver::isEnvelopeReady -> ENVELOPE_STATUS_FETCHING) —
+    // CONFIRM/EXTERNALIZE envelopes that reference a value still in
+    // mDownloadWaitTimes, keyed by the referenced value so clearDownload(v)
+    // can drain the relevant queue directly. The vector preserves insertion
+    // order so envelopes replay in the order they originally arrived.
+    std::map<Value, std::vector<SCPEnvelope>> mBufferedEnvelopes;
+
+    // Returns the ballot value referenced by a CONFIRM or EXTERNALIZE
+    // statement, or nullptr for any other statement type (the gate doesn't
+    // apply to NOMINATE/PREPARE — neither does the production gate, which
+    // allows parallel tx-set download only for those two message types).
+    static Value const*
+    gatedReferencedValue(SCPEnvelope const& envelope)
+    {
+        auto const& pl = envelope.statement.pledges;
+        if (pl.type() == SCP_ST_CONFIRM)
+        {
+            return &pl.confirm().ballot.value;
+        }
+        if (pl.type() == SCP_ST_EXTERNALIZE)
+        {
+            return &pl.externalize().commit.value;
+        }
+        return nullptr;
+    }
+
     struct TimerData
     {
         std::chrono::milliseconds mAbsoluteTimeout;
@@ -358,6 +385,29 @@ class TestSCP : public SCPDriver
         return mSCP.receiveEnvelope(envW);
     }
 
+    // Gated delivery: emulates the production gate
+    // (HerderSCPDriver::isEnvelopeReady -> ENVELOPE_STATUS_FETCHING).
+    // CONFIRM/EXTERNALIZE envelopes referencing a value still awaiting tx-set
+    // download (i.e. in mDownloadWaitTimes, which the mock validateValue maps
+    // to kStructurallyValidValue) are held back until the value becomes fully
+    // validated via clearDownload, at which point they are replayed in arrival
+    // order. NOMINATE/PREPARE proceed straight to SCP. Harness scenarios use
+    // this entry point; the plain receiveEnvelope above remains the ungated
+    // path used by the SCP-level unit tests that assert direct rejection.
+    SCP::EnvelopeState
+    receiveEnvelopeGated(SCPEnvelope const& envelope)
+    {
+        if (auto const* refValue = gatedReferencedValue(envelope))
+        {
+            if (mDownloadWaitTimes.find(*refValue) != mDownloadWaitTimes.end())
+            {
+                mBufferedEnvelopes[*refValue].push_back(envelope);
+                return SCP::EnvelopeState::VALID;
+            }
+        }
+        return receiveEnvelope(envelope);
+    }
+
     Slot&
     getSlot(uint64 index)
     {
@@ -402,6 +452,22 @@ class TestSCP : public SCPDriver
     clearDownload(Value const& v)
     {
         mDownloadWaitTimes.erase(v);
+
+        // Drain any envelopes the gate buffered for this value and replay them
+        // in original arrival order. The re-entrant call into
+        // receiveEnvelopeGated is safe: mDownloadWaitTimes no longer contains
+        // v, so the gate check returns false and these envelopes proceed to
+        // SCP normally.
+        auto it = mBufferedEnvelopes.find(v);
+        if (it != mBufferedEnvelopes.end())
+        {
+            auto buffered = std::move(it->second);
+            mBufferedEnvelopes.erase(it);
+            for (auto const& env : buffered)
+            {
+                receiveEnvelopeGated(env);
+            }
+        }
     }
 
     // Copied from HerderSCPDriver.cpp
@@ -630,6 +696,665 @@ SCPDriver::ValidationLevel
 xValueNotCurrentLedgerOverride(uint64, Value const& v, bool)
 {
     return SCPDriver::kMaybeValidNotCurrentValue;
+}
+
+// === Phase 2 SCP-level harness extensions ===
+
+// QuorumFixture: a (qSet, qSetHash, secret keys, node IDs) bundle for canonical
+// quorum shapes used by hand-authored scenarios. The configurable shape is
+// makeQuorumFixture(nodeCount, threshold); canonical3Node/canonical4Node are
+// convenience helpers for the most common sizes. Adding new sizes (5-, 7-,
+// hierarchical) is a one-liner that calls makeQuorumFixture.
+struct QuorumFixture
+{
+    SCPQuorumSet qSet;
+    Hash qSetHash;
+    std::vector<SecretKey> secretKeys;
+    std::vector<NodeID> nodeIDs;
+
+    SecretKey const&
+    key(size_t i) const
+    {
+        return secretKeys.at(i);
+    }
+    NodeID const&
+    id(size_t i) const
+    {
+        return nodeIDs.at(i);
+    }
+};
+
+QuorumFixture
+makeQuorumFixture(int nodeCount, int threshold)
+{
+    QuorumFixture f;
+    f.qSet.threshold = threshold;
+    for (int i = 0; i < nodeCount; ++i)
+    {
+        // Match the SIMULATION_CREATE_NODE seed convention so fixtures are
+        // stable across runs and consistent with existing tests.
+        Hash seed = sha256(fmt::format("NODE_SEED_{}", i));
+        SecretKey sk = SecretKey::fromSeed(seed);
+        f.secretKeys.push_back(sk);
+        f.nodeIDs.push_back(sk.getPublicKey());
+        f.qSet.validators.push_back(sk.getPublicKey());
+    }
+    f.qSetHash = sha256(xdr::xdr_to_opaque(f.qSet));
+    return f;
+}
+
+[[maybe_unused]] QuorumFixture
+canonical3Node()
+{
+    return makeQuorumFixture(3, 2);
+}
+
+[[maybe_unused]] QuorumFixture
+canonical4Node()
+{
+    return makeQuorumFixture(4, 3);
+}
+
+// PeerProfile: per-peer identity bundle (secretKey, qSetHash) with thin
+// envelope-building methods that forward to the existing makeNominate /
+// makePrepare / makeConfirm / makeExternalize helpers above. Behavior twists
+// ("withholds tx set", "sends invalid", etc.) are realized via harness-side
+// configuration (mDownloadWaitTimes / mValidateValueOverride keyed on Value)
+// and the free helpers below — not via subclassing. Critically, the per-peer
+// twist is value-keyed, not NodeID-keyed: to make "v2's contribution invalid"
+// while v1's is valid, v2 must reference a distinct value (use yValue vs
+// xValue, etc.).
+struct PeerProfile
+{
+    SecretKey key;
+    Hash qSetHash;
+
+    SCPEnvelope
+    nominate(uint64 slot, std::vector<Value> votes,
+             std::vector<Value> accepted) const
+    {
+        return makeNominate(key, qSetHash, slot, std::move(votes),
+                            std::move(accepted));
+    }
+
+    SCPEnvelope
+    prepare(uint64 slot, SCPBallot const& ballot, SCPBallot* prepared = nullptr,
+            uint32 nC = 0, uint32 nH = 0,
+            SCPBallot* preparedPrime = nullptr) const
+    {
+        return makePrepare(key, qSetHash, slot, ballot, prepared, nC, nH,
+                           preparedPrime);
+    }
+
+    SCPEnvelope
+    confirm(uint64 slot, SCPBallot const& ballot, uint32 nPrepared,
+            uint32 nCommit, uint32 nH) const
+    {
+        return makeConfirm(key, qSetHash, slot, nPrepared, ballot, nCommit, nH);
+    }
+
+    SCPEnvelope
+    externalize(uint64 slot, SCPBallot const& commit, uint32 nH) const
+    {
+        return makeExternalize(key, qSetHash, slot, commit, nH);
+    }
+};
+
+PeerProfile
+makePeerProfile(QuorumFixture const& fixture, size_t index)
+{
+    return PeerProfile{fixture.key(index), fixture.qSetHash};
+}
+
+// corruptEnvelope: mutate an envelope so a real (signature-verifying) driver
+// would reject it. NOTE: TestSCP's signEnvelope is a no-op and the mock driver
+// does not verify signatures, so at the SCP-component level this corruption
+// is mostly symbolic. For cleanly-rejected envelopes today, prefer the
+// "sends invalid" recipe (configure mValidateValueOverride to return
+// kInvalidValue for the peer's value), or for nomination scenarios
+// specifically, send an envelope with empty votes/accepted (fails
+// NominationProtocol::isSane). The helper is provided for symmetry with the
+// five-profile catalog and as a hook for future Herder-level tests where
+// signature verification is real.
+SCPEnvelope
+corruptEnvelope(SCPEnvelope env)
+{
+    std::fill(env.signature.begin(), env.signature.end(), 0);
+    return env;
+}
+
+#ifdef CAP_0083
+// toEmptyTxSet: produce the empty-tx-set form of `v` using the harness's mock
+// makeEmptyTxSetValueFromValue. At TestSCP level this is just an "EMPTY:" byte
+// prefix on the original value bytes; tests can pair this with isEmptyTxSetValue
+// or compare values directly. (Renamed from the pre-merge "skip value" API.)
+Value
+toEmptyTxSet(TestSCP const& scp, Value const& v)
+{
+    return scp.makeEmptyTxSetValueFromValue(v);
+}
+#endif // CAP_0083
+
+// === Phase 3 SCP-level scenario generator ===
+
+// ScenarioEvent: a single action within a Scenario. Four event kinds drive the
+// test harness: receiving an envelope from a peer, simulating tx-set arrival
+// (via clearDownload), and clock-related events (firing the ballot protocol
+// timer and advancing virtual time). The struct uses union-like fields (env /
+// value) populated only for the relevant kind.
+struct ScenarioEvent
+{
+    enum class Kind
+    {
+        ReceiveEnvelope,
+        TxSetArrives,
+        FireBallotTimer,
+        AdvanceTimerOffset,
+    };
+
+    Kind kind;
+    SCPEnvelope env;
+    Value value;
+
+    static ScenarioEvent
+    receive(SCPEnvelope e)
+    {
+        return ScenarioEvent{Kind::ReceiveEnvelope, std::move(e), Value{}};
+    }
+
+    static ScenarioEvent
+    txSetArrives(Value v)
+    {
+        return ScenarioEvent{Kind::TxSetArrives, SCPEnvelope{}, std::move(v)};
+    }
+
+    static ScenarioEvent
+    fireBallotTimer()
+    {
+        return ScenarioEvent{Kind::FireBallotTimer, SCPEnvelope{}, Value{}};
+    }
+
+    static ScenarioEvent
+    advanceTimerOffset()
+    {
+        return ScenarioEvent{Kind::AdvanceTimerOffset, SCPEnvelope{}, Value{}};
+    }
+};
+
+using Scenario = std::vector<ScenarioEvent>;
+
+// Forward declaration: formatScenarioEvent is defined later in the same
+// anonymous namespace (alongside scenarioToString and friends).
+std::string formatScenarioEvent(ScenarioEvent const& ev,
+                                QuorumFixture const& fixture);
+
+// runScenario plays a Scenario against a TestSCP instance. The TestSCP must
+// already be configured with quorum set, downloads, validation overrides, and
+// any initial bumpState — runScenario only walks the events list. Envelopes
+// are delivered through the gated entry point (receiveEnvelopeGated) so the
+// production tx-set-download gate is always emulated.
+//
+// Each step emits an INFO (Catch2 captures it for any subsequent REQUIRE
+// failure in the same scope) and a CLOG_DEBUG (silent at default log level;
+// flushed on emit so the most-recently-logged step survives a mid-runScenario
+// releaseAssert abort). The step index aligns with the [<i>] index in
+// scenarioToString output.
+void
+runScenario(TestSCP& scp, Scenario const& scenario,
+            QuorumFixture const& fixture)
+{
+    for (size_t stepIdx = 0; stepIdx < scenario.size(); ++stepIdx)
+    {
+        auto const& ev = scenario[stepIdx];
+        auto stepStr = formatScenarioEvent(ev, fixture);
+        INFO("Step " << stepIdx << ": " << stepStr);
+        CLOG_DEBUG(SCP, "Step {}: {}", stepIdx, stepStr);
+
+        switch (ev.kind)
+        {
+        case ScenarioEvent::Kind::ReceiveEnvelope:
+            scp.receiveEnvelopeGated(ev.env);
+            break;
+        case ScenarioEvent::Kind::TxSetArrives:
+            scp.clearDownload(ev.value);
+            break;
+        case ScenarioEvent::Kind::FireBallotTimer:
+        {
+            auto cb = scp.getBallotProtocolTimer().mCallback;
+            if (cb)
+            {
+                cb();
+            }
+            break;
+        }
+        case ScenarioEvent::Kind::AdvanceTimerOffset:
+            scp.bumpTimerOffset();
+            break;
+        }
+    }
+}
+
+// generateCooperative: every peer cooperates fully on xValue, no download in
+// progress. Caller must do scp.bumpState(0, xValue) before runScenario. v0
+// should externalize xValue.
+Scenario
+generateCooperative(QuorumFixture const& fixture)
+{
+    Scenario s;
+    SCPBallot xB1(1, xValue);
+
+    // Each peer (v1..v_{N-1}) sends a single PREPARE asserting they have
+    // accepted-prepared and voted-commit at xB1, then a CONFIRM asserting
+    // accept-commit. v0 advances through prepare, accept-prepare,
+    // confirm-prepare, vote-commit, accept-commit, and confirm-commit.
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        auto p = makePeerProfile(fixture, i);
+        s.push_back(
+            ScenarioEvent::receive(p.prepare(0, xB1, &xB1, /*nC=*/1, /*nH=*/1)));
+        s.push_back(ScenarioEvent::receive(
+            p.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    }
+
+    return s;
+}
+
+#ifdef CAP_0083
+// generateCooperativeButSlow: tx set never arrives. Caller must do
+// scp.startDownload(xValue, ms > timeout) and scp.bumpState(0, xValue) before
+// runScenario — bumpState replaces xValue with an empty-tx-set value via
+// maybeReplaceValueWithEmptyTxSet. Peers echo the empty-tx-set value. v0 should
+// externalize the empty-tx-set value.
+Scenario
+generateCooperativeButSlow(QuorumFixture const& fixture, TestSCP const& scp)
+{
+    Scenario s;
+    Value emptyValue = toEmptyTxSet(scp, xValue);
+    SCPBallot emptyB1(1, emptyValue);
+
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        auto p = makePeerProfile(fixture, i);
+        s.push_back(ScenarioEvent::receive(
+            p.prepare(0, emptyB1, &emptyB1, /*nC=*/1, /*nH=*/1)));
+        s.push_back(ScenarioEvent::receive(
+            p.confirm(0, emptyB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    }
+
+    return s;
+}
+#endif // CAP_0083
+
+// generateCooperativeWithDownload: cooperative scenario with a tx-set
+// download in progress that arrives mid-scenario via a TxSetArrives event.
+// Used as the base for the biased-random generator — exercises the
+// structurally-valid (awaiting-download) paths that the catalog bias targets
+// care about. Caller must do scp.startDownload(xValue, ms < timeout) and
+// scp.bumpState(0, xValue) before runScenario.
+Scenario
+generateCooperativeWithDownload(QuorumFixture const& fixture)
+{
+    Scenario s;
+    SCPBallot xB1(1, xValue);
+
+    // First batch: peer PREPAREs that drive v0's setConfirmPrepared. With
+    // xValue still awaiting download (kStructurallyValidValue), the commit gate
+    // stalls mCommit.
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        s.push_back(ScenarioEvent::receive(
+            makePeerProfile(fixture, i).prepare(0, xB1, &xB1, /*nC=*/1,
+                                                /*nH=*/1)));
+    }
+
+    // Tx set arrives — xValue becomes kFullyValidatedValue.
+    s.push_back(ScenarioEvent::txSetArrives(xValue));
+
+    // Second batch: peer CONFIRMs — drives v0 through accept-commit (via
+    // v-blocking) and confirm-commit, externalize.
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        s.push_back(ScenarioEvent::receive(
+            makePeerProfile(fixture, i).confirm(0, xB1, /*nPrepared=*/1,
+                                                /*nCommit=*/1, /*nH=*/1)));
+    }
+
+    return s;
+}
+
+// Helper: collect indices of all ReceiveEnvelope events in the scenario.
+std::vector<size_t>
+findReceiveEnvelopeIndices(Scenario const& s)
+{
+    std::vector<size_t> idx;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        if (s[i].kind == ScenarioEvent::Kind::ReceiveEnvelope)
+        {
+            idx.push_back(i);
+        }
+    }
+    return idx;
+}
+
+// Perturbation operator 0: shift TxSetArrives to a random scenario position.
+// Covers the catalog target "tx set arrives just before / at / just after
+// skip-timer expiry" by varying ordering relative to envelopes.
+template <typename Rng>
+void
+shiftTxSetArrival(Scenario& s, Rng& rng)
+{
+    auto it = std::find_if(s.begin(), s.end(), [](ScenarioEvent const& e) {
+        return e.kind == ScenarioEvent::Kind::TxSetArrives;
+    });
+    if (it == s.end())
+    {
+        return;
+    }
+    ScenarioEvent ev = std::move(*it);
+    s.erase(it);
+    size_t newIdx = std::uniform_int_distribution<size_t>(0, s.size())(rng);
+    s.insert(s.begin() + newIdx, std::move(ev));
+}
+
+// Perturbation operator 1: duplicate one envelope. Covers the catalog target
+// "duplicate envelope delivery" — exercises the isNewerStatement reprocessing
+// path in NominationProtocol / BallotProtocol.
+template <typename Rng>
+void
+duplicateEnvelope(Scenario& s, Rng& rng)
+{
+    auto idx = findReceiveEnvelopeIndices(s);
+    if (idx.empty())
+    {
+        return;
+    }
+    size_t pick =
+        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+    ScenarioEvent dup = s[pick];
+    size_t insertAt =
+        std::uniform_int_distribution<size_t>(pick + 1, s.size())(rng);
+    s.insert(s.begin() + insertAt, std::move(dup));
+}
+
+// Perturbation operator 2: replace one peer's ballot value with yValue.
+// Covers the "sends-invalid peer" recipe — the test must configure
+// mValidateValueOverride to mark yValue as kInvalidValue.
+template <typename Rng>
+void
+replaceWithYValue(Scenario& s, Rng& rng)
+{
+    auto idx = findReceiveEnvelopeIndices(s);
+    if (idx.empty())
+    {
+        return;
+    }
+    size_t pick =
+        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+    auto& env = s[pick].env;
+    auto& pl = env.statement.pledges;
+    switch (pl.type())
+    {
+    case SCP_ST_PREPARE:
+        pl.prepare().ballot.value = yValue;
+        break;
+    case SCP_ST_CONFIRM:
+        pl.confirm().ballot.value = yValue;
+        break;
+    default:
+        break;
+    }
+}
+
+// Perturbation operator 3: wrap one envelope in corruptEnvelope. Covers the
+// "sends-malformed envelope" recipe.
+template <typename Rng>
+void
+corruptOneEnvelope(Scenario& s, Rng& rng)
+{
+    auto idx = findReceiveEnvelopeIndices(s);
+    if (idx.empty())
+    {
+        return;
+    }
+    size_t pick =
+        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+    s[pick].env = corruptEnvelope(std::move(s[pick].env));
+}
+
+// Perturbation operator 4: inject CONFIRMs from a v-blocking pair (any 2
+// peers) at a random scenario position. Covers the catalog target
+// "setAcceptCommit + CONFIRM gating" — the injected CONFIRMs may drive v0
+// through setAcceptCommit at an unexpected point.
+template <typename Rng>
+void
+injectVBlockingConfirms(Scenario& s, QuorumFixture const& fixture, Rng& rng)
+{
+    if (fixture.secretKeys.size() < 3)
+    {
+        // Need at least 2 peers (v1, v2) to form a v-blocking pair.
+        return;
+    }
+    std::vector<size_t> peerIdx;
+    for (size_t i = 1; i < fixture.secretKeys.size(); ++i)
+    {
+        peerIdx.push_back(i);
+    }
+    std::shuffle(peerIdx.begin(), peerIdx.end(), rng);
+
+    SCPBallot xB1(1, xValue);
+    auto p1 = makePeerProfile(fixture, peerIdx[0]);
+    auto p2 = makePeerProfile(fixture, peerIdx[1]);
+
+    size_t insertAt = std::uniform_int_distribution<size_t>(0, s.size())(rng);
+    s.insert(s.begin() + insertAt,
+             ScenarioEvent::receive(
+                 p2.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    s.insert(s.begin() + insertAt,
+             ScenarioEvent::receive(
+                 p1.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+}
+
+// Apply 1-3 random perturbations to a base scenario, picking from the 5
+// operators above. Covers 5 of the 8 catalog bias targets; the other 3
+// (slot-purge timing, silent-peer tipping quorum, empty + valid combination)
+// are TODO for a follow-up extension or rolled into Phase 4.
+template <typename Rng>
+void
+applyRandomPerturbations(Scenario& s, QuorumFixture const& fixture, Rng& rng)
+{
+    int n = std::uniform_int_distribution<int>(1, 3)(rng);
+    for (int i = 0; i < n; ++i)
+    {
+        int op = std::uniform_int_distribution<int>(0, 4)(rng);
+        switch (op)
+        {
+        case 0:
+            shiftTxSetArrival(s, rng);
+            break;
+        case 1:
+            duplicateEnvelope(s, rng);
+            break;
+        case 2:
+            replaceWithYValue(s, rng);
+            break;
+        case 3:
+            corruptOneEnvelope(s, rng);
+            break;
+        case 4:
+            injectVBlockingConfirms(s, fixture, rng);
+            break;
+        }
+    }
+}
+
+// generateBiasedRandom: starts from generateCooperativeWithDownload and
+// applies 1-3 random perturbations.
+template <typename Rng>
+Scenario
+generateBiasedRandom(QuorumFixture const& fixture, Rng& rng)
+{
+    Scenario s = generateCooperativeWithDownload(fixture);
+    applyRandomPerturbations(s, fixture, rng);
+    return s;
+}
+
+// thresholdFor: standard 2/3-majority threshold for the canonical small
+// quorum sizes used by Phase 3 generator tests.
+int
+thresholdFor(int nodeCount)
+{
+    switch (nodeCount)
+    {
+    case 3:
+        return 2;
+    case 4:
+        return 3;
+    case 5:
+        return 4;
+    default:
+        return (2 * nodeCount + 2) / 3;
+    }
+}
+
+// === Phase 3 follow-up: scenario stringification for debug logging ===
+//
+// These helpers turn a Scenario into a human-readable multi-line string so
+// failing biased-random test iterations leave enough context in the test
+// output to reproduce and diagnose. Used via Catch2 INFO (graceful failure)
+// and CLOG_DEBUG (visible at debug log level for crash investigation).
+
+// Map a NodeID back to its "v0"/"v1"/... position in the fixture; "?" if not
+// found (e.g., a malformed envelope or a peer not in this fixture).
+std::string
+formatPeerName(NodeID const& nodeID, QuorumFixture const& fixture)
+{
+    for (size_t i = 0; i < fixture.nodeIDs.size(); ++i)
+    {
+        if (fixture.nodeIDs[i] == nodeID)
+        {
+            return fmt::format("v{}", i);
+        }
+    }
+    return "?";
+}
+
+// Symbolic name for the well-known test globals (xValue/yValue/zValue/zzValue/
+// kValue), with empty-tx-set-wrapped variants printed as "empty(xValue)". Falls
+// back to hexAbbrev for unrecognized values.
+std::string
+formatValue(Value const& v)
+{
+    if (v == xValue)
+    {
+        return "xValue";
+    }
+    if (v == yValue)
+    {
+        return "yValue";
+    }
+    if (v == zValue)
+    {
+        return "zValue";
+    }
+    if (v == zzValue)
+    {
+        return "zzValue";
+    }
+    if (v == kValue)
+    {
+        return "kValue";
+    }
+    constexpr size_t emptyPrefixLen = 6;
+    if (v.size() >= emptyPrefixLen && v[0] == 'E' && v[1] == 'M' &&
+        v[2] == 'P' && v[3] == 'T' && v[4] == 'Y' && v[5] == ':')
+    {
+        Value inner(v.begin() + emptyPrefixLen, v.end());
+        return fmt::format("empty({})", formatValue(inner));
+    }
+    return hexAbbrev(v);
+}
+
+// Single-line ballot summary: "(counter, value)".
+std::string
+formatBallot(SCPBallot const& b)
+{
+    return fmt::format("({}, {})", b.counter, formatValue(b.value));
+}
+
+// One-line summary of a single scenario event.
+std::string
+formatScenarioEvent(ScenarioEvent const& ev, QuorumFixture const& fixture)
+{
+    switch (ev.kind)
+    {
+    case ScenarioEvent::Kind::ReceiveEnvelope:
+    {
+        auto const& st = ev.env.statement;
+        std::string peer = formatPeerName(st.nodeID, fixture);
+        auto const& pl = st.pledges;
+        switch (pl.type())
+        {
+        case SCP_ST_PREPARE:
+        {
+            auto const& p = pl.prepare();
+            std::string prep = p.prepared ? formatBallot(*p.prepared) : "null";
+            std::string preprime =
+                p.preparedPrime
+                    ? fmt::format(" preparedPrime={}",
+                                  formatBallot(*p.preparedPrime))
+                    : "";
+            return fmt::format(
+                "ReceiveEnvelope from {}: PREPARE ballot={} prepared={} "
+                "nC={} nH={}{}",
+                peer, formatBallot(p.ballot), prep, p.nC, p.nH, preprime);
+        }
+        case SCP_ST_CONFIRM:
+        {
+            auto const& c = pl.confirm();
+            return fmt::format(
+                "ReceiveEnvelope from {}: CONFIRM ballot={} nPrepared={} "
+                "nCommit={} nH={}",
+                peer, formatBallot(c.ballot), c.nPrepared, c.nCommit, c.nH);
+        }
+        case SCP_ST_EXTERNALIZE:
+        {
+            auto const& e = pl.externalize();
+            return fmt::format(
+                "ReceiveEnvelope from {}: EXTERNALIZE commit={} nH={}", peer,
+                formatBallot(e.commit), e.nH);
+        }
+        case SCP_ST_NOMINATE:
+        {
+            auto const& n = pl.nominate();
+            return fmt::format(
+                "ReceiveEnvelope from {}: NOMINATE votes={} accepted={}", peer,
+                n.votes.size(), n.accepted.size());
+        }
+        }
+        return fmt::format("ReceiveEnvelope from {}: <unknown statement>", peer);
+    }
+    case ScenarioEvent::Kind::TxSetArrives:
+        return fmt::format("TxSetArrives: {}", formatValue(ev.value));
+    case ScenarioEvent::Kind::FireBallotTimer:
+        return "FireBallotTimer";
+    case ScenarioEvent::Kind::AdvanceTimerOffset:
+        return "AdvanceTimerOffset";
+    }
+    return "<unknown event>";
+}
+
+// Multi-line dump of a scenario, prefixed with a count header and each event
+// numbered. Suitable for INFO / CLOG output.
+std::string
+scenarioToString(Scenario const& s, QuorumFixture const& fixture)
+{
+    std::string out = fmt::format("Scenario ({} events):\n", s.size());
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        out += fmt::format("  [{}] {}\n", i, formatScenarioEvent(s[i], fixture));
+    }
+    return out;
 }
 } // namespace
 
@@ -3940,5 +4665,257 @@ TEST_CASE("incoming PREPARE with non-tx-set-invalid value is dropped",
     REQUIRE(scp.mEnvs.empty());
 }
 #endif // CAP_0087
+
+// === Phase 2 hand-authored parallel-download scenarios ===
+
+// Verifies TestSCP's emulation of the production tx-set-download gate
+// (HerderSCPDriver::isEnvelopeReady -> ENVELOPE_STATUS_FETCHING):
+// CONFIRM/EXTERNALIZE envelopes that reference a value still awaiting download
+// (kStructurallyValidValue, i.e. in mDownloadWaitTimes) are buffered rather
+// than delivered to SCP, until the value transitions to fully validated via
+// clearDownload. At that point the buffered envelopes drain in original
+// arrival order and SCP processes them against a now-fully-valid value, so the
+// externalize path runs to completion.
+//
+// Contrast with the ungated path (plain receiveEnvelope), which the SCP-level
+// unit tests exercise: there a peer CONFIRM referencing a kStructurallyValidValue
+// value is rejected outright (EnvelopeState::INVALID) and never externalizes.
+// This test covers the production hold-and-replay behavior that the ungated
+// path does not.
+TEST_CASE("Herder-gate emulation: CONFIRM/EXTERNALIZE buffered while awaiting "
+          "tx-set download",
+          "[scp][ballotprotocol][parallel-download]")
+{
+    setupValues();
+    auto fixture = makeQuorumFixture(4, 3);
+
+    TestSCP scp(fixture.id(0), fixture.qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+    auto p1 = makePeerProfile(fixture, 1);
+    auto p2 = makePeerProfile(fixture, 2);
+
+    SCPBallot xB1(1, xValue);
+
+    // Mark xValue as awaiting download. v0 enters ballot with xValue.
+    scp.startDownload(xValue, UNDER_TX_SET_TIMEOUT);
+    REQUIRE(scp.bumpState(0, xValue));
+    auto envsAfterBump = scp.mEnvs.size();
+    REQUIRE(envsAfterBump >= 1);
+
+    // v1 and v2 send CONFIRMs referencing xValue (still awaiting download).
+    // The gate buffers both — they do not reach SCP yet, so v0 stays in
+    // SCP_PHASE_PREPARE and emits no new envelopes.
+    REQUIRE_NOTHROW(scp.receiveEnvelopeGated(
+        p1.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+    REQUIRE_NOTHROW(scp.receiveEnvelopeGated(
+        p2.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
+
+    // Direct check: gate buffered the two CONFIRMs under xValue's key.
+    REQUIRE(scp.mBufferedEnvelopes.count(xValue) == 1);
+    REQUIRE(scp.mBufferedEnvelopes.at(xValue).size() == 2);
+
+    // Indirect check: SCP saw no new envelopes from the buffered CONFIRMs.
+    REQUIRE(scp.mEnvs.size() == envsAfterBump);
+    REQUIRE(scp.mExternalizedValues.find(0) == scp.mExternalizedValues.end());
+
+    // Simulate tx set arrival. The gate drains its xValue queue and replays
+    // the buffered CONFIRMs into SCP, with xValue now kFullyValidatedValue.
+    // v0 federated-accepts commit (v-blocking via {v1,v2}), then federated-
+    // confirms commit (v0+v1+v2 = quorum threshold-3 in 4-node), then
+    // externalizes — all in the same drain pass.
+    scp.clearDownload(xValue);
+
+    // The gate's queue for xValue is gone after drain.
+    REQUIRE(scp.mBufferedEnvelopes.count(xValue) == 0);
+
+    // v0 externalizes xValue.
+    REQUIRE(scp.mExternalizedValues.find(0) != scp.mExternalizedValues.end());
+    REQUIRE(scp.mExternalizedValues[0] == xValue);
+}
+
+#ifdef CAP_0083
+// Smoke test: mix peer profiles by combining PeerProfile envelope methods
+// with harness-side configuration (mValidateValueOverride keyed on Value)
+// and the corruptEnvelope / toEmptyTxSet free helpers. The test passes if all
+// receiveEnvelopeGated calls return without throwing and no in-code assertion
+// fires; we make no strong claims about v0's terminal state because the
+// mix is intentionally chaotic and each peer references a distinct value.
+// (Guarded on CAP_0083 for toEmptyTxSet / empty-tx-set value creation.)
+TEST_CASE("Mixed peer profiles smoke test",
+          "[scp][ballotprotocol][parallel-download]")
+{
+    setupValues();
+    auto fixture = canonical4Node();
+
+    TestSCP scp(fixture.id(0), fixture.qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+    auto p1 = makePeerProfile(fixture, 1);
+    auto p2 = makePeerProfile(fixture, 2);
+    auto p3 = makePeerProfile(fixture, 3);
+
+    // Configure: yValue is invalid (sends-invalid recipe). xValue, zValue,
+    // and any empty-tx-set variant remain kFullyValidatedValue (the default).
+    Value capturedY = yValue;
+    scp.mValidateValueOverride =
+        [capturedY](uint64, Value const& v,
+                    bool) -> SCPDriver::ValidationLevel {
+        return v == capturedY ? SCPDriver::kInvalidValue
+                              : SCPDriver::kFullyValidatedValue;
+    };
+
+    SCPBallot xB1(1, xValue);
+    SCPBallot yB1(1, yValue);
+    SCPBallot zEmptyB1(1, toEmptyTxSet(scp, zValue));
+
+    // v0 enters ballot with xValue (cooperative recipe, locally validated).
+    REQUIRE(scp.bumpState(0, xValue));
+    REQUIRE(scp.mEnvs.size() == 1);
+
+    // Mix peer behaviors. Each call exercises a different recipe in the
+    // five-profile catalog:
+    //   p1 cooperative on xValue
+    //   p2 sends-invalid (yValue is configured kInvalidValue above)
+    //   p3 sends-empty-tx-set (envelope references toEmptyTxSet(zValue))
+    //   p1 again, sends-malformed via corruptEnvelope wrapper
+    REQUIRE_NOTHROW(scp.receiveEnvelopeGated(p1.prepare(0, xB1)));
+    REQUIRE_NOTHROW(scp.receiveEnvelopeGated(p2.prepare(0, yB1)));
+    REQUIRE_NOTHROW(scp.receiveEnvelopeGated(p3.prepare(0, zEmptyB1)));
+    REQUIRE_NOTHROW(
+        scp.receiveEnvelopeGated(corruptEnvelope(p1.prepare(0, xB1))));
+}
+#endif // CAP_0083
+
+// === Phase 3 generator-driven scenarios ===
+//
+// Each parameterized over canonical small quorum sizes (3, 4, 5 nodes) via
+// Catch2 GENERATE. The cooperative and cooperative-but-slow generators are
+// deterministic per fixture (one scenario each); the biased-random generator
+// runs 50 scenarios per fixture. The in-code assertions are the primary pass
+// condition for biased-random scenarios; cooperative and cooperative-but-slow
+// add a terminal-state check.
+
+TEST_CASE("Generator: cooperative scenarios", "[scp][parallel-download][gen]")
+{
+    setupValues();
+    auto fixtureSize = GENERATE(3, 4, 5);
+    auto fixture = makeQuorumFixture(fixtureSize, thresholdFor(fixtureSize));
+
+    TestSCP scp(fixture.id(0), fixture.qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+    REQUIRE(scp.bumpState(0, xValue));
+
+    auto scenario = generateCooperative(fixture);
+    runScenario(scp, scenario, fixture);
+
+    REQUIRE(scp.mExternalizedValues.find(0) != scp.mExternalizedValues.end());
+    REQUIRE(!scp.isEmptyTxSetValue(scp.mExternalizedValues[0]));
+    REQUIRE(scp.mExternalizedValues[0] == xValue);
+}
+
+#ifdef CAP_0083
+TEST_CASE("Generator: cooperative-but-slow scenarios",
+          "[scp][parallel-download][gen]")
+{
+    setupValues();
+    auto fixtureSize = GENERATE(3, 4, 5);
+    auto fixture = makeQuorumFixture(fixtureSize, thresholdFor(fixtureSize));
+
+    TestSCP scp(fixture.id(0), fixture.qSet);
+    scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+    // Wait time past the TX_SET_TIMEOUT — the first bumpState immediately
+    // replaces xValue with an empty-tx-set value via
+    // maybeReplaceValueWithEmptyTxSet.
+    scp.startDownload(xValue, OVER_TX_SET_TIMEOUT);
+    REQUIRE(scp.bumpState(0, xValue));
+
+    auto scenario = generateCooperativeButSlow(fixture, scp);
+    runScenario(scp, scenario, fixture);
+
+    REQUIRE(scp.mExternalizedValues.find(0) != scp.mExternalizedValues.end());
+    REQUIRE(scp.isEmptyTxSetValue(scp.mExternalizedValues[0]));
+}
+#endif // CAP_0083
+
+TEST_CASE("Generator: biased-random scenarios", "[scp][parallel-download][gen]")
+{
+    auto fixtureSize = GENERATE(3, 4, 5);
+    auto fixture = makeQuorumFixture(fixtureSize, thresholdFor(fixtureSize));
+
+    auto& rng = getGlobalRandomEngine();
+
+    constexpr int kNumScenarios = 50;
+    for (int i = 0; i < kNumScenarios; ++i)
+    {
+        // Fresh xValue / yValue / zValue per iteration so different scenarios
+        // exercise different value bytes (peer profiles in the perturbation
+        // operators are value-keyed).
+        setupValues();
+
+        TestSCP scp(fixture.id(0), fixture.qSet);
+        scp.storeQuorumSet(std::make_shared<SCPQuorumSet>(fixture.qSet));
+
+        // Override validateValue: yValue is invalid (for the replaceWithYValue
+        // perturbation operator); preserve the default awaiting-download
+        // (kStructurallyValidValue) / kFullyValidatedValue behavior otherwise.
+        scp.mValidateValueOverride =
+            [&scp](uint64, Value const& v,
+                   bool) -> SCPDriver::ValidationLevel {
+            if (v == yValue)
+            {
+                return SCPDriver::kInvalidValue;
+            }
+            if (scp.mDownloadWaitTimes.find(v) != scp.mDownloadWaitTimes.end())
+            {
+                return SCPDriver::kStructurallyValidValue;
+            }
+            return SCPDriver::kFullyValidatedValue;
+        };
+
+        scp.startDownload(xValue, UNDER_TX_SET_TIMEOUT);
+        REQUIRE(scp.bumpState(0, xValue));
+
+        auto scenario = generateBiasedRandom(fixture, rng);
+
+        // Debug logging: Catch2 INFO captures iteration + scenario context
+        // and prints it if a subsequent REQUIRE fails. CLOG_DEBUG is silent
+        // at the default log level; re-running with debug logging enabled
+        // surfaces the most-recently-logged scenario before any in-process
+        // releaseAssert aborts the binary.
+        INFO("Iteration " << i << " (fixture size " << fixtureSize << ")");
+        auto scenarioStr = scenarioToString(scenario, fixture);
+        INFO("Scenario:\n" << scenarioStr);
+        CLOG_DEBUG(SCP, "Iteration {} (fixture size {}) scenario:\n{}", i,
+                   fixtureSize, scenarioStr);
+
+        // Pass condition: no in-code assertion fires. On master, locally-
+        // invalid values (yValue) are rejected at ingress by processEnvelope,
+        // and CONFIRM/EXTERNALIZE referencing an awaiting-download value are
+        // gated, so the deliberate "confirm-commit on locally-invalid value"
+        // signal from throwIfValueInvalidForConfirmCommit
+        // (BallotProtocol.cpp ~1441) is not expected via the current
+        // perturbations. The catch remains as defense-in-depth documenting
+        // that contract: a matching runtime_error is the protocol's intended
+        // reaction, not a bug. Terminal state is intentionally unconstrained
+        // for biased-random; Phase 4 will add richer metric / progress
+        // invariants.
+        try
+        {
+            runScenario(scp, scenario, fixture);
+        }
+        catch (std::runtime_error const& e)
+        {
+            if (std::string(e.what()).find(
+                    "SCP confirm-commit on locally-invalid value") ==
+                std::string::npos)
+            {
+                throw;
+            }
+        }
+    }
+}
 
 }
