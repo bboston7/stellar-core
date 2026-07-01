@@ -1053,7 +1053,7 @@ shiftTxSetArrival(Scenario& s, Rng& rng)
     }
     ScenarioEvent ev = std::move(*it);
     s.erase(it);
-    size_t newIdx = std::uniform_int_distribution<size_t>(0, s.size())(rng);
+    size_t newIdx = stellar::uniform_int_distribution<size_t>(0, s.size())(rng);
     s.insert(s.begin() + newIdx, std::move(ev));
 }
 
@@ -1070,10 +1070,10 @@ duplicateEnvelope(Scenario& s, Rng& rng)
         return;
     }
     size_t pick =
-        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+        idx[stellar::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
     ScenarioEvent dup = s[pick];
     size_t insertAt =
-        std::uniform_int_distribution<size_t>(pick + 1, s.size())(rng);
+        stellar::uniform_int_distribution<size_t>(pick + 1, s.size())(rng);
     s.insert(s.begin() + insertAt, std::move(dup));
 }
 
@@ -1090,7 +1090,7 @@ replaceWithYValue(Scenario& s, Rng& rng)
         return;
     }
     size_t pick =
-        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+        idx[stellar::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
     auto& env = s[pick].env;
     auto& pl = env.statement.pledges;
     switch (pl.type())
@@ -1118,7 +1118,7 @@ corruptOneEnvelope(Scenario& s, Rng& rng)
         return;
     }
     size_t pick =
-        idx[std::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
+        idx[stellar::uniform_int_distribution<size_t>(0, idx.size() - 1)(rng)];
     s[pick].env = corruptEnvelope(std::move(s[pick].env));
 }
 
@@ -1140,13 +1140,13 @@ injectVBlockingConfirms(Scenario& s, QuorumFixture const& fixture, Rng& rng)
     {
         peerIdx.push_back(i);
     }
-    std::shuffle(peerIdx.begin(), peerIdx.end(), rng);
+    stellar::shuffle(peerIdx.begin(), peerIdx.end(), rng);
 
     SCPBallot xB1(1, xValue);
     auto p1 = makePeerProfile(fixture, peerIdx[0]);
     auto p2 = makePeerProfile(fixture, peerIdx[1]);
 
-    size_t insertAt = std::uniform_int_distribution<size_t>(0, s.size())(rng);
+    size_t insertAt = stellar::uniform_int_distribution<size_t>(0, s.size())(rng);
     s.insert(s.begin() + insertAt,
              ScenarioEvent::receive(
                  p2.confirm(0, xB1, /*nPrepared=*/1, /*nCommit=*/1, /*nH=*/1)));
@@ -1163,10 +1163,10 @@ template <typename Rng>
 void
 applyRandomPerturbations(Scenario& s, QuorumFixture const& fixture, Rng& rng)
 {
-    int n = std::uniform_int_distribution<int>(1, 3)(rng);
+    int n = stellar::uniform_int_distribution<int>(1, 3)(rng);
     for (int i = 0; i < n; ++i)
     {
-        int op = std::uniform_int_distribution<int>(0, 4)(rng);
+        int op = stellar::uniform_int_distribution<int>(0, 4)(rng);
         switch (op)
         {
         case 0:
