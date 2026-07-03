@@ -187,6 +187,13 @@ class TestSCP : public SCPDriver
         return mSCP.getSlot(slotIndex, true)->bumpState(v, true);
     }
 
+    // resume a commit that stalled at the commit gate waiting for a tx set
+    void
+    receivedTxSet(uint64 slotIndex, Value const& v)
+    {
+        mSCP.receivedTxSet(slotIndex, v);
+    }
+
     bool
     nominate(uint64 slotIndex, Value const& value, bool timedout)
     {
@@ -3485,7 +3492,7 @@ TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
     }
 }
 
-#ifdef CAP_0087
+#ifdef CAP_0083
 TEST_CASE("nomination times out structurally-valid value into empty tx set",
           "[scp][nomination]")
 {
@@ -3867,6 +3874,127 @@ TEST_CASE("setConfirmPrepared stalls on kStructurallyValidValue value",
         }
         REQUIRE(foundC);
     }
+
+    SECTION("resumes immediately on receivedTxSet — no bump, no new envelopes")
+    {
+        auto const envsBeforeClear = scp.mEnvs.size();
+
+        // Simulate tx set arrival: the stalled value becomes fully validated.
+        scp.clearDownload(xValue);
+
+        // Resume the deferred commit directly — no ballot bump, no new
+        // envelopes, no timer.
+        scp.receivedTxSet(0, xValue);
+
+        // The commit now completes at the SAME counter it stalled on (1) — not
+        // a bumped counter — proving the resume, not a re-drive.
+        REQUIRE(scp.mEnvs.size() > envsBeforeClear);
+        auto const& lastPrep = scp.mEnvs.back().statement.pledges.prepare();
+        REQUIRE(lastPrep.nC == 1);
+        REQUIRE(lastPrep.nH == 1);
+
+        // The successful commit disarmed the stash: a repeat delivery no-ops.
+        auto const envsAfterResume = scp.mEnvs.size();
+        scp.receivedTxSet(0, xValue);
+        REQUIRE(scp.mEnvs.size() == envsAfterResume);
+    }
+
+    SECTION("receivedTxSet no-ops for a value the slot is not stalled on")
+    {
+        auto const envsBefore = scp.mEnvs.size();
+
+        scp.clearDownload(xValue);
+        // yValue is not what balloting stalled on, so the stash does not match.
+        scp.receivedTxSet(0, yValue);
+
+        REQUIRE(scp.mEnvs.size() == envsBefore);
+    }
+
+    SECTION("receivedTxSet with the tx set still absent stays stalled")
+    {
+        auto const envsBefore = scp.mEnvs.size();
+
+        // No clearDownload: xValue is still only kStructurallyValidValue, so
+        // re-running the commit step must re-stall rather than commit.
+        scp.receivedTxSet(0, xValue);
+
+        REQUIRE(scp.mEnvs.size() == envsBefore);
+
+        // A failed resume consumes the stash for good — the re-stall does not
+        // re-arm it — so even a genuine arrival afterwards must NOT resume;
+        // recovery belongs to the ballot timer. This pins the disarm
+        // semantics: the stash is never re-armed in a partially-constructed
+        // state.
+        scp.clearDownload(xValue);
+        scp.receivedTxSet(0, xValue);
+        REQUIRE(scp.mEnvs.size() == envsBefore);
+    }
+
+    SECTION("receivedTxSet declines after a local ballot bump (state changed)")
+    {
+        // The race the guard exists for: the ballot timer fires (bumping the
+        // ballot) just before the tx set arrives, so the stash is stale.
+        REQUIRE(scp.bumpState(0, xValue));
+        auto const envsAfterBump = scp.mEnvs.size();
+        {
+            auto const& prep = scp.mEnvs.back().statement.pledges.prepare();
+            REQUIRE(prep.ballot.counter == 2);
+            REQUIRE(prep.nC == 0);
+            REQUIRE(prep.nH == 1);
+        }
+
+        scp.clearDownload(xValue);
+        scp.receivedTxSet(0, xValue);
+
+        // The self statement changed since the stall (b bumped 1 -> 2), so
+        // the resume declines: no emission, no commit.
+        REQUIRE(scp.mEnvs.size() == envsAfterBump);
+
+        // The normal path still completes once the network confirms prepared
+        // at the bumped counter (tx set present -> no re-stall).
+        SCPBallot xB2(2, xValue);
+        REQUIRE(scp.receiveEnvelope(
+                    makePrepare(v1SecretKey, qSetHash, 0, xB2, &xB2)) ==
+                SCP::EnvelopeState::VALID);
+        REQUIRE(scp.receiveEnvelope(
+                    makePrepare(v2SecretKey, qSetHash, 0, xB2, &xB2)) ==
+                SCP::EnvelopeState::VALID);
+        auto const& lastPrep = scp.mEnvs.back().statement.pledges.prepare();
+        REQUIRE(lastPrep.nC == 2);
+        REQUIRE(lastPrep.nH == 2);
+    }
+
+    SECTION("receivedTxSet declines after accepting a higher incompatible "
+            "prepared")
+    {
+        // {v1, v2} is a quorum voting prepare (2, y): the node accepts it as
+        // prepared (p = (2,y), p' = (1,x)). {v1, v2} is also v-blocking
+        // strictly ahead, so the node bumps its ballot to counter 2. No
+        // quorum has *accepted* (2, y), so confirm-prepared cannot fire and
+        // the stash is not re-armed. phase / mCommit / mHighBallot are all
+        // unchanged -- a guard checking only those fields would resume and
+        // vote to commit (1, x) with a higher incompatible ballot prepared.
+        SCPBallot yB2(2, yValue);
+        REQUIRE(scp.receiveEnvelope(
+                    makePrepare(v1SecretKey, qSetHash, 0, yB2)) ==
+                SCP::EnvelopeState::VALID);
+        REQUIRE(scp.receiveEnvelope(
+                    makePrepare(v2SecretKey, qSetHash, 0, yB2)) ==
+                SCP::EnvelopeState::VALID);
+
+        auto const envsAfterPrepared = scp.mEnvs.size();
+        auto const& prep = scp.mEnvs.back().statement.pledges.prepare();
+        REQUIRE(prep.prepared);
+        REQUIRE(*prep.prepared == yB2);
+        REQUIRE(prep.nC == 0);
+        REQUIRE(prep.nH == 1);
+
+        scp.clearDownload(xValue);
+        scp.receivedTxSet(0, xValue);
+
+        // Statement changed since the stall -> resume declines, no emission.
+        REQUIRE(scp.mEnvs.size() == envsAfterPrepared);
+    }
 }
 
 TEST_CASE("incoming PREPARE with structurally valid prepared value is accepted",
@@ -3939,6 +4067,6 @@ TEST_CASE("incoming PREPARE with non-tx-set-invalid value is dropped",
     // No local emit triggered.
     REQUIRE(scp.mEnvs.empty());
 }
-#endif // CAP_0087
+#endif // CAP_0083
 
 }

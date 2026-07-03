@@ -86,8 +86,6 @@ HerderSCPDriver::SCPMetrics::SCPMetrics(Application& app)
           {"scp", "timing", "self-to-others-externalize-lag"}))
     , mBallotBlockedOnTxSet(app.getMetrics().NewTimer(
           {"scp", "timing", "ballot-blocked-on-txset"}))
-    , mTxSetToUnblockLag(app.getMetrics().NewTimer(
-          {"scp", "timing", "txset-to-unblock-lag"}))
     , mEmptyTxSetExternalized(
           app.getMetrics().NewCounter({"scp", "empty-tx-set", "externalized"}))
     , mEmptyTxSetValueReplaced(app.getMetrics().NewCounter(
@@ -1354,6 +1352,14 @@ HerderSCPDriver::recordBallotBlockedOnTxSet(uint64_t slotIndex,
         timing.mBallotBlockedOnTxSetStart.end())
     {
         timing.mBallotBlockedOnTxSetStart[value] = mApp.getClock().now();
+
+        if (StellarValue sv;
+            isParallelTxSetDownloadEnabled() && toStellarValue(value, sv))
+        {
+            // Index the stalled value by tx set hash so an arriving tx set can
+            // resume this slot's deferred commit immediately.
+            mStallingByTxSet[sv.txSetHash].emplace_back(slotIndex, value);
+        }
     }
 }
 
@@ -1369,31 +1375,31 @@ HerderSCPDriver::measureAndRecordBallotBlockedOnTxSet(uint64_t slotIndex,
         if (valueIt != timing.mBallotBlockedOnTxSetStart.end())
         {
             auto const now = mApp.getClock().now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - valueIt->second);
+            auto elapsed =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - valueIt->second);
             mSCPMetrics.mBallotBlockedOnTxSet.Update(elapsed);
 
-            // Carve out the re-drive portion: time from the txset arriving
-            // locally to this unblock. The remainder of the block above is the
-            // unavoidable wait for the txset to arrive.
-            try
+            if (StellarValue sv; toStellarValue(value, sv))
             {
-                StellarValue sv;
-                xdr::xdr_from_opaque(value, sv);
-                auto arrival =
-                    mPendingEnvelopes.getTxSetArrivalTime(sv.txSetHash);
-                if (arrival)
+                // This value is no longer stalled; drop its resume-tracking
+                // entry. Absence-tolerant: maybeResumeBalloting() may have
+                // already drained this hash before driving the commit.
+                auto sIt = mStallingByTxSet.find(sv.txSetHash);
+                if (sIt != mStallingByTxSet.end())
                 {
-                    mSCPMetrics.mTxSetToUnblockLag.Update(std::max(
-                        std::chrono::nanoseconds::zero(),
-                        std::chrono::duration_cast<std::chrono::nanoseconds>(
-                            now - *arrival)));
+                    auto& vec = sIt->second;
+                    vec.erase(std::remove_if(vec.begin(), vec.end(),
+                                             [&](auto const& p) {
+                                                 return p.first == slotIndex &&
+                                                        p.second == value;
+                                             }),
+                              vec.end());
+                    if (vec.empty())
+                    {
+                        mStallingByTxSet.erase(sIt);
+                    }
                 }
-            }
-            catch (...)
-            {
-                // value failed to deserialize (should not happen for a value
-                // that reached the commit gate); skip the lag sample.
             }
             return;
         }
@@ -1807,6 +1813,26 @@ HerderSCPDriver::purgeSlotsOutsideRange(std::optional<uint64_t> minSlotIndex,
     // Clean up expired weak_ptrs from the pending tx set registries.
     purgeExpiredWeakPtrs(mPendingTxSetWrappers);
     purgeExpiredWeakPtrs(mPendingTxSetEnvelopeWrappers);
+
+    // Drop stalled-ballot resume entries whose slots fall outside the retained
+    // range. Their SCP slots are purged above, so the resume could never fire
+    // for them, and nothing else cleans the map when a stalled value's tx set
+    // never arrives (e.g. the slot externalized a different value and the
+    // fetch was abandoned).
+    for (auto it = mStallingByTxSet.begin(); it != mStallingByTxSet.end();)
+    {
+        auto& stalling = it->second;
+        stalling.erase(
+            std::remove_if(stalling.begin(), stalling.end(),
+                           [&](auto const& slotAndValue) {
+                               auto const slot = slotAndValue.first;
+                               return slot != slotToKeep &&
+                                      ((minSlotIndex && slot < *minSlotIndex) ||
+                                       (maxSlotIndex && slot > *maxSlotIndex));
+                           }),
+            stalling.end());
+        it = stalling.empty() ? mStallingByTxSet.erase(it) : std::next(it);
+    }
 }
 
 void
@@ -1839,6 +1865,39 @@ HerderSCPDriver::onTxSetReceived(Hash const& txSetHash,
             }
         }
         mPendingTxSetEnvelopeWrappers.erase(envIt);
+    }
+
+    // Resume any slot that stalled at the commit gate waiting for this tx set,
+    // rather than waiting for its ballot timer. Runs after the wrappers above
+    // are updated; safe to call synchronously here because the tx-set arrival
+    // path never has the SCP ballot FSM on the stack (see resume-balloting
+    // design notes).
+    maybeResumeBalloting(txSetHash);
+}
+
+void
+HerderSCPDriver::maybeResumeBalloting(Hash const& txSetHash)
+{
+    if (!isParallelTxSetDownloadEnabled())
+    {
+        return;
+    }
+
+    auto it = mStallingByTxSet.find(txSetHash);
+    if (it == mStallingByTxSet.end())
+    {
+        return;
+    }
+
+    // Move the entries out and drop the map slot up front: completing a commit
+    // below calls measureAndRecordBallotBlockedOnTxSet(), which prunes
+    // mStallingByTxSet, so we must not iterate it live.
+    auto const stalling = std::move(it->second);
+    mStallingByTxSet.erase(it);
+
+    for (auto const& slotAndValue : stalling)
+    {
+        mSCP.receivedTxSet(slotAndValue.first, slotAndValue.second);
     }
 }
 

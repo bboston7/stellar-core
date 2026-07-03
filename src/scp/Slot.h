@@ -117,6 +117,11 @@ class Slot : public std::enable_shared_from_this<Slot>
 
     bool abandonBallot();
 
+    // Complete a commit that stalled at the commit gate waiting for the tx set
+    // referenced by @p value, now that the tx set has arrived. No-op unless the
+    // ballot protocol is in exactly that stalled state.
+    void receivedTxSet(Value const& value);
+
     // bumps the ballot based on the local state and the value passed in:
     // in prepare phase, attempts to take value
     // otherwise, no-ops

@@ -9,6 +9,7 @@
 #include "util/GlobalChecks.h"
 #include <functional>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -95,6 +96,33 @@ class BallotProtocol
     SCPEnvelopeWrapperPtr
         mLastEnvelopeEmit; // last envelope emitted by this node
 
+    // When balloting stalls at the commit gate because the tx set is still
+    // downloading (parallel tx set download), the deferred (c, h) ballots and
+    // the self statement the node emitted at the stall are stashed here so
+    // receivedTxSet() can complete the commit the moment the tx set arrives,
+    // instead of waiting for the ballot timer.
+    //
+    // Lifecycle (all managed at the end of setConfirmPrepared): armed --
+    // constructed whole, with the statement that call emitted -- iff the call
+    // stalled and did work; cleared iff the call did work without stalling
+    // (e.g. recorded a commit); untouched iff the call did no work, so no-op
+    // calls don't destroy a still-valid stash. The only no-work stall is
+    // receivedTxSet()'s own re-evaluation, which consumes the stash before
+    // calling, so a failed resume leaves resume disarmed (the ballot timer
+    // then recovers, replacing the value with an empty-tx-set one).
+    //
+    // receivedTxSet() only resumes if the node's own latest statement still
+    // equals mStallStatement -- i.e. it has done no balloting work since the
+    // stall -- so a stale stash can only cause a no-op, never an incorrect
+    // commit.
+    struct StalledCommit
+    {
+        SCPBallot mCommitBallot;      // c (deferred; not in the emitted stmt)
+        SCPBallot mHighBallot;        // h
+        SCPStatement mStallStatement; // self statement emitted at the stall
+    };
+    std::optional<StalledCommit> mStalledCommit;
+
   public:
     BallotProtocol(Slot& slot);
 
@@ -118,6 +146,13 @@ class BallotProtocol
     bool bumpState(Value const& value, bool force);
     // flavor that takes the actual desired counter value
     bool bumpState(Value const& value, uint32 n);
+
+    // Called when the tx set referenced by @p value arrives. If balloting
+    // stalled at the commit gate waiting for exactly this value (parallel tx
+    // set download), completes the deferred commit immediately rather than
+    // waiting for the ballot timer. No-op unless the slot is still in exactly
+    // that stalled state.
+    void receivedTxSet(Value const& value);
 
     // ** status methods
 
@@ -166,8 +201,8 @@ class BallotProtocol
     static std::set<Value> getStatementValues(SCPStatement const& st);
 
     // returns true if st is newer than oldst
-    static bool isNewerStatement(SCPStatement const& oldst,
-                                 SCPStatement const& st);
+    bool isNewerStatement(SCPStatement const& oldst,
+                          SCPStatement const& st) const;
 
   private:
     // attempts to make progress using the latest statement as a hint
@@ -307,7 +342,11 @@ class BallotProtocol
 
     // emits a statement reflecting the nodes' current state
     // and attempts to make progress
-    void emitCurrentStateStatement();
+    // Emits a statement reflecting the node's current state and attempts to
+    // make progress. Returns the statement it generated (built from current
+    // state, *before* the self-processing recursion that may advance the ballot
+    // further), so callers can capture exactly what this call produced.
+    SCPStatement emitCurrentStateStatement();
 
     // verifies that the internal state is consistent
     void checkInvariants();

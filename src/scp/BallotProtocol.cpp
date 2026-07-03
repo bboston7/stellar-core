@@ -54,7 +54,7 @@ BallotProtocol::isNewerStatement(NodeID const& nodeID, SCPStatement const& st)
 
 bool
 BallotProtocol::isNewerStatement(SCPStatement const& oldst,
-                                 SCPStatement const& st)
+                                 SCPStatement const& st) const
 {
     bool res = false;
 
@@ -124,7 +124,33 @@ BallotProtocol::isNewerStatement(SCPStatement const& oldst,
                     }
                     else if (compBallot == 0)
                     {
-                        res = (oldPrep.nH < prep.nH);
+                        if (mSlot.getSCPDriver()
+                                .protocolAllowsEmptyTxSetValues() &&
+                            oldPrep.nH == prep.nH)
+                        {
+                            // PROTOTYPE (resume-balloting): tiebreak on nC.
+                            //
+                            // The SCP paper's PREPARE total order is
+                            // (b, p, p', h) and deliberately excludes c: in the
+                            // unmodified protocol a node sets h and c together,
+                            // so c never changes while (b, p, p', h) stay
+                            // fixed. Resuming balloting on tx set arrival
+                            // breaks that: the commit gate emits h with
+                            // c.n == 0 while the tx set downloads, then on
+                            // arrival re-emits the SAME ballot with c.n > 0.
+                            // Without this tiebreak the resume statement is not
+                            // "newer", so processEnvelope drops it as stale and
+                            // emitCurrentStateStatement throws.
+                            //
+                            // This widens the total order and is NOT known to
+                            // be safe — see resume-balloting.md. Revisit before
+                            // any productionization.
+                            res = (oldPrep.nC < prep.nC);
+                        }
+                        else
+                        {
+                            res = (oldPrep.nH < prep.nH);
+                        }
                     }
                 }
             }
@@ -675,7 +701,7 @@ BallotProtocol::createStatement(SCPStatementType const& type)
     return statement;
 }
 
-void
+SCPStatement
 BallotProtocol::emitCurrentStateStatement()
 {
     ZoneScoped;
@@ -729,6 +755,15 @@ BallotProtocol::emitCurrentStateStatement()
             throw std::runtime_error("moved to a bad state (ballot protocol)");
         }
     }
+
+    // The statement this call generated, in the form that was recorded:
+    // envelope.statement has nodeID/slotIndex filled in by createEnvelope
+    // (which the raw createStatement() result above does not), so it matches
+    // what processEnvelope stored in mLatestEnvelopes[self]. Taken before the
+    // processEnvelope(self) recursion, which may have advanced the ballot and
+    // recorded a newer statement -- callers capturing "what this call
+    // generated" must use this, not mLatestEnvelopes[self].
+    return envelope.statement;
 }
 
 void
@@ -1144,6 +1179,7 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                mSlot.getSlotIndex(), mSlot.getSCP().ballotToStr(newH));
 
     bool didWork = false;
+    bool stalledThisCall = false;
 
     // remember newH's value
     mValueOverride = mSlot.getSCPDriver().wrapValue(newH.value);
@@ -1178,6 +1214,12 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
                 // becomes blocked on this txset
                 mSlot.getSCPDriver().recordBallotBlockedOnTxSet(
                     mSlot.getSlotIndex(), newC.value);
+
+                // The deferred (c, h) is stashed at the end of this function
+                // (once the emit has produced this call's self statement) so
+                // receivedTxSet() can complete the commit the moment the tx
+                // set arrives, instead of waiting for the ballot timer.
+                stalledThisCall = true;
 
                 CLOG_TRACE(
                     SCP,
@@ -1217,10 +1259,83 @@ BallotProtocol::setConfirmPrepared(SCPBallot const& newC, SCPBallot const& newH)
 
     if (didWork)
     {
-        emitCurrentStateStatement();
+        auto const emitted = emitCurrentStateStatement();
+
+        if (stalledThisCall)
+        {
+            // Stalled at the commit gate: stash the deferred (c, h) together
+            // with the exact statement this call generated (PREPARE with h
+            // set, nC == 0) so receivedTxSet() can complete the commit on
+            // arrival. Use the emit's return value, NOT mLatestEnvelopes
+            // [self]: emitCurrentStateStatement's processEnvelope(self)
+            // recursion can advance the ballot and leave a *newer* statement
+            // recorded. receivedTxSet() resumes only if the node's current
+            // statement still equals this, so if that recursion (or anything
+            // later) advanced state, resume correctly declines.
+            mStalledCommit = StalledCommit{newC, newH, emitted};
+        }
+        else
+        {
+            // This call advanced state (recorded a commit, raised h, or
+            // bumped b) without deferring one -- any previously deferred
+            // commit is superseded, and its stall statement is stale against
+            // the statement just emitted anyway.
+            mStalledCommit.reset();
+        }
     }
+    // !didWork: leave mStalledCommit untouched. Nothing was emitted, so the
+    // self statement is unchanged and a previously armed stash is exactly as
+    // valid as before this call. The only path through the stall branch with
+    // !didWork is receivedTxSet()'s re-evaluation with the stashed (c, h) --
+    // e.g. the tx set arrived but fails validation -- and receivedTxSet()
+    // consumed the stash before calling, so such a re-stall leaves resume
+    // disarmed and recovery to the ballot timer (which replaces the value
+    // with an empty-tx-set one, see maybeReplaceValueWithEmptyTxSet).
 
     return didWork;
+}
+
+void
+BallotProtocol::receivedTxSet(Value const& value)
+{
+    ZoneScoped;
+    // Only act if this slot stalled at the commit gate waiting for exactly
+    // this value's tx set.
+    if (!mStalledCommit || !(mStalledCommit->mCommitBallot.value == value))
+    {
+        return;
+    }
+
+    // Consume the stash. If we don't complete the commit below, the normal
+    // path (a later SCP message or the ballot timer) drives it as before.
+    auto const stalled = *mStalledCommit;
+    mStalledCommit.reset();
+
+    // Resume only if the node has done no balloting work since the stall: its
+    // own latest statement must be byte-identical to the one it emitted when it
+    // stalled. This single check subsumes phase / mCommit / mHighBallot /
+    // mPrepared / mPreparedPrime / mCurrentBallot -- all are encoded in the
+    // statement -- so re-invoking setConfirmPrepared below reproduces exactly
+    // the deferred step. Any divergence means SCP state moved on; let the
+    // normal path (a later SCP message or the ballot timer) handle it. A stale
+    // stash can therefore only ever cause a no-op here, never an incorrect
+    // commit.
+    auto const* selfEnv = getLatestMessage(mSlot.getSCP().getLocalNodeID());
+    if (selfEnv == nullptr || !(selfEnv->statement == stalled.mStallStatement))
+    {
+        return;
+    }
+
+    // Re-run the commit step setConfirmPrepared deferred. The tx set is now
+    // available, so validateValue returns kFullyValidatedValue and this sets
+    // mCommit; emitCurrentStateStatement() then self-processes and continues
+    // the FSM (accept/confirm commit) exactly as the normal path would. If the
+    // tx set somehow still doesn't validate (e.g. it arrived but fails
+    // checkValid), setConfirmPrepared re-stalls without re-arming the stash
+    // (consumed above), leaving resume disarmed for this slot: there is no
+    // future arrival to resume on, and the ballot timer recovers by bumping
+    // and replacing the value with an empty-tx-set one.
+    setConfirmPrepared(stalled.mCommitBallot, stalled.mHighBallot);
 }
 
 void

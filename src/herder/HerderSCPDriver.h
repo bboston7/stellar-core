@@ -207,6 +207,11 @@ class HerderSCPDriver : public SCPDriver
     // downloading).
     void onTxSetReceived(Hash const& txSetHash, TxSetXDRFrameConstPtr txSet);
 
+    // Resume any slot that stalled at the ballot commit gate waiting for the
+    // tx set identified by @p txSetHash, completing its deferred commit.
+    // No-op unless parallel tx set downloading is enabled.
+    void maybeResumeBalloting(Hash const& txSetHash);
+
     double getExternalizeLag(NodeID const& id) const;
 
     Json::Value getQsetLagInfo(bool summary, bool fullKeys);
@@ -309,12 +314,6 @@ class HerderSCPDriver : public SCPDriver
         // download
         medida::Timer& mBallotBlockedOnTxSet;
 
-        // Sub-interval of mBallotBlockedOnTxSet: time from the txset arriving
-        // locally to balloting actually committing the value that was blocked
-        // on it. This is the re-drive dead time (the rest of the block is the
-        // unavoidable wait for the txset to arrive).
-        medida::Timer& mTxSetToUnblockLag;
-
         // Tracks how many ledgers we externalized an empty-tx-set value.
         medida::Counter& mEmptyTxSetExternalized;
 
@@ -364,6 +363,16 @@ class HerderSCPDriver : public SCPDriver
     // * nomination to first prepare
     // * first prepare to externalize
     std::map<uint64_t, SCPTiming> mSCPExecutionTimes;
+
+    // Values stalled at the ballot commit gate waiting for a tx set, indexed by
+    // tx set hash, so an arriving tx set can resume the deferred commit (gated
+    // on parallel tx set downloading being enabled). Populated when a slot
+    // blocks, pruned when it unblocks, and swept by purgeSlotsOutsideRange()
+    // alongside the SCP slots — entries whose tx set never arrives (e.g. the
+    // slot externalized a different value) would otherwise accumulate forever.
+    // A stale entry is harmless — SCP re-checks its state before acting on it.
+    UnorderedMap<Hash, std::vector<std::pair<uint64_t, Value>>>
+        mStallingByTxSet;
 
     uint32_t mLedgerSeqNominating;
     ValueWrapperPtr mCurrentValue;
