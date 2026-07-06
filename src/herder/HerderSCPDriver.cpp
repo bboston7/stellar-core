@@ -491,8 +491,7 @@ HerderSCPDriver::validateValueAgainstLocalState(uint64_t slotIndex,
 
         if (!txSet)
         {
-            if (isParallelTxSetDownloadEnabled() &&
-                mPendingEnvelopes.getTxSetWaitingTime(txSetHash).has_value())
+            if (isParallelTxSetDownloadEnabled())
             {
                 res = SCPDriver::kStructurallyValidValue;
             }
